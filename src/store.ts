@@ -160,6 +160,14 @@ const useStore = defineStore('store', {
         marker.bindPopup(node.transmitter.name);
       }
     },
+    toggleSiteVisibility(index: number) {
+      const site = this.localSites[index];
+      if (!site) {
+        return;
+      }
+      site.visible = site.visible === false;
+      this.redrawSites();
+    },
     removeSite(index: number) {
       if (!this.map) {
         return
@@ -184,8 +192,11 @@ const useStore = defineStore('store', {
         }
       });
 
-      // Add GeoRasterLayers back to the map
+      // Add GeoRasterLayers back to the map (skip results hidden via the eye toggle)
       this.localSites.forEach((site: Site) => {
+        if (site.visible === false) {
+          return;
+        }
         const rasterLayer = new GeoRasterLayer({
           georaster: {...site}.raster,
           opacity: 0.7,
@@ -385,7 +396,8 @@ const useStore = defineStore('store', {
               this.localSites.push({
                 params,
                 taskId,
-                raster: geoRaster
+                raster: geoRaster,
+                visible: true
               });
               this.redrawSites();
             }

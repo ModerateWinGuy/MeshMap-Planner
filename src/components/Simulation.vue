@@ -19,7 +19,7 @@
                 <div class="invalid-feedback">Radius must be a positive number (default: 30 km).</div>
             </div>
         </div>
-        <!-- <div class="row mt-3">
+        <div class="row mt-3">
             <div class="col-12">
                 <label for="high_resolution" class="form-label">High-Resolution</label>
                 <div class="form-check">
@@ -27,7 +27,7 @@
                     <label class="form-check-label" for="high_resolution">Use 30 meter resolution terrain data (default: 90 meter).</label>
                 </div>
             </div>
-        </div> -->
+        </div>
     </form>
 </template>
 

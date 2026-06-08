@@ -22,21 +22,27 @@
         <div class="row g-2 mt-2">
             <div class="col-6">
                 <label for="tx_power" class="form-label">Power (W)</label>
-                <input v-model="transmitter.tx_power" type="number" class="form-control form-control-sm" id="tx_power" required min="0" step="0.1" data-bs-toggle="tooltip" title="Transmitter power in watts (>0)." />
+                <input v-model.number="transmitter.tx_power" type="number" class="form-control form-control-sm" id="tx_power" required min="0" step="0.1" data-bs-toggle="tooltip" title="Transmitter power in watts (>0)." />
                 <div class="invalid-feedback">Power must be a positive number.</div>
             </div>
+            <div class="col-6">
+                <label for="tx_power_dbm" class="form-label">Power (dBm)</label>
+                <input v-model="txPowerDbm" type="number" class="form-control form-control-sm" id="tx_power_dbm" step="0.1" data-bs-toggle="tooltip" title="Transmitter power in dBm. Converts to/from watts automatically (30 dBm = 1 W)." />
+            </div>
+        </div>
+        <div class="row g-2 mt-2">
             <div class="col-6">
                 <label for="frequency" class="form-label">Frequency (MHz)</label>
                 <input v-model="transmitter.tx_freq" type="number" class="form-control form-control-sm" id="tx_freq" required min="20" max="20000" step="0.1" data-bs-toggle="tooltip" title="Transmitter frequency in MHz (20 to 20,000)." />
                 <div class="invalid-feedback">Frequency must be a positive number.</div>
             </div>
-        </div>
-        <div class="row g-2 mt-2">
             <div class="col-6">
                 <label for="tx_height" class="form-label">Height AGL (m)</label>
                 <input v-model="transmitter.tx_height" type="number" class="form-control form-control-sm" id="tx_height" required min="1.0" step="0.1" data-bs-toggle="tooltip" title="Transmitter height above ground in meters (>= 1.0)." />
                 <div class="invalid-feedback">Height must be a positive number.</div>
             </div>
+        </div>
+        <div class="row g-2 mt-2">
             <div class="col-6">
                 <label for="tx_gain" class="form-label">Antenna Gain (dB)</label>
                 <input v-model="transmitter.tx_gain" type="number" class="form-control form-control-sm" id="tx_gain" required min="0" step="0.1" />
@@ -59,6 +65,28 @@
     import { computed, onMounted } from 'vue';
     const store = useStore();
     const transmitter = computed(() => store.selectedNode?.transmitter);
+
+    // Power can be entered in watts or dBm; the two stay in sync (30 dBm = 1 W).
+    const txPowerDbm = computed<number | string>({
+        get() {
+            const tx = transmitter.value;
+            if (!tx || typeof tx.tx_power !== 'number' || isNaN(tx.tx_power) || tx.tx_power <= 0) {
+                return '';
+            }
+            return Math.round((10 * Math.log10(tx.tx_power) + 30) * 100) / 100;
+        },
+        set(value) {
+            const tx = transmitter.value;
+            if (!tx) {
+                return;
+            }
+            const dbm = typeof value === 'number' ? value : parseFloat(value);
+            if (isNaN(dbm)) {
+                return;
+            }
+            tx.tx_power = Math.round(Math.pow(10, (dbm - 30) / 10) * 1000) / 1000;
+        },
+    });
 
     const centerMapOnTransmitter = () => {
         const tx = transmitter.value;

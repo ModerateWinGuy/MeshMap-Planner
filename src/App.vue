@@ -75,8 +75,13 @@
             </div>
             <ul class="list-group mt-3">
               <li class="list-group-item d-flex justify-content-between align-items-center" v-for="(site, index) in store.$state.localSites" :key="site.taskId">
-                <span>{{ site.params.transmitter.name }}</span>
-                <button type="button" @click="store.removeSite(index)" class="btn-close" aria-label="Close"></button>
+                <span :class="{ 'text-muted': site.visible === false }">{{ site.params.transmitter.name }}</span>
+                <div class="d-flex align-items-center gap-2">
+                  <button type="button" @click="store.toggleSiteVisibility(index)" class="btn btn-sm p-0 border-0 bg-transparent lh-1" :aria-label="site.visible === false ? 'Show result' : 'Hide result'" :title="site.visible === false ? 'Show result' : 'Hide result'">
+                    {{ site.visible === false ? '🚫' : '👁' }}
+                  </button>
+                  <button type="button" @click="store.removeSite(index)" class="btn-close" aria-label="Close"></button>
+                </div>
               </li>
             </ul>
           </div>

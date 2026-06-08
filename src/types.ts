@@ -2,6 +2,7 @@ export interface Site {
     params: SplatParams;
     taskId: string;
     raster: any;
+    visible: boolean;
 }
 export interface Node {
     id: string;

@@ -139,9 +139,6 @@ class Splat:
             try:
                 logger.debug(f"Temporary directory created: {tmpdir}")
 
-                # FIXME: Eventually support high-resolution terrain data
-                request.high_resolution = False
-
                 # Set hard limit of 100 km radius
                 if request.radius > 100000:
                     logger.debug(f"User tried to set radius of {request.radius} meters, setting to 100 km.")
