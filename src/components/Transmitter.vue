@@ -27,7 +27,7 @@
             </div>
             <div class="col-6">
                 <label for="tx_power_dbm" class="form-label">Power (dBm)</label>
-                <input v-model="txPowerDbm" type="number" class="form-control form-control-sm" id="tx_power_dbm" step="0.1" data-bs-toggle="tooltip" title="Transmitter power in dBm. Converts to/from watts automatically (30 dBm = 1 W)." />
+                <input v-model="txPowerDbm" @input="onDbmInput" @focus="dbmFocused = true" @blur="onDbmBlur" type="number" class="form-control form-control-sm" id="tx_power_dbm" step="0.1" data-bs-toggle="tooltip" title="Transmitter power in dBm. Converts to/from watts automatically (30 dBm = 1 W)." />
             </div>
         </div>
         <div class="row g-2 mt-2">
@@ -62,31 +62,51 @@
 <script setup lang="ts">
     import * as bootstrap from 'bootstrap';
     import { useStore } from '../store.ts'
-    import { computed, onMounted } from 'vue';
+    import { computed, onMounted, ref, watch } from 'vue';
     const store = useStore();
     const transmitter = computed(() => store.selectedNode?.transmitter);
 
     // Power can be entered in watts or dBm; the two stay in sync (30 dBm = 1 W).
-    const txPowerDbm = computed<number | string>({
-        get() {
-            const tx = transmitter.value;
-            if (!tx || typeof tx.tx_power !== 'number' || isNaN(tx.tx_power) || tx.tx_power <= 0) {
-                return '';
-            }
-            return Math.round((10 * Math.log10(tx.tx_power) + 30) * 100) / 100;
-        },
-        set(value) {
-            const tx = transmitter.value;
-            if (!tx) {
+    // The dBm field holds its own text while focused so that round-trip rounding
+    // (dBm -> watts -> dBm) doesn't rewrite what the user is typing mid-keystroke.
+    const txPowerDbm = ref<string>('');
+    const dbmFocused = ref(false);
+
+    const wattsToDbm = (watts: number) => Math.round((10 * Math.log10(watts) + 30) * 100) / 100;
+
+    // Reflect watts -> dBm, but never while the user is actively editing the dBm field.
+    watch(
+        () => transmitter.value?.tx_power,
+        (power) => {
+            if (dbmFocused.value) {
                 return;
             }
-            const dbm = typeof value === 'number' ? value : parseFloat(value);
-            if (isNaN(dbm)) {
-                return;
-            }
-            tx.tx_power = Math.round(Math.pow(10, (dbm - 30) / 10) * 1000) / 1000;
+            txPowerDbm.value =
+                typeof power === 'number' && !isNaN(power) && power > 0 ? String(wattsToDbm(power)) : '';
         },
-    });
+        { immediate: true },
+    );
+
+    // Reflect dBm -> watts on every keystroke without touching the dBm text itself.
+    const onDbmInput = () => {
+        const tx = transmitter.value;
+        if (!tx) {
+            return;
+        }
+        const dbm = parseFloat(txPowerDbm.value);
+        if (isNaN(dbm)) {
+            return;
+        }
+        tx.tx_power = Math.round(Math.pow(10, (dbm - 30) / 10) * 1000) / 1000;
+    };
+
+    const onDbmBlur = () => {
+        dbmFocused.value = false;
+        // Snap the field to the canonical value derived from the stored watts.
+        const power = transmitter.value?.tx_power;
+        txPowerDbm.value =
+            typeof power === 'number' && !isNaN(power) && power > 0 ? String(wattsToDbm(power)) : '';
+    };
 
     const centerMapOnTransmitter = () => {
         const tx = transmitter.value;
