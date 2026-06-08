@@ -45,4 +45,24 @@ export interface SplatParams {
         max_dbm: number;
         overlay_transparency: number;
     };
+    lora?: {
+        preset: string;
+    };
+}
+export interface LinkResult {
+    a: string;
+    b: string;
+    distance_km: number | null;
+    path_loss_db: number | null;
+    rx_power_dbm: number | null;
+    fresnel_pct: number | null;
+    margin_db: number | null;
+    viable: boolean;
+    error: string | null;
+}
+export interface MatrixResult {
+    nodes: string[];
+    preset: string | null;
+    sensitivity_dbm: number;
+    links: LinkResult[];
 }

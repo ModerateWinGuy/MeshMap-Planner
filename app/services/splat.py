@@ -1,12 +1,14 @@
+import glob
 import gzip
 import logging
 import math
 import os
 import io
+import re
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
-from typing import Literal, List, Tuple
+from typing import Literal, List, Optional, Tuple
 from rasterio.transform import Affine
 
 import boto3
@@ -14,6 +16,7 @@ from botocore import UNSIGNED
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from diskcache import Cache
+from haversine import haversine, Unit
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -23,6 +26,7 @@ from rasterio.transform import from_bounds
 from PIL import Image
 
 from app.models.CoveragePredictionRequest import CoveragePredictionRequest
+from app.models.LinkRequest import LinkRequest
 
 
 logger = logging.getLogger(__name__)
@@ -244,6 +248,209 @@ class Splat:
             except Exception as e:
                 logger.error(f"Error during coverage prediction: {e}")
                 raise RuntimeError(f"Error during coverage prediction: {e}")
+
+    def point_to_point(self, request: LinkRequest) -> dict:
+        """
+        Run a SPLAT! point-to-point path analysis between a transmitter and a receiver and
+        return the parsed link metrics.
+
+        Mirrors `coverage_prediction` but invokes SPLAT! with both `-t` and `-r` so it emits a
+        path-analysis report instead of a coverage raster. Reuses the same .qth / .lrp writers
+        and the terrain tile download/convert/cache pipeline.
+
+        Args:
+            request (LinkRequest): The point-to-point link request.
+
+        Returns:
+            dict: Parsed metrics with keys: distance_km, path_loss_db, free_space_db,
+                rx_power_dbm, fresnel_pct. Any field SPLAT! does not report is None. Viability
+                margin is NOT computed here — the caller combines rx_power_dbm with the LoRa
+                receiver sensitivity.
+
+        Raises:
+            RuntimeError: If SPLAT! fails to execute or the link exceeds the 100 km limit.
+        """
+        logger.debug(f"Point-to-point request: {request.json()}")
+
+        distance_km = haversine(
+            (request.tx_lat, request.tx_lon),
+            (request.rx_lat, request.rx_lon),
+            unit=Unit.KILOMETERS,
+        )
+        # SPLAT! coverage caps at 100 km; keep point-to-point consistent.
+        if distance_km > 100:
+            raise RuntimeError(
+                f"Link distance {distance_km:.1f} km exceeds the 100 km maximum."
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            try:
+                logger.debug(f"Temporary directory created: {tmpdir}")
+
+                # Terrain tiles covering both endpoints (and a small margin around them).
+                required_tiles = Splat._calculate_p2p_terrain_tiles(
+                    request.tx_lat, request.tx_lon, request.rx_lat, request.rx_lon
+                )
+                for tile_name, sdf_name, sdf_hd_name in required_tiles:
+                    tile_data = self._download_terrain_tile(tile_name)
+                    sdf_data = self._convert_hgt_to_sdf(
+                        tile_data, tile_name, high_resolution=request.high_resolution
+                    )
+                    with open(
+                        os.path.join(tmpdir, sdf_hd_name if request.high_resolution else sdf_name), "wb"
+                    ) as sdf_file:
+                        sdf_file.write(sdf_data)
+
+                # Transmitter and receiver .qth files (names drive the report filename).
+                with open(os.path.join(tmpdir, "tx.qth"), "wb") as qth_file:
+                    qth_file.write(
+                        Splat._create_splat_qth("tx", request.tx_lat, request.tx_lon, request.tx_height)
+                    )
+                with open(os.path.join(tmpdir, "rx.qth"), "wb") as qth_file:
+                    qth_file.write(
+                        Splat._create_splat_qth("rx", request.rx_lat, request.rx_lon, request.rx_height)
+                    )
+
+                # Model parameter / lrp file (ERP comes from the transmitter side here).
+                with open(os.path.join(tmpdir, "splat.lrp"), "wb") as lrp_file:
+                    lrp_file.write(Splat._create_splat_lrp(
+                        ground_dielectric=request.ground_dielectric,
+                        ground_conductivity=request.ground_conductivity,
+                        atmosphere_bending=request.atmosphere_bending,
+                        frequency_mhz=request.frequency_mhz,
+                        radio_climate=request.radio_climate,
+                        polarization=request.polarization,
+                        situation_fraction=request.situation_fraction,
+                        time_fraction=request.time_fraction,
+                        tx_power=request.tx_power,
+                        tx_gain=request.tx_gain,
+                        system_loss=request.system_loss))
+
+                range_km = min(max(distance_km + 1.0, 1.0), 100.0)
+                splat_command = [
+                    (
+                        self.splat_hd_binary
+                        if request.high_resolution
+                        else self.splat_binary
+                    ),
+                    "-t",
+                    "tx.qth",
+                    "-r",
+                    "rx.qth",
+                    "-metric",
+                    "-R",
+                    str(range_km),
+                    "-gc",
+                    str(request.clutter_height),
+                    "-olditm",
+                ]
+                logger.debug(f"Executing SPLAT! P2P command: {' '.join(splat_command)}")
+
+                splat_result = subprocess.run(
+                    splat_command,
+                    cwd=tmpdir,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+                logger.debug(f"SPLAT! stdout:\n{splat_result.stdout}")
+                logger.debug(f"SPLAT! stderr:\n{splat_result.stderr}")
+
+                if splat_result.returncode != 0:
+                    raise RuntimeError(
+                        f"SPLAT! P2P execution failed with return code {splat_result.returncode}\n"
+                        f"Stdout: {splat_result.stdout}\nStderr: {splat_result.stderr}"
+                    )
+
+                report_text = Splat._read_p2p_report(tmpdir)
+                metrics = Splat._parse_p2p_report(report_text)
+                metrics["distance_km"] = round(distance_km, 3)
+
+                logger.info("SPLAT! point-to-point analysis completed successfully.")
+                return metrics
+
+            except Exception as e:
+                logger.error(f"Error during point-to-point analysis: {e}")
+                raise RuntimeError(f"Error during point-to-point analysis: {e}")
+
+    @staticmethod
+    def _calculate_p2p_terrain_tiles(
+        lat1: float, lon1: float, lat2: float, lon2: float, pad_deg: float = 0.1
+    ) -> List[Tuple[str, str, str]]:
+        """
+        Determine the 1-degree terrain tiles covering the bounding box of two endpoints, plus a
+        small pad so SPLAT! has terrain margin at each site. Returns the same
+        (hgt.gz, sdf, sdf-hd) tuples as `_calculate_required_terrain_tiles` so the tile cache is
+        shared with coverage predictions.
+        """
+        lat_min_tile = math.floor(min(lat1, lat2) - pad_deg)
+        lat_max_tile = math.floor(max(lat1, lat2) + pad_deg)
+        lon_min_tile = math.floor(min(lon1, lon2) - pad_deg)
+        lon_max_tile = math.floor(max(lon1, lon2) + pad_deg)
+
+        tiles: List[Tuple[str, str, str]] = []
+        for lat_tile in range(lat_min_tile, lat_max_tile + 1):
+            for lon_tile in range(lon_min_tile, lon_max_tile + 1):
+                ns = "N" if lat_tile >= 0 else "S"
+                ew = "E" if lon_tile >= 0 else "W"
+                tile_name = f"{ns}{abs(lat_tile):02d}{ew}{abs(lon_tile):03d}.hgt.gz"
+                sdf_filename = Splat._hgt_filename_to_sdf_filename(tile_name, high_resolution=False)
+                sdf_hd_filename = Splat._hgt_filename_to_sdf_filename(tile_name, high_resolution=True)
+                tiles.append((tile_name, sdf_filename, sdf_hd_filename))
+
+        logger.debug(f"required P2P tile names are: {tiles}")
+        return tiles
+
+    @staticmethod
+    def _read_p2p_report(tmpdir: str) -> str:
+        """
+        Read SPLAT!'s point-to-point path-analysis report. The report is named from the .qth
+        site names (`tx-to-rx.txt`); fall back to a glob in case the build alters the casing.
+        """
+        report_path = os.path.join(tmpdir, "tx-to-rx.txt")
+        if not os.path.isfile(report_path):
+            matches = glob.glob(os.path.join(tmpdir, "*-to-*.txt"))
+            if not matches:
+                raise RuntimeError("SPLAT! did not produce a point-to-point report file.")
+            report_path = matches[0]
+        with open(report_path, "r", encoding="utf-8", errors="replace") as report_file:
+            return report_file.read()
+
+    @staticmethod
+    def _parse_p2p_report(text: str) -> dict:
+        """
+        Parse the metrics of interest out of a SPLAT! point-to-point report.
+
+        Each field is best-effort: a field SPLAT! does not emit (e.g. received power when no ERP
+        is set, or Fresnel clearance on a fully clear path) comes back as None rather than
+        failing the parse. The exact report wording varies between SPLAT! builds, so these
+        patterns are validated against a captured fixture in the test suite.
+        """
+        def search_float(pattern: str) -> Optional[float]:
+            match = re.search(pattern, text, re.IGNORECASE)
+            return float(match.group(1)) if match else None
+
+        metrics: dict = {
+            "free_space_db": search_float(r"Free space path loss[^:]*:\s*([\d.]+)\s*dB"),
+            # -olditm forces the ITM model; older builds label it "Longley-Rice".
+            "path_loss_db": search_float(
+                r"(?:Longley-Rice|ITWOM|ITM)[^\n]*?path loss[^:]*:\s*([\d.]+)\s*dB"
+            ),
+            "rx_power_dbm": search_float(
+                r"(?:Received|Signal) power level[^:]*:\s*(-?[\d.]+)\s*dBm"
+            ),
+            "fresnel_pct": None,
+        }
+
+        # Fresnel-zone clearance wording differs between builds; try both orderings.
+        fresnel = re.search(r"first Fresnel zone[^%\d]*?([\d.]+)\s*%", text, re.IGNORECASE)
+        if not fresnel:
+            fresnel = re.search(r"([\d.]+)\s*%[^%]*?first Fresnel zone", text, re.IGNORECASE)
+        if fresnel:
+            metrics["fresnel_pct"] = float(fresnel.group(1))
+
+        return metrics
 
     @staticmethod
     def _calculate_required_terrain_tiles(

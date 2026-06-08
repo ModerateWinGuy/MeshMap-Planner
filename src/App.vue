@@ -25,6 +25,14 @@
                 </ul>
               </li>
               <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">Links</a>
+                <ul class="dropdown-menu dropdown-menu-dark p-3">
+                  <li>
+                    <LinkMatrix />
+                  </li>
+                </ul>
+              </li>
+              <li class="nav-item dropdown">
                 <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="true">Site / Transmitter</a>
                 <ul class="dropdown-menu dropdown-menu-dark p-3 show">
                   <li>
@@ -45,6 +53,14 @@
                 <ul class="dropdown-menu dropdown-menu-dark p-3">
                   <li>
                     <Environment />
+                  </li>
+                </ul>
+              </li>
+              <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">LoRa Preset</a>
+                <ul class="dropdown-menu dropdown-menu-dark p-3">
+                  <li>
+                    <LoRaPreset />
                   </li>
                 </ul>
               </li>
@@ -98,9 +114,11 @@ import "leaflet/dist/leaflet.css"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "bootstrap/dist/js/bootstrap.bundle.min.js"
 import NodePanel from "./components/NodePanel.vue"
+import LinkMatrix from "./components/LinkMatrix.vue"
 import Transmitter from "./components/Transmitter.vue"
 import Receiver from "./components/Receiver.vue"
 import Environment from "./components/Environment.vue"
+import LoRaPreset from "./components/LoRaPreset.vue"
 import Simulation from "./components/Simulation.vue"
 import Display from "./components/Display.vue"
 

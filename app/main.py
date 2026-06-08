@@ -16,8 +16,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from uuid import uuid4
+from itertools import combinations
 from app.services.splat import Splat
+from app.services.link_budget import receiver_sensitivity_dbm
 from app.models.CoveragePredictionRequest import CoveragePredictionRequest
+from app.models.LinkRequest import LinkRequest
+from app.models.MatrixRequest import MatrixRequest, MatrixNode
+import json
 import logging
 import io
 # import os
@@ -70,6 +75,77 @@ def run_splat(task_id: str, request: CoveragePredictionRequest):
         logger.info(f"Task {task_id} marked as completed.")
     except Exception as e:
         logger.error(f"Error in SPLAT! task {task_id}: {e}")
+        redis_client.setex(f"{task_id}:status", 3600, "failed")
+        redis_client.setex(f"{task_id}:error", 3600, str(e))
+        raise
+
+def _link_request_for_pair(tx: MatrixNode, rx: MatrixNode, request: MatrixRequest) -> LinkRequest:
+    """Build a LinkRequest for the directed pair tx -> rx, applying the matrix's shared params."""
+    return LinkRequest(
+        tx_lat=tx.lat, tx_lon=tx.lon, tx_height=tx.height, tx_power=tx.tx_power, tx_gain=tx.tx_gain,
+        rx_lat=rx.lat, rx_lon=rx.lon, rx_height=rx.height, rx_gain=rx.rx_gain,
+        frequency_mhz=tx.frequency_mhz, system_loss=tx.system_loss,
+        clutter_height=request.clutter_height,
+        # Carry the matrix's sensitivity basis so the per-pair model validates; point_to_point
+        # itself does not use it (margin is computed once at the matrix level).
+        lora_preset=request.lora_preset, rx_sensitivity=request.rx_sensitivity,
+        ground_dielectric=request.ground_dielectric,
+        ground_conductivity=request.ground_conductivity,
+        atmosphere_bending=request.atmosphere_bending,
+        radio_climate=request.radio_climate,
+        polarization=request.polarization,
+        situation_fraction=request.situation_fraction,
+        time_fraction=request.time_fraction,
+        high_resolution=request.high_resolution,
+    )
+
+def run_matrix(task_id: str, request: MatrixRequest):
+    """
+    Compute every unordered pair of nodes as a point-to-point link and store the resulting
+    matrix as JSON in Redis. Mirrors `run_splat` but produces JSON rather than a GeoTIFF.
+
+    A bad pair (e.g. one beyond the 100 km limit) is recorded with an `error` and `viable:false`
+    rather than failing the whole matrix.
+    """
+    try:
+        logger.info(f"Starting link matrix for task {task_id} ({len(request.nodes)} nodes).")
+
+        # Receiver sensitivity is shared across all pairs: explicit override wins, else preset.
+        if request.rx_sensitivity is not None:
+            sensitivity = request.rx_sensitivity
+        else:
+            sensitivity = receiver_sensitivity_dbm(request.lora_preset)
+
+        links = []
+        for tx, rx in combinations(request.nodes, 2):
+            link = {"a": tx.id, "b": rx.id, "distance_km": None, "path_loss_db": None,
+                    "rx_power_dbm": None, "fresnel_pct": None, "margin_db": None,
+                    "viable": False, "error": None}
+            try:
+                metrics = splat_service.point_to_point(_link_request_for_pair(tx, rx, request))
+                link.update(metrics)
+                rx_power = metrics.get("rx_power_dbm")
+                if rx_power is not None:
+                    # SPLAT! received power does not include the receive antenna gain.
+                    margin = (rx_power + rx.rx_gain) - sensitivity
+                    link["margin_db"] = round(margin, 2)
+                    link["viable"] = margin >= 0
+            except Exception as pair_error:
+                logger.warning(f"Pair {tx.id}-{rx.id} failed: {pair_error}")
+                link["error"] = str(pair_error)
+            links.append(link)
+
+        result = {
+            "nodes": [n.id for n in request.nodes],
+            "preset": request.lora_preset,
+            "sensitivity_dbm": round(sensitivity, 2),
+            "links": links,
+        }
+        redis_client.setex(task_id, 3600, json.dumps(result))
+        redis_client.setex(f"{task_id}:status", 3600, "completed")
+        logger.info(f"Link matrix task {task_id} marked as completed.")
+    except Exception as e:
+        logger.error(f"Error in link matrix task {task_id}: {e}")
         redis_client.setex(f"{task_id}:status", 3600, "failed")
         redis_client.setex(f"{task_id}:error", 3600, str(e))
         raise
@@ -158,6 +234,48 @@ async def get_result(task_id: str):
         return JSONResponse({"status": "failed", "error": error.decode("utf-8")})
 
     logger.info(f"Task {task_id} is still processing.")
+    return JSONResponse({"status": "processing"})
+
+@app.post("/matrix")
+async def matrix(payload: MatrixRequest, background_tasks: BackgroundTasks) -> JSONResponse:
+    """
+    Compute the pairwise link matrix for a set of nodes.
+
+    Submits a single background task that runs SPLAT! point-to-point for every unordered pair
+    and stores one JSON result. Poll progress with GET /status/{task_id} and fetch the result
+    with GET /matrix/result/{task_id}.
+    """
+    task_id = str(uuid4())
+    redis_client.setex(f"{task_id}:status", 3600, "processing")
+    background_tasks.add_task(run_matrix, task_id, payload)
+    return JSONResponse({"task_id": task_id})
+
+@app.get("/matrix/result/{task_id}")
+async def get_matrix_result(task_id: str):
+    """
+    Retrieve the JSON link-matrix result for a given task.
+
+    - If "completed": returns the stored matrix JSON.
+    - If "failed": returns the error message.
+    - If "processing": indicates the task is still running.
+    - Returns 404 if the task ID is not found.
+    """
+    status = redis_client.get(f"{task_id}:status")
+    if not status:
+        logger.warning(f"Task {task_id} not found in Redis.")
+        return JSONResponse({"error": "Task not found"}, status_code=404)
+
+    status = status.decode("utf-8")
+    if status == "completed":
+        data = redis_client.get(task_id)
+        if not data:
+            logger.error(f"No data found for completed matrix task {task_id}.")
+            return JSONResponse({"error": "No result found"}, status_code=500)
+        return JSONResponse(json.loads(data.decode("utf-8")))
+    elif status == "failed":
+        error = redis_client.get(f"{task_id}:error")
+        return JSONResponse({"status": "failed", "error": error.decode("utf-8") if error else "unknown error"})
+
     return JSONResponse({"status": "processing"})
 
 app.mount("/", StaticFiles(directory="app/ui", html=True), name="ui")

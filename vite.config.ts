@@ -9,6 +9,7 @@ export default defineConfig({
       '/predict': 'http://localhost:8080/',
       '/status': 'http://localhost:8080/',
       '/result': 'http://localhost:8080/',
+      '/matrix': 'http://localhost:8080/',
     },
   },
   build: {

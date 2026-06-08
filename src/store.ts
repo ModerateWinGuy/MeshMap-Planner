@@ -6,12 +6,29 @@ import L from 'leaflet';
 import GeoRasterLayer from 'georaster-layer-for-leaflet';
 import parseGeoraster from 'georaster';
 import 'leaflet-easyprint';
-import { type Site, type SplatParams, type Node } from './types.ts';
+import { type Site, type SplatParams, type Node, type MatrixResult } from './types.ts';
 import { cloneObject } from './utils.ts';
 import { redPinMarker, selectedPinMarker } from './layers.ts';
 
 const DEFAULT_LAT = 51.102167;
 const DEFAULT_LON = -114.098667;
+
+// Meshtastic LoRa modem presets (must match app/services/link_budget.py PRESET_TABLE).
+export const LORA_PRESETS = [
+  'ShortTurbo', 'ShortFast', 'ShortSlow', 'MediumFast',
+  'MediumSlow', 'LongFast', 'LongModerate', 'LongSlow'
+];
+
+// Colour a link by its margin: green (strong) -> red (marginal/none). Grey when unknown.
+function linkColor(margin: number | null): string {
+  if (margin === null || margin === undefined) {
+    return '#888888';
+  }
+  const t = Math.max(0, Math.min(1, margin / 30)); // saturate at +30 dB margin
+  const r = Math.round(220 * (1 - t));
+  const g = Math.round(40 + 150 * t);
+  return `rgb(${r}, ${g}, 50)`;
+}
 
 function defaultTransmitter(): SplatParams['transmitter'] {
   return {
@@ -47,13 +64,19 @@ const useStore = defineStore('store', {
     return {
       map: undefined as undefined | L.Map,
       nodeMarkers: {} as Record<string, L.Marker>,
+      linkLayers: {} as Record<string, L.Polyline>,
       dragging: false,
       localSites: [] as Site[], // in-memory only (raster is not JSON-serializable)
       simulationState: 'idle',
+      matrixState: 'idle',
+      matrixResult: null as MatrixResult | null, // in-memory only
       nodes: useLocalStorage<Node[]>('nodes', [seedNode()]),
       selectedNodeId: useLocalStorage<string | null>('selectedNodeId', null),
       // shared / global params (per-node radio lives on the nodes themselves)
       splatParams: useLocalStorage('splatParams', {
+        lora: {
+          preset: 'LongFast'
+        },
         environment: {
           radio_climate: 'continental_temperate',
           polarization: 'vertical',
@@ -74,7 +97,7 @@ const useStore = defineStore('store', {
           max_dbm: -80.0,
           overlay_transparency: 50
         }
-      })
+      }, { mergeDefaults: true }) // merge so previously-stored params gain new keys (e.g. lora)
     }
   },
   getters: {
@@ -222,6 +245,19 @@ const useStore = defineStore('store', {
       });
     },
     initMap() {
+      // initMap runs from Transmitter's onMounted; a remount (e.g. Vite HMR) would call it
+      // again. Leaflet only unsubscribes a layer's map events via a once('remove') handler,
+      // so creating a second map without tearing down the first orphans the old layers'
+      // 'zoomanim' handlers — they keep firing on the live map with a null _map and throw
+      // "map is null" in GridLayer._updateLevels mid-zoom, which aborts the zoom and leaves
+      // every layer drifted. map.remove() removes all layers cleanly (firing 'remove'), so
+      // tear down before re-creating. Also drop the stale marker/link caches, since those
+      // objects belong to the old map.
+      if (this.map) {
+        this.map.remove();
+        this.nodeMarkers = {};
+        this.linkLayers = {};
+      }
       this.map = L.map("map", {
         // center: [51.102167, -114.098667],
         zoom: 10,
@@ -295,6 +331,7 @@ const useStore = defineStore('store', {
         () => {
           if (!this.dragging) {
             this.renderNodeMarkers();
+            this.redrawLinks();
           }
         }
       );
@@ -420,6 +457,124 @@ const useStore = defineStore('store', {
         pollStatus(); // Start polling
       } catch (error) {
         console.error("Error:", error);
+      }
+    },
+    redrawLinks() {
+      if (!this.map) {
+        return;
+      }
+      // Remove existing link polylines
+      for (const key of Object.keys(this.linkLayers)) {
+        this.map.removeLayer(this.linkLayers[key]);
+        delete this.linkLayers[key];
+      }
+      if (!this.matrixResult) {
+        return;
+      }
+      const byId: Record<string, Node> = {};
+      for (const n of this.nodes) {
+        byId[n.id] = n;
+      }
+      for (const link of this.matrixResult.links) {
+        const a = byId[link.a];
+        const b = byId[link.b];
+        if (!a || !b) {
+          continue; // node was deleted since the matrix ran
+        }
+        const poly = L.polyline(
+          [
+            [a.transmitter.tx_lat, a.transmitter.tx_lon],
+            [b.transmitter.tx_lat, b.transmitter.tx_lon]
+          ],
+          {
+            color: linkColor(link.margin_db),
+            weight: link.viable ? 3 : 1.5,
+            opacity: link.viable ? 0.9 : 0.5,
+            dashArray: link.viable ? undefined : '6 6'
+          }
+        );
+        const details = link.error
+          ? `Error: ${link.error}`
+          : `Margin: ${link.margin_db ?? '—'} dB<br>` +
+            `Path loss: ${link.path_loss_db ?? '—'} dB<br>` +
+            `Fresnel zone: ${link.fresnel_pct ?? '—'} % clear<br>` +
+            `Distance: ${link.distance_km ?? '—'} km`;
+        poly.bindPopup(`<strong>${a.transmitter.name} ↔ ${b.transmitter.name}</strong><br>${details}`);
+        poly.addTo(this.map as L.Map);
+        this.linkLayers[`${link.a}|${link.b}`] = poly;
+      }
+    },
+    async runMatrix() {
+      if (this.nodes.length < 2) {
+        console.warn('Need at least 2 nodes to compute a link matrix.');
+        return;
+      }
+      try {
+        this.matrixState = 'running';
+        const preset = this.splatParams.lora?.preset ?? 'LongFast';
+        const payload = {
+          nodes: this.nodes.map((n) => ({
+            id: n.id,
+            name: n.transmitter.name,
+            lat: n.transmitter.tx_lat,
+            lon: n.transmitter.tx_lon,
+            height: n.transmitter.tx_height,
+            tx_power: 10 * Math.log10(n.transmitter.tx_power) + 30, // watts -> dBm
+            tx_gain: n.transmitter.tx_gain,
+            rx_gain: n.receiver.rx_gain,
+            frequency_mhz: n.transmitter.tx_freq,
+            system_loss: n.receiver.rx_loss
+          })),
+          lora_preset: preset,
+          // shared environment / simulation params
+          clutter_height: this.splatParams.environment.clutter_height,
+          ground_dielectric: this.splatParams.environment.ground_dielectric,
+          ground_conductivity: this.splatParams.environment.ground_conductivity,
+          atmosphere_bending: this.splatParams.environment.atmosphere_bending,
+          radio_climate: this.splatParams.environment.radio_climate,
+          polarization: this.splatParams.environment.polarization,
+          situation_fraction: this.splatParams.simulation.situation_fraction,
+          time_fraction: this.splatParams.simulation.time_fraction,
+          high_resolution: this.splatParams.simulation.high_resolution
+        };
+
+        const matrixResponse = await fetch('/matrix', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!matrixResponse.ok) {
+          this.matrixState = 'failed';
+          throw new Error(`Failed to start matrix: ${await matrixResponse.text()}`);
+        }
+        const { task_id: taskId } = await matrixResponse.json();
+        console.log(`Link matrix started with task ID: ${taskId}`);
+
+        const pollInterval = 1000;
+        const pollStatus = async () => {
+          const statusResponse = await fetch(`/status/${taskId}`);
+          if (!statusResponse.ok) {
+            throw new Error('Failed to fetch matrix status.');
+          }
+          const statusData = await statusResponse.json();
+          if (statusData.status === 'completed') {
+            const resultResponse = await fetch(`/matrix/result/${taskId}`);
+            if (!resultResponse.ok) {
+              throw new Error('Failed to fetch matrix result.');
+            }
+            this.matrixResult = await resultResponse.json();
+            this.matrixState = 'completed';
+            this.redrawLinks();
+          } else if (statusData.status === 'failed') {
+            this.matrixState = 'failed';
+          } else {
+            setTimeout(pollStatus, pollInterval);
+          }
+        };
+        pollStatus();
+      } catch (error) {
+        console.error('Matrix error:', error);
+        this.matrixState = 'failed';
       }
     }
   }

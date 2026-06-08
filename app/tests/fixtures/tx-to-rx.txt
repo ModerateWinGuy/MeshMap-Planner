@@ -1,0 +1,39 @@
+                     --==[ SPLAT! v1.4.2 Path Analysis ]==--
+
+NOTE: This fixture is a REPRESENTATIVE SPLAT! point-to-point report used to exercise the
+regex parser (Splat._parse_p2p_report). The exact wording of some lines varies between SPLAT!
+builds, so this file MUST be replaced with a report captured from the real binary
+(docker compose up, run one known pair, copy the generated tx-to-rx.txt here) before trusting
+field extraction in production. The parser tolerates missing fields by returning None.
+
+Transmitter site: tx
+
+Site location: 51.1022 North / 114.0987 West (51deg 6' 7" N / 114deg 5' 55" W)
+Ground elevation: 1045.00 meters AMSL
+Antenna height: 10.00 meters AGL / 1055.00 meters AMSL
+Distance to rx: 12.345 kilometers
+Azimuth to rx: 90.12 degrees
+
+Receiver site: rx
+
+Site location: 51.1500 North / 113.9000 West (51deg 9' 0" N / 113deg 54' 0" W)
+Ground elevation: 1030.00 meters AMSL
+Antenna height: 2.00 meters AGL / 1032.00 meters AMSL
+Distance to tx: 12.345 kilometers
+Azimuth to tx: 270.12 degrees
+
+---------------------------------------------------------------------------
+
+Distance between tx and rx: 12.345 kilometers.
+
+Free space path loss: 113.45 dB
+ITM path loss: 134.67 dB
+Field strength at rx: 41.23 dBuV/meter
+Signal power level at rx: -98.70 dBm
+Signal power density at rx: -134.56 dBW per square meter
+Voltage across a 50 ohm dipole at rx: 12.34 uV
+Voltage across a 75 ohm dipole at rx: 15.12 uV
+
+The first Fresnel zone is 87.5% clear.
+
+SPLAT! says: Line-of-sight path exists between tx and rx.
