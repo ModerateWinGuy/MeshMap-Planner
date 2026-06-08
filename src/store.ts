@@ -208,6 +208,14 @@ const useStore = defineStore('store', {
           // tiles get served to a new layer over the same bounds. Disable it so each
           // result renders its own raster.
           caching: false,
+          // The library only sets these GridLayer flags for URL-sourced rasters; for our
+          // in-memory rasters it leaves the defaults (updateWhenIdle:true,
+          // updateWhenZooming:false), which makes the overlay rely on a CSS transform during
+          // zoom and only refresh when the map goes idle. A single wheel-notch zoom desyncs
+          // that transform and leaves the overlay offset until a later zoom forces a full
+          // reset. Re-rendering during zoom and on every move keeps it aligned with the map.
+          updateWhenIdle: false,
+          updateWhenZooming: true,
         } as any);
         rasterLayer.addTo(this.map as L.Map);
         rasterLayer.bringToFront();
