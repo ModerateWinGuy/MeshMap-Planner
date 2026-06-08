@@ -1,6 +1,6 @@
 
 <template>
-    <form novalidate>
+    <form v-if="receiver" novalidate>
         <div class="row g-2">
             <div class="col-6">
                 <label for="rx_sensitivity" class="form-label">Sensitivity (dBm)</label>
@@ -26,9 +26,12 @@
             </div>
         </div>
     </form>
+    <p v-else class="text-muted small mb-0">No node selected.</p>
 </template>
 
 <script setup lang="ts">
+    import { computed } from 'vue'
     import { useStore } from '../store.ts'
-    const receiver = useStore().splatParams.receiver
+    const store = useStore()
+    const receiver = computed(() => store.selectedNode?.receiver)
 </script>

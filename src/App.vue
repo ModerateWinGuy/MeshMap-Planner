@@ -17,6 +17,14 @@
           <div class="offcanvas-body">
             <ul class="navbar-nav">
               <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="true">Nodes</a>
+                <ul class="dropdown-menu dropdown-menu-dark p-3 show">
+                  <li>
+                    <NodePanel />
+                  </li>
+                </ul>
+              </li>
+              <li class="nav-item dropdown">
                 <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="true">Site / Transmitter</a>
                 <ul class="dropdown-menu dropdown-menu-dark p-3 show">
                   <li>
@@ -60,7 +68,7 @@
             </li>
             </ul>
             <div class="mt-3 d-flex gap-2">
-              <button :disabled="store.simulationState === 'running'" @click="store.runSimulation" type="button" class="btn btn-success btn-sm" id="runSimulation">
+              <button :disabled="store.simulationState === 'running' || !store.selectedNode" @click="store.runSimulation" type="button" class="btn btn-success btn-sm" id="runSimulation">
                 <span :class="{ 'd-none': store.simulationState !== 'running' }" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                 <span class="button-text">{{ buttonText() }}</span>
               </button>
@@ -84,6 +92,7 @@
 import "leaflet/dist/leaflet.css"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "bootstrap/dist/js/bootstrap.bundle.min.js"
+import NodePanel from "./components/NodePanel.vue"
 import Transmitter from "./components/Transmitter.vue"
 import Receiver from "./components/Receiver.vue"
 import Environment from "./components/Environment.vue"

@@ -25,6 +25,9 @@ COPY . .
 
 # Change to SPLAT directory and set permissions
 WORKDIR /app/splat
+# Normalize line endings: a Windows (CRLF) checkout leaves a trailing \r on the
+# shebang line, which makes Linux fail these scripts with "not found" (exit 127).
+RUN sed -i 's/\r$//' build configure install
 RUN chmod +x build && chmod +x configure && chmod +x install
 
 # Modify build script and configure SPLAT
@@ -35,6 +38,7 @@ RUN sed -i.bak 's/-march=\$cpu/-march=native/g' build && \
 
 # SPLAT utils including srtm2sdf
 WORKDIR /app/splat/utils
+RUN sed -i 's/\r$//' build
 RUN chmod +x build
 RUN ./build all && cp srtm2sdf /app && cp srtm2sdf-hd /app
 RUN cp -a ./ /app/splat

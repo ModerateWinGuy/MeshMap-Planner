@@ -1,6 +1,6 @@
 
 <template>
-    <form novalidate>
+    <form v-if="transmitter" novalidate>
         <div class="row g-2">
             <div class="col-12">
                 <label for="name" class="form-label">Site name</label>
@@ -50,20 +50,20 @@
             <button @click="centerMapOnTransmitter" type="button" class="btn btn-secondary btn-sm">Center map on transmitter</button>
         </div>
     </form>
+    <p v-else class="text-muted small mb-0">No node selected. Add a node to edit its parameters.</p>
 </template>
 
 <script setup lang="ts">
-    import L from 'leaflet';
     import * as bootstrap from 'bootstrap';
     import { useStore } from '../store.ts'
-    import { onMounted } from 'vue';
-    import { redPinMarker } from '../layers.ts';
+    import { computed, onMounted } from 'vue';
     const store = useStore();
-    const transmitter = store.splatParams.transmitter;
+    const transmitter = computed(() => store.selectedNode?.transmitter);
 
     const centerMapOnTransmitter = () => {
-        if (!isNaN(transmitter.tx_lat) && !isNaN(transmitter.tx_lon)) {
-            store.map!.setView([transmitter.tx_lat, transmitter.tx_lon], store.map!.getZoom()); // Center map on the coordinates
+        const tx = transmitter.value;
+        if (tx && !isNaN(tx.tx_lat) && !isNaN(tx.tx_lon)) {
+            store.map!.setView([tx.tx_lat, tx.tx_lon], store.map!.getZoom()); // Center map on the coordinates
         } else {
             alert("Please enter valid Latitude and Longitude values.");
         }
@@ -73,19 +73,14 @@
     });
 
     const setWithMap = () => {
+        const node = store.selectedNode;
+        if (!node) {
+            return;
+        }
         popover.show();
         store.map!.once("click", function (e: any) {
-            let { lat, lng } = e.latlng; // Get clicked location coordinates
-            lng = ((((lng + 180) % 360) + 360) % 360) - 180;
-
-            store.setTxCoords(lat.toFixed(6), lng.toFixed(6)); // Update the store
-
-            // Remove the existing marker if it exists
-            if (store.currentMarker) {
-                store.map!.removeLayer(store.currentMarker as L.Marker);
-            }
-            // Add a new marker at the clicked location
-            store.currentMarker = L.marker([lat, lng], { icon: redPinMarker }).addTo(store.map as L.Map)
+            const { lat, lng } = e.latlng; // Get clicked location coordinates
+            store.updateNodeCoords(node.id, lat, lng); // Update the store (marker follows via watch)
             popover.hide(); // Hide the popover
         });
     };

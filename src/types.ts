@@ -3,6 +3,11 @@ export interface Site {
     taskId: string;
     raster: any;
 }
+export interface Node {
+    id: string;
+    transmitter: SplatParams['transmitter'];
+    receiver: SplatParams['receiver'];
+}
 export interface SplatParams {
     transmitter: {
         name: string;

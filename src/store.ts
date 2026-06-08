@@ -1,37 +1,59 @@
 import { defineStore } from 'pinia';
-// import { useLocalStorage } from '@vueuse/core';
+import { useLocalStorage } from '@vueuse/core';
+import { watch } from 'vue';
 import { randanimalSync } from 'randanimal';
 import L from 'leaflet';
 import GeoRasterLayer from 'georaster-layer-for-leaflet';
 import parseGeoraster from 'georaster';
 import 'leaflet-easyprint';
-import { type Site, type SplatParams } from './types.ts';
+import { type Site, type SplatParams, type Node } from './types.ts';
 import { cloneObject } from './utils.ts';
-import { redPinMarker } from './layers.ts';
+import { redPinMarker, selectedPinMarker } from './layers.ts';
+
+const DEFAULT_LAT = 51.102167;
+const DEFAULT_LON = -114.098667;
+
+function defaultTransmitter(): SplatParams['transmitter'] {
+  return {
+    name: randanimalSync(),
+    tx_lat: DEFAULT_LAT,
+    tx_lon: DEFAULT_LON,
+    tx_power: 0.1,
+    tx_freq: 907.0,
+    tx_height: 2.0,
+    tx_gain: 2.0
+  };
+}
+
+function defaultReceiver(): SplatParams['receiver'] {
+  return {
+    rx_sensitivity: -130.0,
+    rx_height: 1.0,
+    rx_gain: 2.0,
+    rx_loss: 2.0
+  };
+}
+
+function seedNode(): Node {
+  return {
+    id: crypto.randomUUID(),
+    transmitter: defaultTransmitter(),
+    receiver: defaultReceiver()
+  };
+}
 
 const useStore = defineStore('store', {
   state() {
     return {
       map: undefined as undefined | L.Map,
-      currentMarker: undefined as undefined | L.Marker,
-      localSites: [] as Site[], //useLocalStorage('localSites', ),
+      nodeMarkers: {} as Record<string, L.Marker>,
+      dragging: false,
+      localSites: [] as Site[], // in-memory only (raster is not JSON-serializable)
       simulationState: 'idle',
-      splatParams: <SplatParams>{
-        transmitter: {
-          name: randanimalSync(),
-          tx_lat: 51.102167,
-          tx_lon: -114.098667,
-          tx_power: 0.1,
-          tx_freq: 907.0,
-          tx_height: 2.0,
-          tx_gain: 2.0
-        },
-        receiver: {
-          rx_sensitivity: -130.0,
-          rx_height: 1.0,
-          rx_gain: 2.0,
-          rx_loss: 2.0
-        },
+      nodes: useLocalStorage<Node[]>('nodes', [seedNode()]),
+      selectedNodeId: useLocalStorage<string | null>('selectedNodeId', null),
+      // shared / global params (per-node radio lives on the nodes themselves)
+      splatParams: useLocalStorage('splatParams', {
         environment: {
           radio_climate: 'continental_temperate',
           polarization: 'vertical',
@@ -51,14 +73,92 @@ const useStore = defineStore('store', {
           min_dbm: -130.0,
           max_dbm: -80.0,
           overlay_transparency: 50
-        },
-      }
+        }
+      })
+    }
+  },
+  getters: {
+    selectedNode(state): Node | undefined {
+      return state.nodes.find((n) => n.id === state.selectedNodeId) ?? state.nodes[0];
     }
   },
   actions: {
-    setTxCoords(lat: number, lon: number) {
-      this.splatParams.transmitter.tx_lat = lat
-      this.splatParams.transmitter.tx_lon = lon
+    addNode() {
+      const base = this.selectedNode;
+      const center = this.map ? this.map.getCenter() : { lat: DEFAULT_LAT, lng: DEFAULT_LON };
+      const node: Node = {
+        id: crypto.randomUUID(),
+        transmitter: {
+          ...(base ? cloneObject(base.transmitter) : defaultTransmitter()),
+          name: randanimalSync(),
+          tx_lat: Number(center.lat.toFixed(6)),
+          tx_lon: Number(center.lng.toFixed(6))
+        },
+        receiver: base ? cloneObject(base.receiver) : defaultReceiver()
+      };
+      this.nodes.push(node);
+      this.selectedNodeId = node.id;
+      this.renderNodeMarkers();
+    },
+    selectNode(id: string) {
+      this.selectedNodeId = id;
+      this.renderNodeMarkers();
+    },
+    deleteNode(id: string) {
+      const idx = this.nodes.findIndex((n) => n.id === id);
+      if (idx === -1) {
+        return;
+      }
+      this.nodes.splice(idx, 1);
+      if (this.selectedNodeId === id) {
+        this.selectedNodeId = this.nodes[0]?.id ?? null;
+      }
+      this.renderNodeMarkers();
+    },
+    updateNodeCoords(id: string, lat: number, lon: number) {
+      const node = this.nodes.find((n) => n.id === id);
+      if (!node) {
+        return;
+      }
+      lon = ((((lon + 180) % 360) + 360) % 360) - 180;
+      node.transmitter.tx_lat = lat;
+      node.transmitter.tx_lon = lon;
+    },
+    renderNodeMarkers() {
+      if (!this.map) {
+        return;
+      }
+      // Remove markers for nodes that no longer exist
+      for (const id of Object.keys(this.nodeMarkers)) {
+        if (!this.nodes.find((n) => n.id === id)) {
+          this.map.removeLayer(this.nodeMarkers[id]);
+          delete this.nodeMarkers[id];
+        }
+      }
+      const selectedId = this.selectedNode?.id;
+      for (const node of this.nodes) {
+        const icon = node.id === selectedId ? selectedPinMarker : redPinMarker;
+        const latlng: [number, number] = [node.transmitter.tx_lat, node.transmitter.tx_lon];
+        let marker = this.nodeMarkers[node.id];
+        if (!marker) {
+          marker = L.marker(latlng, { icon, draggable: true });
+          marker.on('dragstart', () => {
+            this.dragging = true;
+          });
+          marker.on('dragend', (e: L.DragEndEvent) => {
+            const { lat, lng } = (e.target as L.Marker).getLatLng();
+            this.updateNodeCoords(node.id, lat, lng);
+            this.dragging = false;
+          });
+          marker.on('click', () => this.selectNode(node.id));
+          marker.addTo(this.map as L.Map);
+          this.nodeMarkers[node.id] = marker;
+        } else {
+          marker.setIcon(icon);
+          marker.setLatLng(latlng);
+        }
+        marker.bindPopup(node.transmitter.name);
+      }
     },
     removeSite(index: number) {
       if (!this.map) {
@@ -89,20 +189,30 @@ const useStore = defineStore('store', {
         const rasterLayer = new GeoRasterLayer({
           georaster: {...site}.raster,
           opacity: 0.7,
+          // noDataValue is a valid runtime option but missing from the lib's types (4.1.2)
           noDataValue: 255,
           resolution: 256,
-        });
+          // georaster-layer-for-leaflet 4.1.2 keeps its tile `cache` on the prototype
+          // (shared across all instances) keyed only by tile coords, so a removed layer's
+          // tiles get served to a new layer over the same bounds. Disable it so each
+          // result renders its own raster.
+          caching: false,
+        } as any);
         rasterLayer.addTo(this.map as L.Map);
         rasterLayer.bringToFront();
       });
     },
-    initMap() {     
+    initMap() {
       this.map = L.map("map", {
         // center: [51.102167, -114.098667],
         zoom: 10,
         zoomControl: false,
       });
-      const position: [number, number] = [this.splatParams.transmitter.tx_lat, this.splatParams.transmitter.tx_lon];
+      const start = this.selectedNode;
+      const position: [number, number] = [
+        start ? start.transmitter.tx_lat : DEFAULT_LAT,
+        start ? start.transmitter.tx_lon : DEFAULT_LON
+      ];
       this.map.setView(position, 10);
 
       L.control.zoom({ position: "bottomleft" }).addTo(this.map as L.Map);
@@ -149,29 +259,52 @@ const useStore = defineStore('store', {
       this.map.on("baselayerchange", () => {
         this.redrawSites(); // Re-apply the GeoRasterLayer on top
       });
-      this.currentMarker = L.marker(position, { icon: redPinMarker }).addTo(this.map as L.Map).bindPopup("Transmitter site"); // Variable to hold the current marker
+
+      if (!this.selectedNodeId && this.nodes[0]) {
+        this.selectedNodeId = this.nodes[0].id;
+      }
+      this.renderNodeMarkers();
       this.redrawSites();
+
+      // Keep markers in sync with manual lat/lon edits and renames.
+      // Guard against re-rendering mid-drag (dragend handles that).
+      watch(
+        () =>
+          this.nodes
+            .map((n) => `${n.id}:${n.transmitter.tx_lat}:${n.transmitter.tx_lon}:${n.transmitter.name}`)
+            .join('|'),
+        () => {
+          if (!this.dragging) {
+            this.renderNodeMarkers();
+          }
+        }
+      );
     },
     async runSimulation() {
       console.log('Simulation running...')
       try {
+        const node = this.selectedNode;
+        if (!node) {
+          console.warn('No node selected; cannot run simulation.');
+          return;
+        }
         // Collect input values
         const payload = {
-          // Transmitter parameters
-          lat: this.splatParams.transmitter.tx_lat,
-          lon: this.splatParams.transmitter.tx_lon,
-          tx_height: this.splatParams.transmitter.tx_height,
-          tx_power: 10 * Math.log10(this.splatParams.transmitter.tx_power) + 30,
-          tx_gain: this.splatParams.transmitter.tx_gain,
-          frequency_mhz: this.splatParams.transmitter.tx_freq,
+          // Transmitter parameters (per-node)
+          lat: node.transmitter.tx_lat,
+          lon: node.transmitter.tx_lon,
+          tx_height: node.transmitter.tx_height,
+          tx_power: 10 * Math.log10(node.transmitter.tx_power) + 30,
+          tx_gain: node.transmitter.tx_gain,
+          frequency_mhz: node.transmitter.tx_freq,
 
-          // Receiver parameters
-          rx_height: this.splatParams.receiver.rx_height,
-          rx_gain: this.splatParams.receiver.rx_gain,
-          signal_threshold: this.splatParams.receiver.rx_sensitivity,
-          system_loss: this.splatParams.receiver.rx_loss,
+          // Receiver parameters (per-node)
+          rx_height: node.receiver.rx_height,
+          rx_gain: node.receiver.rx_gain,
+          signal_threshold: node.receiver.rx_sensitivity,
+          system_loss: node.receiver.rx_loss,
 
-          // Environment parameters
+          // Environment parameters (shared)
           clutter_height: this.splatParams.environment.clutter_height,
           ground_dielectric: this.splatParams.environment.ground_dielectric,
           ground_conductivity: this.splatParams.environment.ground_conductivity,
@@ -179,21 +312,21 @@ const useStore = defineStore('store', {
           radio_climate: this.splatParams.environment.radio_climate,
           polarization: this.splatParams.environment.polarization,
 
-          // Simulation parameters
+          // Simulation parameters (shared)
           radius: this.splatParams.simulation.simulation_extent * 1000,
           situation_fraction: this.splatParams.simulation.situation_fraction,
           time_fraction: this.splatParams.simulation.time_fraction,
           high_resolution: this.splatParams.simulation.high_resolution,
 
-          // Display parameters
+          // Display parameters (shared)
           colormap: this.splatParams.display.color_scale,
           min_dbm: this.splatParams.display.min_dbm,
           max_dbm: this.splatParams.display.max_dbm,
         };
-    
+
         console.log("Payload:", payload);
         this.simulationState = 'running';
-    
+
         // Send the request to the backend's /predict endpoint
         const predictResponse = await fetch("/predict", {
           method: "POST",
@@ -202,16 +335,16 @@ const useStore = defineStore('store', {
           },
           body: JSON.stringify(payload),
         });
-    
+
         if (!predictResponse.ok) {
           this.simulationState = 'failed';
           const errorDetails = await predictResponse.text();
           throw new Error(`Failed to start prediction: ${errorDetails}`);
         }
-    
+
         const predictData = await predictResponse.json();
         const taskId = predictData.task_id;
-    
+
         console.log(`Prediction started with task ID: ${taskId}`);
 
         // Poll for task status and result
@@ -223,10 +356,10 @@ const useStore = defineStore('store', {
           if (!statusResponse.ok) {
             throw new Error("Failed to fetch task status.");
           }
-    
+
           const statusData = await statusResponse.json();
           console.log("Task status:", statusData);
-    
+
           if (statusData.status === "completed") {
             this.simulationState = 'completed';
             console.log("Simulation completed! Adding result to the map...");
@@ -242,13 +375,18 @@ const useStore = defineStore('store', {
             {
               const arrayBuffer = await resultResponse.arrayBuffer();
               const geoRaster = await parseGeoraster(arrayBuffer);
+              const params: SplatParams = cloneObject({
+                transmitter: node.transmitter,
+                receiver: node.receiver,
+                environment: this.splatParams.environment,
+                simulation: this.splatParams.simulation,
+                display: this.splatParams.display
+              });
               this.localSites.push({
-                params: cloneObject(this.splatParams),
+                params,
                 taskId,
                 raster: geoRaster
               });
-              this.currentMarker!.removeFrom(this.map as L.Map);
-              this.splatParams.transmitter.name = await randanimalSync();
               this.redrawSites();
             }
           }
@@ -258,7 +396,7 @@ const useStore = defineStore('store', {
             setTimeout(pollStatus, pollInterval); // Retry after interval
           }
         };
-    
+
         pollStatus(); // Start polling
       } catch (error) {
         console.error("Error:", error);

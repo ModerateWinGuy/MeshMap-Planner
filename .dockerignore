@@ -1,0 +1,14 @@
+# Frontend deps are built by Vite on the host; the image is backend-only (Python + SPLAT).
+# Including node_modules also breaks the build context because pnpm uses symlinks.
+node_modules
+
+# VCS / editor / local tooling
+.git
+.gitignore
+.vscode
+.github
+
+# Build/log artifacts
+*.log
+npm-debug.log*
+pnpm-debug.log*
