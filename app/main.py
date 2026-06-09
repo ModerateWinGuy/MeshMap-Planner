@@ -22,6 +22,7 @@ from app.services.link_budget import receiver_sensitivity_dbm
 from app.models.CoveragePredictionRequest import CoveragePredictionRequest
 from app.models.LinkRequest import LinkRequest
 from app.models.MatrixRequest import MatrixRequest, MatrixNode
+from app.models.RelayRequest import RelayRequest
 import json
 import logging
 import io
@@ -270,6 +271,73 @@ async def get_matrix_result(task_id: str):
         data = redis_client.get(task_id)
         if not data:
             logger.error(f"No data found for completed matrix task {task_id}.")
+            return JSONResponse({"error": "No result found"}, status_code=500)
+        return JSONResponse(json.loads(data.decode("utf-8")))
+    elif status == "failed":
+        error = redis_client.get(f"{task_id}:error")
+        return JSONResponse({"status": "failed", "error": error.decode("utf-8") if error else "unknown error"})
+
+    return JSONResponse({"status": "processing"})
+
+def run_relay(task_id: str, request: RelayRequest):
+    """
+    Find the candidate relay zone between two nodes and store the resulting GeoJSON as JSON in
+    Redis. Mirrors `run_matrix`: runs two SPLAT! coverage passes, intersects them, and produces
+    a pure-JSON result (zone polygons + ranked points).
+    """
+    try:
+        logger.info(f"Starting relay overlap for task {task_id}.")
+
+        # Shared receiver sensitivity: explicit override wins, else derive from the LoRa preset.
+        if request.rx_sensitivity is not None:
+            sensitivity = request.rx_sensitivity
+        else:
+            sensitivity = receiver_sensitivity_dbm(request.lora_preset)
+
+        result = splat_service.relay_overlap(request, sensitivity)
+        redis_client.setex(task_id, 3600, json.dumps(result))
+        redis_client.setex(f"{task_id}:status", 3600, "completed")
+        logger.info(f"Relay task {task_id} marked as completed.")
+    except Exception as e:
+        logger.error(f"Error in relay task {task_id}: {e}")
+        redis_client.setex(f"{task_id}:status", 3600, "failed")
+        redis_client.setex(f"{task_id}:error", 3600, str(e))
+        raise
+
+@app.post("/relay")
+async def relay(payload: RelayRequest, background_tasks: BackgroundTasks) -> JSONResponse:
+    """
+    Find the candidate relay zone between two nodes.
+
+    Submits a single background task that runs SPLAT! coverage from each node, intersects the
+    two signal fields, and stores one JSON result. Poll progress with GET /status/{task_id} and
+    fetch the result with GET /relay/result/{task_id}.
+    """
+    task_id = str(uuid4())
+    redis_client.setex(f"{task_id}:status", 3600, "processing")
+    background_tasks.add_task(run_relay, task_id, payload)
+    return JSONResponse({"task_id": task_id})
+
+@app.get("/relay/result/{task_id}")
+async def get_relay_result(task_id: str):
+    """
+    Retrieve the JSON relay-overlap result for a given task.
+
+    - If "completed": returns the stored zone/points JSON.
+    - If "failed": returns the error message.
+    - If "processing": indicates the task is still running.
+    - Returns 404 if the task ID is not found.
+    """
+    status = redis_client.get(f"{task_id}:status")
+    if not status:
+        logger.warning(f"Task {task_id} not found in Redis.")
+        return JSONResponse({"error": "Task not found"}, status_code=404)
+
+    status = status.decode("utf-8")
+    if status == "completed":
+        data = redis_client.get(task_id)
+        if not data:
+            logger.error(f"No data found for completed relay task {task_id}.")
             return JSONResponse({"error": "No result found"}, status_code=500)
         return JSONResponse(json.loads(data.decode("utf-8")))
     elif status == "failed":

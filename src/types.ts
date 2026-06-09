@@ -66,3 +66,40 @@ export interface MatrixResult {
     sensitivity_dbm: number;
     links: LinkResult[];
 }
+
+// Geometry is `any` to avoid a dependency on @types/geojson; properties are typed per layer.
+export interface FeatureCollection<P> {
+    type: 'FeatureCollection';
+    features: Array<{
+        type: 'Feature';
+        geometry: any;
+        properties: P;
+    }>;
+}
+
+export interface RelayZoneProps {
+    island_id: number;
+    peak_margin: number;
+    area_km2: number;
+    band: number;
+    label: string;
+}
+
+export interface RelayPointProps {
+    rank: number;
+    island_id: number;
+    min_margin: number;
+    margin_a: number;
+    margin_b: number;
+}
+
+export interface RelayResult {
+    sensitivity_dbm: number;
+    node_a: string;
+    node_b: string;
+    relay_rx_gain: number;
+    zone: FeatureCollection<RelayZoneProps>;
+    points: FeatureCollection<RelayPointProps>;
+    empty: boolean;
+    warning: string | null;
+}

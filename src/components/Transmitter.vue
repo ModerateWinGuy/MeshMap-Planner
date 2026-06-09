@@ -62,7 +62,7 @@
 <script setup lang="ts">
     import * as bootstrap from 'bootstrap';
     import { useStore } from '../store.ts'
-    import { computed, onMounted, ref, watch } from 'vue';
+    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
     const store = useStore();
     const transmitter = computed(() => store.selectedNode?.transmitter);
 
@@ -137,6 +137,12 @@
             trigger: "manual",
         });
         store.initMap(); // Initialize the map
+    });
+    onUnmounted(() => {
+        // Tear the map down on unmount so a remount (Vite HMR, navigation) can't leave the
+        // old map's layers subscribed to its 'zoomanim' — that orphaned handler is what
+        // throws "map is null" in GridLayer and drifts every layer on the next zoom.
+        store.destroyMap();
     });
 
 </script>

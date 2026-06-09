@@ -33,6 +33,14 @@
                 </ul>
               </li>
               <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">Relay finder</a>
+                <ul class="dropdown-menu dropdown-menu-dark p-3">
+                  <li>
+                    <RelayFinder />
+                  </li>
+                </ul>
+              </li>
+              <li class="nav-item dropdown">
                 <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="true">Site / Transmitter</a>
                 <ul class="dropdown-menu dropdown-menu-dark p-3 show">
                   <li>
@@ -115,6 +123,7 @@ import "bootstrap/dist/css/bootstrap.min.css"
 import "bootstrap/dist/js/bootstrap.bundle.min.js"
 import NodePanel from "./components/NodePanel.vue"
 import LinkMatrix from "./components/LinkMatrix.vue"
+import RelayFinder from "./components/RelayFinder.vue"
 import Transmitter from "./components/Transmitter.vue"
 import Receiver from "./components/Receiver.vue"
 import Environment from "./components/Environment.vue"

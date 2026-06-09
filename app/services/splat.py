@@ -22,11 +22,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import rasterio
 from rasterio.enums import Resampling
-from rasterio.transform import from_bounds
+from rasterio.transform import from_bounds, from_origin
+from rasterio.features import shapes as rasterio_shapes
 from PIL import Image
 
 from app.models.CoveragePredictionRequest import CoveragePredictionRequest
 from app.models.LinkRequest import LinkRequest
+from app.models.RelayRequest import RelayRequest
 
 
 logger = logging.getLogger(__name__)
@@ -373,6 +375,404 @@ class Splat:
             except Exception as e:
                 logger.error(f"Error during point-to-point analysis: {e}")
                 raise RuntimeError(f"Error during point-to-point analysis: {e}")
+
+    def coverage_dbm_points(self, request: CoveragePredictionRequest) -> np.ndarray:
+        """
+        Run a SPLAT! coverage pass and return the per-cell received signal as an (N, 3) array
+        of ``[latitude, longitude, dbm]`` (longitude in standard WGS84, west negative).
+
+        Mirrors `coverage_prediction` (same terrain/qth/lrp setup and tile cache) but adds the
+        ``-ano`` flag so SPLAT! writes its alphanumeric per-cell signal report, which we parse
+        directly for exact dBm values instead of decoding the colorized PPM/GeoTIFF.
+
+        Note: SPLAT! samples radially from the transmitter, so the returned points are dense
+        near the site and sparser at the periphery. Callers bin these onto a coarse grid.
+        """
+        if request.radius > 100000:
+            request.radius = 100000
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            try:
+                required_tiles = Splat._calculate_required_terrain_tiles(request.lat, request.lon, request.radius)
+                for tile_name, sdf_name, sdf_hd_name in required_tiles:
+                    tile_data = self._download_terrain_tile(tile_name)
+                    sdf_data = self._convert_hgt_to_sdf(tile_data, tile_name, high_resolution=request.high_resolution)
+                    with open(os.path.join(tmpdir, sdf_hd_name if request.high_resolution else sdf_name), "wb") as sdf_file:
+                        sdf_file.write(sdf_data)
+
+                with open(os.path.join(tmpdir, "tx.qth"), "wb") as qth_file:
+                    qth_file.write(Splat._create_splat_qth("tx", request.lat, request.lon, request.tx_height))
+
+                with open(os.path.join(tmpdir, "splat.lrp"), "wb") as lrp_file:
+                    lrp_file.write(Splat._create_splat_lrp(
+                        ground_dielectric=request.ground_dielectric,
+                        ground_conductivity=request.ground_conductivity,
+                        atmosphere_bending=request.atmosphere_bending,
+                        frequency_mhz=request.frequency_mhz,
+                        radio_climate=request.radio_climate,
+                        polarization=request.polarization,
+                        situation_fraction=request.situation_fraction,
+                        time_fraction=request.time_fraction,
+                        tx_power=request.tx_power,
+                        tx_gain=request.tx_gain,
+                        system_loss=request.system_loss))
+
+                splat_command = [
+                    (self.splat_hd_binary if request.high_resolution else self.splat_binary),
+                    "-t", "tx.qth",
+                    "-L", str(request.rx_height),
+                    "-metric",
+                    "-R", str(request.radius / 1000.0),
+                    "-sc",
+                    "-gc", str(request.clutter_height),
+                    "-ngs",
+                    "-N",
+                    "-dbm",
+                    "-ano", "output.ano",
+                    "-olditm",
+                ]
+                logger.debug(f"Executing SPLAT! -ano command: {' '.join(splat_command)}")
+
+                splat_result = subprocess.run(
+                    splat_command, cwd=tmpdir, capture_output=True, text=True, check=False,
+                )
+                if splat_result.returncode != 0:
+                    raise RuntimeError(
+                        f"SPLAT! -ano execution failed with return code {splat_result.returncode}\n"
+                        f"Stdout: {splat_result.stdout}\nStderr: {splat_result.stderr}"
+                    )
+
+                with open(os.path.join(tmpdir, "output.ano"), "r") as ano_file:
+                    points = Splat._parse_splat_ano(ano_file.read())
+
+                logger.info(f"SPLAT! -ano pass produced {len(points)} signal points.")
+                return points
+
+            except Exception as e:
+                logger.error(f"Error during coverage dBm pass: {e}")
+                raise RuntimeError(f"Error during coverage dBm pass: {e}")
+
+    def relay_overlap(self, request: RelayRequest, sensitivity: float) -> dict:
+        """
+        Find the candidate relay zone between two nodes: every location that receives BOTH
+        node A and node B above the LoRa receiver sensitivity (after adding the relay's rx gain).
+
+        Runs two `coverage_dbm_points` passes, bins each onto a shared, globally-aligned coarse
+        grid (so A and B cells coincide and radial sampling gaps are filled), computes
+        `marginS = dbmS + relay_rx_gain - sensitivity` per cell, keeps cells where both margins
+        are >= 0, ranks by `min(marginA, marginB)`, and returns the zone as one GeoJSON Polygon
+        Feature per disconnected island plus the top-N suggested points.
+        """
+        points_a = self.coverage_dbm_points(Splat._coverage_request_for_node(request, request.node_a, sensitivity))
+        points_b = self.coverage_dbm_points(Splat._coverage_request_for_node(request, request.node_b, sensitivity))
+
+        # Coarse grid cell size: ~150 m hi-res, ~300 m standard, in degrees of latitude.
+        cell_m = 150.0 if request.high_resolution else 300.0
+        cell_deg = cell_m / 111320.0
+
+        gain = request.relay_rx_gain
+        bin_a = Splat._bin_points_to_margin(points_a, cell_deg, sensitivity, gain)
+        bin_b = Splat._bin_points_to_margin(points_b, cell_deg, sensitivity, gain)
+
+        empty_result = {
+            "sensitivity_dbm": round(sensitivity, 2),
+            "node_a": request.node_a.id,
+            "node_b": request.node_b.id,
+            "relay_rx_gain": gain,
+            "zone": {"type": "FeatureCollection", "features": []},
+            "points": {"type": "FeatureCollection", "features": []},
+            "empty": True,
+            "warning": "No location receives both A and B above sensitivity.",
+        }
+
+        # Zone cells: present in both passes and viable to both (margin >= 0).
+        zone_cells = {}
+        for key, (margin_a, _) in bin_a.items():
+            if key not in bin_b:
+                continue
+            margin_b, _ = bin_b[key]
+            if margin_a >= 0 and margin_b >= 0:
+                zone_cells[key] = (min(margin_a, margin_b), margin_a, margin_b)
+        if not zone_cells:
+            return empty_result
+
+        iys = [iy for (iy, ix) in zone_cells]
+        ixs = [ix for (iy, ix) in zone_cells]
+        iy_min, iy_max, ix_min, ix_max = min(iys), max(iys), min(ixs), max(ixs)
+        rows = iy_max - iy_min + 1
+        cols = ix_max - ix_min + 1
+
+        grid_mm = np.full((rows, cols), np.nan, dtype=np.float64)
+        grid_ma = np.full((rows, cols), np.nan, dtype=np.float64)
+        grid_mb = np.full((rows, cols), np.nan, dtype=np.float64)
+        for (iy, ix), (mm, ma, mb) in zone_cells.items():
+            r = iy_max - iy  # north (largest iy) at row 0
+            c = ix - ix_min
+            grid_mm[r, c] = mm
+            grid_ma[r, c] = ma
+            grid_mb[r, c] = mb
+
+        west = ix_min * cell_deg
+        north = (iy_max + 1) * cell_deg
+        transform = from_origin(west, north, cell_deg, cell_deg)
+
+        island_features, island_labels = Splat._island_polygons(
+            grid_mm, transform, request.band_edges_db, cell_deg
+        )
+        point_features = Splat._rank_points(
+            grid_mm, grid_ma, grid_mb, island_labels, transform, request.top_n
+        )
+
+        return {
+            "sensitivity_dbm": round(sensitivity, 2),
+            "node_a": request.node_a.id,
+            "node_b": request.node_b.id,
+            "relay_rx_gain": gain,
+            "zone": {"type": "FeatureCollection", "features": island_features},
+            "points": {"type": "FeatureCollection", "features": point_features},
+            "empty": False,
+            "warning": None,
+        }
+
+    @staticmethod
+    def _coverage_request_for_node(request: RelayRequest, node, sensitivity: float) -> CoveragePredictionRequest:
+        """Build a coverage request for one relay endpoint, reusing the shared relay params.
+
+        The relay receiver gain is applied to the margin in `relay_overlap` (SPLAT! coverage
+        does not apply rx_gain), so it is NOT baked into the SPLAT! run here. The signal
+        threshold only affects the (ignored) PPM, not the -ano output.
+        """
+        return CoveragePredictionRequest(
+            lat=node.lat,
+            lon=node.lon,
+            tx_height=node.height,
+            tx_power=node.tx_power,
+            tx_gain=node.tx_gain,
+            frequency_mhz=node.frequency_mhz,
+            rx_height=2.0,  # hypothetical relay antenna height (m AGL)
+            rx_gain=request.relay_rx_gain,  # unused by coverage; margin gain added separately
+            signal_threshold=sensitivity - request.relay_rx_gain,
+            clutter_height=request.clutter_height,
+            ground_dielectric=request.ground_dielectric,
+            ground_conductivity=request.ground_conductivity,
+            atmosphere_bending=request.atmosphere_bending,
+            radius=request.search_radius_m,
+            system_loss=node.system_loss,
+            radio_climate=request.radio_climate,
+            polarization=request.polarization,
+            situation_fraction=request.situation_fraction,
+            time_fraction=request.time_fraction,
+            colormap="plasma",  # ignored (we parse -ano, not the PPM)
+            min_dbm=-130.0,
+            max_dbm=-80.0,
+            high_resolution=request.high_resolution,
+        )
+
+    @staticmethod
+    def _parse_splat_ano(text: str) -> np.ndarray:
+        """
+        Parse a SPLAT! ``-ano`` alphanumeric report into an (N, 3) array of
+        ``[latitude, longitude, dbm]`` with longitude converted to standard WGS84 (west negative).
+
+        The file begins with two header lines (``max_west, min_west`` / ``max_north, min_north``,
+        each containing a ``;`` comment) followed by data rows
+        ``lat, lon, azimuth, elevation, signal`` where ``lon`` is SPLAT!'s west-positive degrees
+        and a row may end with a `` *`` marker. Header/blank/short rows are skipped.
+        """
+        out = []
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or ";" in line:
+                continue
+            if line.endswith("*"):
+                line = line[:-1].strip()
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) < 5:
+                continue
+            try:
+                lat = float(parts[0])
+                splat_lon = float(parts[1])
+                dbm = float(parts[4])
+            except ValueError:
+                continue
+            # SPLAT! stores west longitude as a positive number (0..360); convert back.
+            lon = -splat_lon if splat_lon <= 180.0 else 360.0 - splat_lon
+            out.append((lat, lon, dbm))
+        if not out:
+            return np.empty((0, 3), dtype=np.float64)
+        return np.array(out, dtype=np.float64)
+
+    @staticmethod
+    def _bin_points_to_margin(points: np.ndarray, cell_deg: float, sensitivity: float, gain: float) -> dict:
+        """
+        Bin radial signal points onto a globally-aligned coarse grid, keeping the strongest
+        signal per cell. Returns ``{(iy, ix): (margin_db, dbm)}`` where ``iy = floor(lat/cell)``
+        and ``ix = floor(lon/cell)`` (so two passes share the same cells), and
+        ``margin = dbm + gain - sensitivity``.
+        """
+        binned: dict = {}
+        for lat, lon, dbm in points:
+            iy = int(math.floor(lat / cell_deg))
+            ix = int(math.floor(lon / cell_deg))
+            key = (iy, ix)
+            prev = binned.get(key)
+            if prev is None or dbm > prev[1]:
+                binned[key] = (dbm + gain - sensitivity, dbm)
+        return binned
+
+    @staticmethod
+    def _label_components(mask: np.ndarray) -> Tuple[np.ndarray, int]:
+        """Label 4-connected components of a boolean mask (dependency-free flood fill).
+
+        Returns ``(labels, count)`` where background is -1 and islands are 0..count-1.
+        """
+        rows, cols = mask.shape
+        labels = np.full((rows, cols), -1, dtype=np.int32)
+        count = 0
+        for r0 in range(rows):
+            for c0 in range(cols):
+                if not mask[r0, c0] or labels[r0, c0] != -1:
+                    continue
+                stack = [(r0, c0)]
+                labels[r0, c0] = count
+                while stack:
+                    r, c = stack.pop()
+                    for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        nr, nc = r + dr, c + dc
+                        if 0 <= nr < rows and 0 <= nc < cols and mask[nr, nc] and labels[nr, nc] == -1:
+                            labels[nr, nc] = count
+                            stack.append((nr, nc))
+                count += 1
+        return labels, count
+
+    @staticmethod
+    def _margin_band(peak: float, band_edges: List[float]) -> int:
+        """Band index for a margin: number of ascending edges it meets or exceeds, minus one."""
+        band = sum(1 for e in band_edges if peak >= e) - 1
+        return max(band, 0)
+
+    @staticmethod
+    def _band_label(band: int, band_edges: List[float]) -> str:
+        if band >= len(band_edges) - 1:
+            return f">{band_edges[-1]:.0f} dB"
+        return f"{band_edges[band]:.0f}–{band_edges[band + 1]:.0f} dB"
+
+    @staticmethod
+    def _island_polygons(grid_mm: np.ndarray, transform, band_edges: List[float], cell_deg: float
+                         ) -> Tuple[List[dict], np.ndarray]:
+        """
+        Turn the min-margin grid into one GeoJSON Polygon Feature per disconnected island,
+        coloured by the island's peak margin band. Returns ``(features, island_labels)`` where
+        ``island_labels`` is an int grid (-1 background) used by `_rank_points`.
+        """
+        mask = ~np.isnan(grid_mm)
+        labels, count = Splat._label_components(mask)
+        features: List[dict] = []
+        for island_id in range(count):
+            island_mask = labels == island_id
+            cells = grid_mm[island_mask]
+            peak = float(np.max(cells))
+            band = Splat._margin_band(peak, band_edges)
+            # Mean latitude of the island for an approximate area in km^2.
+            rows_idx = np.where(island_mask)[0]
+            north = transform.f
+            mean_lat = north + (rows_idx.mean() + 0.5) * transform.e  # transform.e is negative
+            cell_w_km = cell_deg * 111.320 * math.cos(math.radians(mean_lat))
+            cell_h_km = cell_deg * 110.574
+            area_km2 = float(island_mask.sum()) * cell_w_km * cell_h_km
+
+            geoms = [
+                geom for geom, val in rasterio_shapes(
+                    island_mask.astype(np.uint8), mask=island_mask, transform=transform, connectivity=4
+                ) if val == 1
+            ]
+            if not geoms:
+                continue
+            if len(geoms) == 1:
+                geometry = geoms[0]
+            else:
+                geometry = {"type": "MultiPolygon", "coordinates": [g["coordinates"] for g in geoms]}
+            features.append({
+                "type": "Feature",
+                "geometry": geometry,
+                "properties": {
+                    "island_id": island_id,
+                    "peak_margin": round(peak, 2),
+                    "area_km2": round(area_km2, 3),
+                    "band": band,
+                    "label": Splat._band_label(band, band_edges),
+                },
+            })
+        # Strongest island first for stable, useful ordering.
+        features.sort(key=lambda f: f["properties"]["peak_margin"], reverse=True)
+        return features, labels
+
+    @staticmethod
+    def _rank_points(grid_mm: np.ndarray, grid_ma: np.ndarray, grid_mb: np.ndarray,
+                     island_labels: np.ndarray, transform, top_n: int) -> List[dict]:
+        """
+        Select suggested relay points: the single best cell of EACH island first (sorted by
+        margin), then, if fewer islands than `top_n`, fill remaining slots with the next-best
+        cells globally, keeping a minimum separation so fillers don't sit on a chosen peak.
+        """
+        count = int(island_labels.max()) + 1 if island_labels.size else 0
+
+        def cell_lonlat(r: int, c: int) -> Tuple[float, float]:
+            lon, lat = transform * (c + 0.5, r + 0.5)
+            return lon, lat
+
+        chosen: List[Tuple[int, int]] = []  # (row, col)
+        island_peaks: List[Tuple[float, int, int, int]] = []  # (mm, island_id, r, c)
+        for island_id in range(count):
+            ys, xs = np.where(island_labels == island_id)
+            vals = grid_mm[ys, xs]
+            k = int(np.argmax(vals))
+            island_peaks.append((float(vals[k]), island_id, int(ys[k]), int(xs[k])))
+        island_peaks.sort(key=lambda t: t[0], reverse=True)
+
+        features: List[dict] = []
+        for mm, island_id, r, c in island_peaks:
+            if len(features) >= top_n:
+                break
+            chosen.append((r, c))
+            lon, lat = cell_lonlat(r, c)
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [round(lon, 6), round(lat, 6)]},
+                "properties": {
+                    "rank": len(features) + 1,
+                    "island_id": island_id,
+                    "min_margin": round(mm, 2),
+                    "margin_a": round(float(grid_ma[r, c]), 2),
+                    "margin_b": round(float(grid_mb[r, c]), 2),
+                },
+            })
+
+        # Fill remaining slots with next-best cells anywhere, spaced apart.
+        if len(features) < top_n:
+            min_sep = 3  # cells
+            ys, xs = np.where(~np.isnan(grid_mm))
+            order = np.argsort(grid_mm[ys, xs])[::-1]
+            for idx in order:
+                if len(features) >= top_n:
+                    break
+                r, c = int(ys[idx]), int(xs[idx])
+                if any(abs(r - rr) < min_sep and abs(c - cc) < min_sep for rr, cc in chosen):
+                    continue
+                chosen.append((r, c))
+                lon, lat = cell_lonlat(r, c)
+                features.append({
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [round(lon, 6), round(lat, 6)]},
+                    "properties": {
+                        "rank": len(features) + 1,
+                        "island_id": int(island_labels[r, c]),
+                        "min_margin": round(float(grid_mm[r, c]), 2),
+                        "margin_a": round(float(grid_ma[r, c]), 2),
+                        "margin_b": round(float(grid_mb[r, c]), 2),
+                    },
+                })
+        return features
 
     @staticmethod
     def _calculate_p2p_terrain_tiles(
