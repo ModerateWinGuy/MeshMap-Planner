@@ -3,8 +3,8 @@
     <nav class="navbar navbar-dark bg-dark fixed-top">
       <div class="container-fluid">
         <a class="navbar-brand" href="#">
-          <img src="/logo.svg" alt="Meshtastic Logo" width="30" height="30" class="d-inline">
-          Meshtastic Site Planner
+          <img src="/logo.svg" alt="MeshMap Planner Logo" width="30" height="30" class="d-inline">
+          MeshMap Planner
         </a>
         <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasDarkNavbar" aria-controls="offcanvasDarkNavbar" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>

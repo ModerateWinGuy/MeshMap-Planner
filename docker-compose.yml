@@ -8,9 +8,9 @@ services:
     environment:
       - HOME=/root
       - TERM=xterm
-      - VIRTUAL_HOST=site.meshtastic.org
+      - VIRTUAL_HOST=your-domain.example
       - VIRTUAL_PORT=8080
-      - LETSENCRYPT_HOST=site.meshtastic.org
+      - LETSENCRYPT_HOST=your-domain.example
     mem_limit: 12G
     ports:
       - 8080:8080
