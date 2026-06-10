@@ -9,9 +9,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@lucide/vue": "^1.17.0",
     "@vueuse/core": "^12.8.2",
     "bootstrap": "^5.3.8",
     "georaster": "^1.6.0",
+    "lucide": "^1.17.0",
     "maplibre-gl": "^5.24.0",
     "pinia": "^2.3.1",
     "randanimal": "^1.0.4",

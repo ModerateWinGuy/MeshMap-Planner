@@ -5,12 +5,156 @@ body {
   padding: 0;
 }
 
-#map {
+/* ── Theme ────────────────────────────────────────────────────────────────────
+   Dark mode with a warm red/orange accent. These two accents stand in for
+   Bootstrap's green (success) and blue (primary): orange is the primary
+   call-to-action, red marks active/selected toggles. They're defined once here and
+   fed into Bootstrap's per-variant button variables, so every existing
+   .btn-success / .btn-primary / .bg-primary in the markup recolours without
+   touching each call site. Data-viz colours (link-margin heatmap, coverage bands,
+   relay legend) are deliberately left on their red→green scale — there green still
+   reads as "good signal", which is meaning, not theme. */
+:root {
+  --accent-orange: #e8590c;
+  --accent-orange-hover: #cf4f0b;
+  --accent-orange-active: #b6450a;
+  --accent-orange-rgb: 232, 89, 12;
+
+  --accent-red: #c92a2a;
+  --accent-red-hover: #b02525;
+  --accent-red-active: #981f1f;
+  --accent-red-rgb: 201, 42, 42;
+
+  /* Brighter orange for the brand mark and the selected node pin, so they stay
+     legible on the near-black navbar and over busy basemaps. */
+  --accent-bright: #fd7e14;
+}
+
+/* Primary call-to-action buttons (were Bootstrap green). */
+.btn-success {
+  --bs-btn-bg: var(--accent-orange);
+  --bs-btn-border-color: var(--accent-orange);
+  --bs-btn-hover-bg: var(--accent-orange-hover);
+  --bs-btn-hover-border-color: var(--accent-orange-hover);
+  --bs-btn-active-bg: var(--accent-orange-active);
+  --bs-btn-active-border-color: var(--accent-orange-active);
+  --bs-btn-disabled-bg: var(--accent-orange);
+  --bs-btn-disabled-border-color: var(--accent-orange);
+  --bs-btn-focus-shadow-rgb: var(--accent-orange-rgb);
+}
+
+/* Active toggles and secondary actions (were Bootstrap blue). */
+.btn-primary {
+  --bs-btn-bg: var(--accent-red);
+  --bs-btn-border-color: var(--accent-red);
+  --bs-btn-hover-bg: var(--accent-red-hover);
+  --bs-btn-hover-border-color: var(--accent-red-hover);
+  --bs-btn-active-bg: var(--accent-red-active);
+  --bs-btn-active-border-color: var(--accent-red-active);
+  --bs-btn-disabled-bg: var(--accent-red);
+  --bs-btn-disabled-border-color: var(--accent-red);
+  --bs-btn-focus-shadow-rgb: var(--accent-red-rgb);
+}
+
+/* Primary-tinted surfaces (e.g. the dBm badges). */
+.bg-primary {
+  background-color: var(--accent-red) !important;
+}
+
+/* Selected row in the Nodes panel list (was Bootstrap blue). Red to match the other active/selected
+   states (the basemap / 3D / Shade / Lock toggles) — "red = active" is the shared convention. */
+.list-group-item.active {
+  --bs-list-group-active-bg: var(--accent-red);
+  --bs-list-group-active-border-color: var(--accent-red);
+}
+
+/* Brand mark in the navbar — the Lucide icon inherits currentColor. */
+.brand-icon {
+  color: var(--accent-bright);
+}
+
+/* App shell: fixed navbar on top, then a flex row of the docked sidebar + the map. The map is no
+   longer full-viewport — it shares the row with the always-visible sidebar, so it flex-grows to
+   fill whatever width is left. padding-top clears the fixed navbar. */
+.content-row {
+  display: flex;
   height: 100vh;
+  padding-top: 56px;
+  box-sizing: border-box;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 340px;
+  flex: 0 0 340px;
+  overflow: hidden;
+  padding: 0.75rem;
+}
+
+/* The mode-switched panels scroll on their own so long content (e.g. the link matrix) doesn't push
+   the pinned results list off-screen. */
+.sidebar .mode-area {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  /* overflow-y:auto makes the browser compute overflow-x to auto as well. The panels use bare
+     Bootstrap .row elements whose negative gutter margins spill ~0.25–0.75rem past each edge (the
+     columns themselves stay within the panel), which would otherwise raise a stray horizontal
+     scrollbar. The column content fits the sidebar width, so clip that phantom margin rather than
+     scroll it. The link-matrix table keeps its own .table-responsive scroller, so wide tables that
+     genuinely need horizontal scrolling are unaffected. */
+  overflow-x: hidden;
+}
+
+/* The computed-coverage results stay pinned below the mode area, visible in every mode. */
+.sidebar .results-pinned {
+  flex: 0 0 auto;
+}
+
+#map {
+  flex: 1 1 auto;
+  height: 100%;
   margin: 0;
   padding: 0;
 }
 
 .spinner-border-sm {
     margin-right: 0.5rem; /* Optional: Add spacing between spinner and text */
+}
+
+/* Top-bar mode toggle, styled as an iOS-style segmented control: a rounded translucent track with
+   the active segment shown as a solid white pill. These rules override Bootstrap's btn-group
+   borders/dividers and square inner corners so the group reads as one unified pill. */
+.mode-toggle {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 4px;
+  gap: 2px;
+}
+
+.mode-toggle .btn {
+  margin-left: 0; /* cancel btn-group's overlap so segments sit side by side inside the track */
+  border: 0;
+  border-radius: 999px; /* every segment is its own pill (btn-group would square the inner corners) */
+  padding: 0.4rem 1.15rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.75);
+  background: transparent;
+  box-shadow: none;
+}
+
+.mode-toggle .btn:hover {
+  color: #fff;
+}
+
+/* Active segment: the solid white pill. */
+.mode-toggle .btn-check:checked + .btn {
+  color: #212529;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.mode-toggle .btn-check:focus-visible + .btn {
+  outline: 2px solid rgba(255, 255, 255, 0.65);
+  outline-offset: 2px;
 }

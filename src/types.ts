@@ -1,3 +1,6 @@
+// Which task-focused panel the sidebar shows; persisted to localStorage as the active UI mode.
+export type UiMode = 'nodes' | 'radio' | 'coverage' | 'linkfinder' | 'settings';
+
 export interface Site {
     params: SplatParams;
     taskId: string;

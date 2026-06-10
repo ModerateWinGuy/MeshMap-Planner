@@ -1,0 +1,57 @@
+<template>
+  <!-- Basemap picker + 3D terrain / relief-shading toggles. Buttons rather than a <select>: a native
+       select dropdown over a WebGL canvas gets closed instantly by focus handling. This is the shared
+       control body — BasemapControl wraps it as the floating on-map overlay, and Settings renders it
+       inline in the sidebar. -->
+  <div class="btn-group-vertical shadow w-100" role="group" aria-label="Basemap">
+    <button
+      v-for="b in BASEMAPS"
+      :key="b.id"
+      type="button"
+      class="btn btn-sm text-start"
+      :class="store.activeBasemap === b.id ? 'btn-primary' : 'btn-light'"
+      @click="store.setBasemap(b.id)"
+    >
+      {{ b.label }}
+    </button>
+  </div>
+  <button
+    type="button"
+    class="btn btn-sm shadow w-100 mt-2"
+    :class="store.terrainEnabled ? 'btn-primary' : 'btn-light'"
+    :aria-pressed="store.terrainEnabled"
+    title="Toggle 3D terrain (tilt the map to see relief)"
+    @click="store.toggleTerrain()"
+  >
+    3D
+  </button>
+  <button
+    type="button"
+    class="btn btn-sm shadow w-100 mt-2"
+    :class="store.hillshadeEnabled ? 'btn-primary' : 'btn-light'"
+    :aria-pressed="store.hillshadeEnabled"
+    title="Toggle terrain shading (relief / ambient-occlusion look). Works in flat and 3D view."
+    @click="store.toggleHillshade()"
+  >
+    Shade
+  </button>
+  <button
+    type="button"
+    class="btn btn-sm shadow w-100 mt-2 d-flex align-items-center justify-content-center gap-1"
+    :class="store.nodesLocked ? 'btn-primary' : 'btn-light'"
+    :aria-pressed="store.nodesLocked"
+    :title="store.nodesLocked
+      ? 'Nodes locked in place — click to allow dragging'
+      : 'Lock nodes in place to prevent accidental dragging'"
+    @click="store.toggleNodesLock()"
+  >
+    <component :is="store.nodesLocked ? Lock : LockOpen" :size="16" />
+    {{ store.nodesLocked ? 'Nodes Locked' : 'Lock Nodes' }}
+  </button>
+</template>
+
+<script setup lang="ts">
+import { useStore, BASEMAPS } from '../store.ts'
+import { Lock, LockOpen } from '@lucide/vue'
+const store = useStore()
+</script>

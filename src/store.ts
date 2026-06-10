@@ -4,7 +4,7 @@ import { watch, markRaw } from 'vue';
 import { randanimalSync } from 'randanimal';
 import maplibregl from 'maplibre-gl';
 import parseGeoraster from 'georaster';
-import { type Site, type SplatParams, type Node, type MatrixResult, type RelayResult } from './types.ts';
+import { type Site, type SplatParams, type Node, type MatrixResult, type RelayResult, type UiMode } from './types.ts';
 import { cloneObject, escapeHtml } from './utils.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
 
@@ -81,14 +81,18 @@ function linkColor(margin: number | null): string {
   return `rgb(${r}, ${g}, 50)`;
 }
 
-// Build the initial MapLibre style: the four raster basemaps (only the first visible) plus the
-// AWS Terrarium raster-dem used for 3D terrain. Overlay sources/layers are added later, on 'load'.
-function buildStyle(): any {
+// Build the initial MapLibre style: the four raster basemaps (the persisted one visible) plus the
+// AWS Terrarium raster-dem for 3D terrain, draped via the style's `terrain` when enabled so both
+// render on the first frame. Overlay sources/layers are added later, on 'load'.
+function buildStyle(activeBasemap: string, terrainEnabled: boolean, terrainExaggeration: number): any {
   const sources: Record<string, any> = {};
   const layers: any[] = [];
-  BASEMAPS.forEach((b, i) => {
+  // Fall back to the first basemap if the persisted id is unknown, so a stale value can't leave
+  // every basemap hidden (a blank map).
+  const visibleId = BASEMAPS.some((b) => b.id === activeBasemap) ? activeBasemap : BASEMAPS[0].id;
+  BASEMAPS.forEach((b) => {
     sources[b.id] = { type: 'raster', tiles: b.tiles, tileSize: 256, attribution: b.attribution, maxzoom: b.maxzoom };
-    layers.push({ id: `basemap-${b.id}`, type: 'raster', source: b.id, layout: { visibility: i === 0 ? 'visible' : 'none' } });
+    layers.push({ id: `basemap-${b.id}`, type: 'raster', source: b.id, layout: { visibility: b.id === visibleId ? 'visible' : 'none' } });
   });
   sources['terrain-dem'] = {
     type: 'raster-dem',
@@ -99,7 +103,12 @@ function buildStyle(): any {
     maxzoom: 15,
     attribution: 'Terrain: AWS / Mapzen / SRTM',
   };
-  return { version: 8, sources, layers };
+  const style: any = { version: 8, sources, layers };
+  // Top-level `terrain` drapes the map over the DEM; runtime toggles go through setTerrain.
+  if (terrainEnabled) {
+    style.terrain = { source: 'terrain-dem', exaggeration: terrainExaggeration };
+  }
+  return style;
 }
 
 // Decode a colormap PNG (public/colormaps/<scale>.png) into a 256-entry RGBA LUT. Only used as a
@@ -296,6 +305,8 @@ const useStore = defineStore('store', {
       nodeMarkers: {} as Record<string, maplibregl.Marker>,
       dragging: false,
       activeBasemap: useLocalStorage('activeBasemap', 'osm'),
+      // Which sidebar panel the top-bar mode toggle shows. Persisted so the chosen mode survives reload.
+      activeMode: useLocalStorage<UiMode>('activeMode', 'nodes'),
       localSites: [] as Site[], // in-memory only (raster/canvas are not JSON-serializable)
       simulationState: 'idle',
       // Live progress for the active job (coverage/matrix/relay), polled from /status.
@@ -315,6 +326,9 @@ const useStore = defineStore('store', {
       hillshadeExaggeration: useLocalStorage('hillshadeExaggeration', 0.3),
       nodes: useLocalStorage<Node[]>('nodes', [seedNode()]),
       selectedNodeId: useLocalStorage<string | null>('selectedNodeId', null),
+      // When set, node markers are non-draggable so they can't be moved by accident. Persisted so
+      // the lock survives a reload. Manual lat/lon edits in the panel still apply either way.
+      nodesLocked: useLocalStorage('nodesLocked', false),
       // shared / global params (per-node radio lives on the nodes themselves)
       splatParams: useLocalStorage('splatParams', {
         lora: {
@@ -371,6 +385,10 @@ const useStore = defineStore('store', {
       this.selectedNodeId = id;
       this.renderNodeMarkers();
     },
+    toggleNodesLock() {
+      this.nodesLocked = !this.nodesLocked;
+      this.renderNodeMarkers(); // re-render flips setDraggable on every existing marker
+    },
     deleteNode(id: string) {
       const idx = this.nodes.findIndex((n) => n.id === id);
       if (idx === -1) {
@@ -410,7 +428,7 @@ const useStore = defineStore('store', {
         const selected = node.id === selectedId;
         let marker = this.nodeMarkers[node.id];
         if (!marker) {
-          const el = makePinElement(selected);
+          const el = makePinElement(selected, node.transmitter.name);
           // MapLibre markers have no click event; listen on the element. stopPropagation keeps the
           // pin click from also firing the map click used by "Set with map".
           el.addEventListener('click', (e) => {
@@ -418,7 +436,7 @@ const useStore = defineStore('store', {
             this.selectNode(node.id);
           });
           marker = markRaw(
-            new maplibregl.Marker({ element: el, draggable: true, anchor: 'bottom' })
+            new maplibregl.Marker({ element: el, draggable: !this.nodesLocked, anchor: 'bottom' })
               .setLngLat(lngLat)
               // setText (not HTML) closes the latent XSS from Leaflet's bindPopup(name).
               .setPopup(new maplibregl.Popup({ offset: 30 }).setText(node.transmitter.name))
@@ -435,7 +453,8 @@ const useStore = defineStore('store', {
           this.nodeMarkers[node.id] = marker;
         } else {
           marker.setLngLat(lngLat);
-          stylePinElement(marker.getElement(), selected); // re-style in place; don't churn markers
+          marker.setDraggable(!this.nodesLocked); // re-render is the only path that toggles the lock
+          stylePinElement(marker.getElement(), selected, node.transmitter.name); // re-style in place; don't churn markers
           marker.getPopup()?.setText(node.transmitter.name);
         }
       }
@@ -521,8 +540,8 @@ const useStore = defineStore('store', {
       this.nodeMarkers = {};
     },
     initMap() {
-      // Guard against re-initialising onto a live map: initMap runs from Transmitter's onMounted,
-      // which fires again on a remount. Tear the old map down first so its WebGL context and
+      // Guard against re-initialising onto a live map: initMap runs from App's onMounted, which
+      // fires again on a remount (Vite HMR). Tear the old map down first so its WebGL context and
       // watchers don't leak.
       this.destroyMap();
 
@@ -537,10 +556,13 @@ const useStore = defineStore('store', {
       this.map = markRaw(
         new maplibregl.Map({
           container: 'map',
-          style: buildStyle(),
+          style: buildStyle(this.activeBasemap, this.terrainEnabled, this.terrainExaggeration),
           center,
           zoom: 10,
           maxPitch: 85, // unlocks tilt/rotate for reading hill elevation in 3D
+          // A top-down view renders identically to flat (see toggleTerrain), so open tilted when 3D
+          // is on to make the relief visible.
+          pitch: this.terrainEnabled ? 60 : 0,
         })
       );
       // The compass gives tilt/rotate handles; visualizePitch shows the current pitch on the control.
@@ -551,22 +573,22 @@ const useStore = defineStore('store', {
       }
 
       const map = this.map as maplibregl.Map; // just assigned above; never undefined here
-      // All source/layer/terrain setup must run after the style loads — MapLibre rejects
-      // addSource/addLayer/setTerrain before then. On a remount the new map fires 'load' again and
-      // restores every overlay from the persisted in-memory state.
+      // Source/layer setup must run after the style loads — MapLibre rejects addSource/addLayer
+      // before then. On a remount the new map fires 'load' again and restores every overlay from the
+      // persisted in-memory state.
       map.on('load', () => {
         if (this.map !== map) {
           return; // a newer initMap superseded this map
         }
         this.setupOverlays();
-        this.setBasemap(this.activeBasemap);
-        if (this.terrainEnabled) {
-          this.applyTerrain();
-        }
         this.renderNodeMarkers();
         this.redrawSites();
         this.redrawLinks();
         this.redrawRelay();
+        // The map shares the row with the docked sidebar, so its container is narrower than the
+        // viewport. Init usually reads the right size, but resize once here in case the flex layout
+        // settled a frame after the canvas was created.
+        map.resize();
       });
 
       // Markers can render immediately; the rest waits for 'load'.
@@ -621,7 +643,7 @@ const useStore = defineStore('store', {
           'hillshade-illumination-anchor': 'map',
           // Shadows only: the default white highlight brightens sunlit slopes, which washes out
           // solid-colour basemaps. Transparent highlight leaves just the darkening.
-          'hillshade-highlight-color': 'rgba(255, 255, 255, 0.18)',
+          'hillshade-highlight-color': 'rgba(255, 248, 227, 0.48)',
         },
       } as any);
 
@@ -696,7 +718,10 @@ const useStore = defineStore('store', {
     setBasemap(id: string) {
       this.activeBasemap = id;
       const map = this.map as maplibregl.Map | undefined;
-      if (!map || !map.isStyleLoaded()) {
+      // Not gated on isStyleLoaded(): it reads false while source tiles are still streaming (e.g.
+      // just after 'load'), and setLayoutProperty only needs the layer to exist — which the
+      // per-layer getLayer check below ensures.
+      if (!map) {
         return;
       }
       // Overlays keep a fixed z-order via beforeId, so switching the basemap never disturbs them.
@@ -741,7 +766,9 @@ const useStore = defineStore('store', {
     },
     applyTerrain() {
       const map = this.map as maplibregl.Map | undefined;
-      if (!map || !map.isStyleLoaded()) {
+      // Not gated on isStyleLoaded() (false while tiles stream, as in setBasemap); setTerrain only
+      // needs the DEM source to exist, so gate on that instead.
+      if (!map || !map.getSource('terrain-dem')) {
         return;
       }
       map.setTerrain(this.terrainEnabled ? { source: 'terrain-dem', exaggeration: this.terrainExaggeration } : null);
