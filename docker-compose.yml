@@ -5,12 +5,24 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./ui:/app/ui
+      # Drop hand-prepared SPLAT! .sdf tiles here to override any source (read-only in container).
+      - ./local_sdf:/app/local_sdf:ro
+      # Persist the terrain tile/SDF cache on the host so live-fetched LINZ cells and SRTM tiles
+      # survive restarts AND image rebuilds — the first build of a 1-degree NZ cell is the slow
+      # step, so don't repeat it. A host bind mount (not a named volume) keeps the cache as a
+      # plain, inspectable, backup-able folder you control.
+      - ./splat_cache:/app/.splat_tiles
     environment:
       - HOME=/root
       - TERM=xterm
       - VIRTUAL_HOST=your-domain.example
       - VIRTUAL_PORT=8080
       - LETSENCRYPT_HOST=your-domain.example
+      # Terrain (DEM) provider chain, in precedence order. Each provider reads its own config.
+      - DEM_PROVIDERS=local,linz,srtm
+      - LOCAL_SDF_DIR=/app/local_sdf
+      - SPLAT_CACHE_DIR=/app/.splat_tiles
+      - SPLAT_PATH=/app/splat
     mem_limit: 12G
     ports:
       - 8080:8080

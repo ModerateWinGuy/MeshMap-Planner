@@ -51,6 +51,10 @@ class RelayRequest(BaseModel):
     situation_fraction: Optional[float] = Field(50, gt=1, le=100, description="Fraction of situations (default 50).")
     time_fraction: Optional[float] = Field(90, gt=1, le=100, description="Fraction of time (default 90).")
     high_resolution: bool = Field(False, description="Use 1-arcsecond / 30 m terrain tiles.")
+    terrain_source: Literal["dem", "dsm"] = Field(
+        "dem", description="Terrain product where a high-res source offers it (e.g. NZ LINZ): 'dem' "
+        "(bare earth) or 'dsm' (surface). Ignored by SRTM."
+    )
 
     @model_validator(mode="after")
     def _require_sensitivity_basis(self) -> "RelayRequest":

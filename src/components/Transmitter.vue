@@ -111,7 +111,7 @@
     const centerMapOnTransmitter = () => {
         const tx = transmitter.value;
         if (tx && !isNaN(tx.tx_lat) && !isNaN(tx.tx_lon)) {
-            store.map!.setView([tx.tx_lat, tx.tx_lon], store.map!.getZoom()); // Center map on the coordinates
+            store.map!.flyTo({ center: [tx.tx_lon, tx.tx_lat] }); // [lng, lat]; keeps current zoom
         } else {
             alert("Please enter valid Latitude and Longitude values.");
         }
@@ -126,8 +126,8 @@
             return;
         }
         popover.show();
-        store.map!.once("click", function (e: any) {
-            const { lat, lng } = e.latlng; // Get clicked location coordinates
+        store.map!.once("click", (e: any) => {
+            const { lng, lat } = e.lngLat; // MapLibre click coords are e.lngLat, not e.latlng
             store.updateNodeCoords(node.id, lat, lng); // Update the store (marker follows via watch)
             popover.hide(); // Hide the popover
         });

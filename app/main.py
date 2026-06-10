@@ -18,6 +18,8 @@ from fastapi.staticfiles import StaticFiles
 from uuid import uuid4
 from itertools import combinations
 from app.services.splat import Splat
+from app.services.dem_providers import build_providers
+from app.services.progress import set_progress_sink, clear_progress_sink, report as report_progress
 from app.services.link_budget import receiver_sensitivity_dbm
 from app.models.CoveragePredictionRequest import CoveragePredictionRequest
 from app.models.LinkRequest import LinkRequest
@@ -26,7 +28,7 @@ from app.models.RelayRequest import RelayRequest
 import json
 import logging
 import io
-# import os
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,11 +36,36 @@ logger = logging.getLogger(__name__)
 # Initialize Redis client for binary data
 redis_client = redis.StrictRedis(host="redis", port=6379, decode_responses=False)
 
+# Assemble the terrain (DEM) provider chain from config. DEM_PROVIDERS is the only knob: it names
+# the providers and their precedence (e.g. "local,linz,srtm"); each provider reads its own config
+# from the environment. main.py never references a concrete provider class.
+_provider_order = [n.strip() for n in os.environ.get("DEM_PROVIDERS", "local,linz,srtm").split(",") if n.strip()]
+dem_providers = build_providers(_provider_order, os.environ)
+
 # Initialize SPLAT service
-splat_service = Splat(splat_path="/app/splat")
+splat_service = Splat(splat_path=os.environ.get("SPLAT_PATH", "/app/splat"), dem_providers=dem_providers)
 
 # Initialize FastAPI app
 app = FastAPI()
+
+
+def _progress_sink(task_id: str):
+    """Build a progress sink that publishes job progress to Redis under `{task_id}:progress`.
+
+    Keeps the last known fraction so steps that only update the message (fraction=None) don't make
+    the bar jump backwards. Read back by GET /status and rendered by the frontend.
+    """
+    state = {"fraction": 0.0}
+
+    def sink(message: str, fraction=None):
+        if fraction is not None:
+            state["fraction"] = fraction
+        redis_client.setex(
+            f"{task_id}:progress", 3600,
+            json.dumps({"message": message, "fraction": state["fraction"]}),
+        )
+
+    return sink
 
 # Add CORS middleware to allow requests from your frontend
 app.add_middleware(
@@ -66,6 +93,7 @@ def run_splat(task_id: str, request: CoveragePredictionRequest):
         Exception: If SPLAT! fails during execution.
     """
     try:
+        set_progress_sink(_progress_sink(task_id))
         logger.info(f"Starting SPLAT! coverage prediction for task {task_id}.")
         geotiff_data = splat_service.coverage_prediction(request)
 
@@ -79,6 +107,8 @@ def run_splat(task_id: str, request: CoveragePredictionRequest):
         redis_client.setex(f"{task_id}:status", 3600, "failed")
         redis_client.setex(f"{task_id}:error", 3600, str(e))
         raise
+    finally:
+        clear_progress_sink()
 
 def _link_request_for_pair(tx: MatrixNode, rx: MatrixNode, request: MatrixRequest) -> LinkRequest:
     """Build a LinkRequest for the directed pair tx -> rx, applying the matrix's shared params."""
@@ -98,6 +128,7 @@ def _link_request_for_pair(tx: MatrixNode, rx: MatrixNode, request: MatrixReques
         situation_fraction=request.situation_fraction,
         time_fraction=request.time_fraction,
         high_resolution=request.high_resolution,
+        terrain_source=request.terrain_source,
     )
 
 def run_matrix(task_id: str, request: MatrixRequest):
@@ -109,6 +140,7 @@ def run_matrix(task_id: str, request: MatrixRequest):
     rather than failing the whole matrix.
     """
     try:
+        set_progress_sink(_progress_sink(task_id))
         logger.info(f"Starting link matrix for task {task_id} ({len(request.nodes)} nodes).")
 
         # Receiver sensitivity is shared across all pairs: explicit override wins, else preset.
@@ -117,8 +149,13 @@ def run_matrix(task_id: str, request: MatrixRequest):
         else:
             sensitivity = receiver_sensitivity_dbm(request.lora_preset)
 
+        pairs = list(combinations(request.nodes, 2))
         links = []
-        for tx, rx in combinations(request.nodes, 2):
+        for pair_index, (tx, rx) in enumerate(pairs):
+            report_progress(
+                f"Analysing link {pair_index + 1}/{len(pairs)} ({tx.id}↔{rx.id})…",
+                (pair_index / len(pairs)) if pairs else 0.0,
+            )
             link = {"a": tx.id, "b": rx.id, "distance_km": None, "path_loss_db": None,
                     "rx_power_dbm": None, "fresnel_pct": None, "margin_db": None,
                     "viable": False, "error": None}
@@ -150,6 +187,8 @@ def run_matrix(task_id: str, request: MatrixRequest):
         redis_client.setex(f"{task_id}:status", 3600, "failed")
         redis_client.setex(f"{task_id}:error", 3600, str(e))
         raise
+    finally:
+        clear_progress_sink()
 
 @app.post("/predict")
 async def predict(payload: CoveragePredictionRequest, background_tasks: BackgroundTasks) -> JSONResponse:
@@ -193,7 +232,9 @@ async def get_status(task_id: str):
         logger.warning(f"Task {task_id} not found in Redis.")
         return JSONResponse({"error": "Task not found"}, status_code=404)
 
-    return JSONResponse({"task_id": task_id, "status": status.decode("utf-8")})
+    progress_raw = redis_client.get(f"{task_id}:progress")
+    progress = json.loads(progress_raw) if progress_raw else None
+    return JSONResponse({"task_id": task_id, "status": status.decode("utf-8"), "progress": progress})
 
 @app.get("/result/{task_id}")
 async def get_result(task_id: str):
@@ -286,6 +327,7 @@ def run_relay(task_id: str, request: RelayRequest):
     a pure-JSON result (zone polygons + ranked points).
     """
     try:
+        set_progress_sink(_progress_sink(task_id))
         logger.info(f"Starting relay overlap for task {task_id}.")
 
         # Shared receiver sensitivity: explicit override wins, else derive from the LoRa preset.
@@ -303,6 +345,8 @@ def run_relay(task_id: str, request: RelayRequest):
         redis_client.setex(f"{task_id}:status", 3600, "failed")
         redis_client.setex(f"{task_id}:error", 3600, str(e))
         raise
+    finally:
+        clear_progress_sink()
 
 @app.post("/relay")
 async def relay(payload: RelayRequest, background_tasks: BackgroundTasks) -> JSONResponse:

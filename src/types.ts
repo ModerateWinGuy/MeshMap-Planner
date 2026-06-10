@@ -3,6 +3,10 @@ export interface Site {
     taskId: string;
     raster: any;
     visible: boolean;
+    // Coverage overlay for MapLibre: the palette-decoded RGBA canvas (markRaw'd, non-reactive)
+    // and its four corner coordinates [lng,lat] (TL, TR, BR, BL). Built once at parse time.
+    image?: HTMLCanvasElement;
+    coords?: [[number, number], [number, number], [number, number], [number, number]];
 }
 export interface Node {
     id: string;
@@ -38,6 +42,7 @@ export interface SplatParams {
         time_fraction: number;
         simulation_extent: number;
         high_resolution: boolean;
+        terrain_source: 'dem' | 'dsm';
     };
     display: {
         color_scale: string;

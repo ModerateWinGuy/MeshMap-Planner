@@ -12,3 +12,7 @@ node_modules
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# Runtime terrain cache: bind-mounted at runtime and potentially huge — never bake it into the
+# image. (local_sdf/ is intentionally NOT ignored, so curated .sdf tiles ARE baked in.)
+splat_cache

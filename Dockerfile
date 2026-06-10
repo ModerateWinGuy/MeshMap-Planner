@@ -50,6 +50,13 @@ RUN chmod +x /app/splat/citydecoder
 RUN chmod +x /app/splat/bearing
 RUN chmod +x /app/splat/fontdata
 RUN chmod +x /app/splat/usgs2sdf
+# Mount targets for the local-SDF override and the persistent terrain cache (see docker-compose).
+# local_sdf/ is copied from the build context by `COPY . .` above, so any curated .sdf tiles you
+# place there are BAKED INTO THE IMAGE (served first by the `local` DEM provider) — instant terrain
+# for areas you've already downloaded. They're gitignored, so they ship in the image but not in VCS.
+# Re-COPY here so the bake is explicit and independent of the earlier copy step.
+COPY local_sdf/ /app/local_sdf/
+RUN mkdir -p /app/local_sdf /app/.splat_tiles
 RUN ls -alh
 # Expose the application port
 EXPOSE 8080

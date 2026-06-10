@@ -90,12 +90,26 @@
             </li>
             </ul>
             </li>
+              <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">Terrain (3D)</a>
+                <ul class="dropdown-menu dropdown-menu-dark p-3">
+                  <li>
+                    <Terrain />
+                  </li>
+                </ul>
+              </li>
             </ul>
             <div class="mt-3 d-flex gap-2">
               <button :disabled="store.simulationState === 'running' || !store.selectedNode" @click="store.runSimulation" type="button" class="btn btn-success btn-sm" id="runSimulation">
                 <span :class="{ 'd-none': store.simulationState !== 'running' }" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                 <span class="button-text">{{ buttonText() }}</span>
               </button>
+            </div>
+            <div v-if="store.simulationState === 'running'" class="mt-2">
+              <div class="progress" role="progressbar" aria-label="Simulation progress" style="height: 6px;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" :style="{ width: progressWidth() }"></div>
+              </div>
+              <small class="text-muted d-block mt-1">{{ store.progress?.message || 'Starting…' }}</small>
             </div>
             <ul class="list-group mt-3">
               <li class="list-group-item d-flex justify-content-between align-items-center" v-for="(site, index) in store.$state.localSites" :key="site.taskId">
@@ -114,11 +128,12 @@
     </nav>
     <div id="map" ref="map">
     </div>
+    <BasemapControl />
   </div>
 </template>
 
 <script setup lang="ts">
-import "leaflet/dist/leaflet.css"
+import "maplibre-gl/dist/maplibre-gl.css"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "bootstrap/dist/js/bootstrap.bundle.min.js"
 import NodePanel from "./components/NodePanel.vue"
@@ -130,6 +145,8 @@ import Environment from "./components/Environment.vue"
 import LoRaPreset from "./components/LoRaPreset.vue"
 import Simulation from "./components/Simulation.vue"
 import Display from "./components/Display.vue"
+import Terrain from "./components/Terrain.vue"
+import BasemapControl from "./components/BasemapControl.vue"
 
 import { useStore } from './store.ts'
 const store = useStore()
@@ -142,18 +159,19 @@ const buttonText = () => {
     return 'Run Simulation'
   }
 }
+// Bar width: proportional when the backend reports a fraction, else a full animated bar (the
+// striped animation reads as "working" while we have no estimate, e.g. during a remote warp).
+const progressWidth = () => {
+  const f = store.progress?.fraction
+  return typeof f === 'number' ? `${Math.round(Math.min(Math.max(f, 0), 1) * 100)}%` : '100%'
+}
 </script>
 
 <style>
-.leaflet-div-icon {
-  background: transparent;
-  border: none !important;
+/* Node pin element handed to maplibregl.Marker (see src/layers.ts). */
+.node-pin {
+  cursor: pointer;
+  line-height: 1;
+  user-select: none;
 }
-/* .leaflet-layer,
-.leaflet-control-zoom-in,
-.leaflet-control-zoom-out,
-.leaflet-control-attribution {
-  filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
-} */
-
 </style>

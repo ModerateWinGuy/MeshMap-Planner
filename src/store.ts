@@ -2,13 +2,11 @@ import { defineStore } from 'pinia';
 import { useLocalStorage } from '@vueuse/core';
 import { watch, markRaw } from 'vue';
 import { randanimalSync } from 'randanimal';
-import L from 'leaflet';
-import GeoRasterLayer from 'georaster-layer-for-leaflet';
+import maplibregl from 'maplibre-gl';
 import parseGeoraster from 'georaster';
-import 'leaflet-easyprint';
 import { type Site, type SplatParams, type Node, type MatrixResult, type RelayResult } from './types.ts';
-import { cloneObject } from './utils.ts';
-import { redPinMarker, selectedPinMarker } from './layers.ts';
+import { cloneObject, escapeHtml } from './utils.ts';
+import { makePinElement, stylePinElement } from './layers.ts';
 
 const DEFAULT_LAT = 51.102167;
 const DEFAULT_LON = -114.098667;
@@ -18,6 +16,59 @@ export const LORA_PRESETS = [
   'ShortTurbo', 'ShortFast', 'ShortSlow', 'MediumFast',
   'MediumSlow', 'LongFast', 'LongModerate', 'LongSlow'
 ];
+
+// The four switchable raster basemaps. MapLibre has no Leaflet `{s}` subdomain placeholder, so
+// subdomained hosts are listed as a tiles[] array (MapLibre rotates over them) and single-host
+// sources use one entry. Each carries its own attribution for the AttributionControl.
+export const BASEMAPS = [
+  {
+    id: 'osm',
+    label: 'OSM',
+    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+    attribution: '© OpenStreetMap contributors',
+    maxzoom: 19,
+  },
+  {
+    id: 'carto',
+    label: 'Carto Light',
+    tiles: [
+      'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+      'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+      'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+      'https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+    ],
+    attribution: '© OpenStreetMap contributors © CARTO',
+    maxzoom: 20,
+  },
+  {
+    id: 'satellite',
+    label: 'Satellite',
+    tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+    attribution: 'Tiles © Esri — Source: Esri, USGS, NOAA',
+    maxzoom: 19,
+  },
+  {
+    id: 'topo',
+    label: 'Topo Map',
+    tiles: [
+      'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
+      'https://b.tile.opentopomap.org/{z}/{x}/{y}.png',
+      'https://c.tile.opentopomap.org/{z}/{x}/{y}.png',
+    ],
+    // OpenTopoMap is CC-BY-SA — this attribution must remain visible.
+    attribution: 'Map data: © OpenStreetMap contributors, SRTM | OpenTopoMap',
+    maxzoom: 17,
+  },
+];
+
+// Coverage rasters insert directly below the vector overlays (relay zone / links / points), so they
+// sit above the basemap but under everything else. See setupOverlays for the full z-order.
+const COVERAGE_BEFORE = 'relay-zone-fill';
+const EMPTY_FC = { type: 'FeatureCollection', features: [] };
+
+// Conservative floor for gl.MAX_TEXTURE_SIZE across GPUs; a coverage canvas larger than this on
+// either axis is downsampled before upload so it never silently fails to render.
+const MAX_TEXTURE = 4096;
 
 // Colour a link by its margin: green (strong) -> red (marginal/none). Grey when unknown.
 function linkColor(margin: number | null): string {
@@ -30,16 +81,176 @@ function linkColor(margin: number | null): string {
   return `rgb(${r}, ${g}, 50)`;
 }
 
-// Colour a relay-zone island by its margin band: 0 (marginal) -> orange,
-// 1 (moderate) -> yellow, 2+ (strong) -> green.
-function relayBandColor(band: number): string {
-  if (band >= 2) {
-    return '#2e9e3f'; // strong
+// Build the initial MapLibre style: the four raster basemaps (only the first visible) plus the
+// AWS Terrarium raster-dem used for 3D terrain. Overlay sources/layers are added later, on 'load'.
+function buildStyle(): any {
+  const sources: Record<string, any> = {};
+  const layers: any[] = [];
+  BASEMAPS.forEach((b, i) => {
+    sources[b.id] = { type: 'raster', tiles: b.tiles, tileSize: 256, attribution: b.attribution, maxzoom: b.maxzoom };
+    layers.push({ id: `basemap-${b.id}`, type: 'raster', source: b.id, layout: { visibility: i === 0 ? 'visible' : 'none' } });
+  });
+  sources['terrain-dem'] = {
+    type: 'raster-dem',
+    tiles: ['https://elevation-tiles-prod.s3.amazonaws.com/v2/terrarium/{z}/{x}/{y}.png'],
+    tileSize: 256,
+    // 'terrarium' is mandatory: these tiles decode to garbage under the default mapbox encoding.
+    encoding: 'terrarium',
+    maxzoom: 15,
+    attribution: 'Terrain: AWS / Mapzen / SRTM',
+  };
+  return { version: 8, sources, layers };
+}
+
+// Decode a colormap PNG (public/colormaps/<scale>.png) into a 256-entry RGBA LUT. Only used as a
+// fallback when a coverage GeoTIFF arrives without its embedded palette (it normally has one).
+const lutCache: Record<string, Promise<number[][]>> = {};
+function colormapLut(scale: string): Promise<number[][]> {
+  if (!lutCache[scale]) {
+    lutCache[scale] = new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = 256;
+        c.height = 1;
+        const cx = c.getContext('2d')!;
+        cx.drawImage(img, 0, 0, 256, 1);
+        const d = cx.getImageData(0, 0, 256, 1).data;
+        const lut: number[][] = [];
+        for (let i = 0; i < 256; i++) {
+          lut.push([d[i * 4], d[i * 4 + 1], d[i * 4 + 2], 255]);
+        }
+        resolve(lut);
+      };
+      img.onerror = reject;
+      img.src = `/colormaps/${scale}.png`;
+    });
   }
-  if (band === 1) {
-    return '#d9c021'; // moderate
+  return lutCache[scale];
+}
+
+// The coverage GeoTIFF is a single-band palette image (colormap baked server-side, nodata at the
+// noDataValue index). Decode it to an RGBA canvas once, mapping each palette index to its colour
+// and the nodata index to a transparent pixel. Crisp dBm band edges are preserved (no smoothing).
+async function buildCoverageCanvas(raster: any, colorScale: string): Promise<HTMLCanvasElement> {
+  const width: number = raster.width;
+  const height: number = raster.height;
+  const band: number[][] = raster.values[0];
+  const nodata = raster.noDataValue;
+  let palette: number[][] | null = Array.isArray(raster.palette) ? raster.palette : null;
+  if (!palette) {
+    palette = await colormapLut(colorScale);
   }
-  return '#e08326'; // marginal
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+  const img = ctx.createImageData(width, height);
+  const data = img.data;
+  for (let y = 0; y < height; y++) {
+    const row = band[y];
+    for (let x = 0; x < width; x++) {
+      const idx = row[x];
+      const o = (y * width + x) * 4;
+      const color = (idx === nodata || idx === undefined || idx === null || Number.isNaN(idx)) ? null : palette[idx];
+      if (!color) {
+        data[o + 3] = 0; // nodata / out-of-palette -> fully transparent
+        continue;
+      }
+      data[o] = color[0];
+      data[o + 1] = color[1];
+      data[o + 2] = color[2];
+      data[o + 3] = color[3] ?? 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  // Reproject into Web-Mercator row spacing before handing it to MapLibre's linear image stretch.
+  const warped = mercatorWarp(canvas, raster.ymax, raster.ymin);
+  return fitCoverageCanvas(warped);
+}
+
+const DEG2RAD = Math.PI / 180;
+function mercatorY(latDeg: number): number {
+  return Math.log(Math.tan(Math.PI / 4 + (latDeg * DEG2RAD) / 2));
+}
+function inverseMercatorY(y: number): number {
+  return (2 * Math.atan(Math.exp(y)) - Math.PI / 2) / DEG2RAD;
+}
+
+// MapLibre image/canvas sources don't reproject: they stretch the image linearly in Web-Mercator Y
+// between the corner coordinates, while our GeoTIFF rows are evenly spaced in latitude. For a tall
+// extent at high latitude that mismatch shows up as a north-south coverage offset (zero at the top
+// and bottom edges, up to a few hundred metres mid-image). Resample the canvas so its rows are
+// evenly spaced in Mercator Y; MapLibre's linear interpolation then lands each row at the right
+// latitude. Rows are copied whole with nearest sampling, so palette colours/nodata stay exact.
+function mercatorWarp(src: HTMLCanvasElement, north: number, south: number): HTMLCanvasElement {
+  const w = src.width;
+  const h = src.height;
+  if (h < 2 || north <= south) {
+    return src;
+  }
+  const srcData = src.getContext('2d')!.getImageData(0, 0, w, h).data;
+  const out = document.createElement('canvas');
+  out.width = w;
+  out.height = h;
+  const octx = out.getContext('2d')!;
+  const dst = octx.createImageData(w, h);
+  const yN = mercatorY(north);
+  const yS = mercatorY(south);
+  const span = north - south;
+  const rowBytes = w * 4;
+  for (let r = 0; r < h; r++) {
+    // Output row r (pixel centre) sits at this Mercator Y -> latitude -> source row (centre).
+    const lat = inverseMercatorY(yN + (yS - yN) * ((r + 0.5) / h));
+    let sr = Math.round(((north - lat) / span) * h - 0.5);
+    if (sr < 0) sr = 0;
+    else if (sr >= h) sr = h - 1;
+    const so = sr * rowBytes;
+    dst.data.set(srcData.subarray(so, so + rowBytes), r * rowBytes);
+  }
+  octx.putImageData(dst, 0, 0);
+  return out;
+}
+
+function isPow2(n: number): boolean {
+  return n > 0 && (n & (n - 1)) === 0;
+}
+
+// Resize the coverage canvas so MapLibre can actually render it: cap either axis at MAX_TEXTURE,
+// and never hand it a square power-of-two canvas. MapLibre binds image/canvas-source textures with
+// a LINEAR_MIPMAP_NEAREST min filter and only downgrades to plain LINEAR when the texture is NOT a
+// square power-of-two (Texture.isSizePowerOfTwo). A square-POT canvas — a common SPLAT output, e.g.
+// 1024² or a 4096² downscale — would then be sampled against mipmaps that were never generated,
+// leaving the texture "incomplete", which WebGL renders as opaque black. Pixel dimensions don't
+// affect geo-registration (the four corner coordinates do), so shrinking one axis a pixel is free.
+function fitCoverageCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  let w = canvas.width;
+  let h = canvas.height;
+  const max = Math.max(w, h);
+  if (max > MAX_TEXTURE) {
+    const scale = MAX_TEXTURE / max;
+    w = Math.max(1, Math.round(w * scale));
+    h = Math.max(1, Math.round(h * scale));
+  }
+  if (w === h && isPow2(w)) {
+    w -= 1; // break the square power-of-two (see comment above)
+  }
+  if (w === canvas.width && h === canvas.height) {
+    return canvas;
+  }
+  const out = document.createElement('canvas');
+  out.width = w;
+  out.height = h;
+  const ctx = out.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false; // nearest-neighbour keeps dBm band edges crisp
+  ctx.drawImage(canvas, 0, 0, w, h);
+  return out;
+}
+
+// Four corner coordinates [lng,lat] for a north-up axis-aligned coverage raster: TL, TR, BR, BL.
+function coverageCoords(raster: any): Site['coords'] {
+  const { xmin, xmax, ymin, ymax } = raster;
+  return [[xmin, ymax], [xmax, ymax], [xmax, ymin], [xmin, ymin]];
 }
 
 function defaultTransmitter(): SplatParams['transmitter'] {
@@ -71,23 +282,33 @@ function seedNode(): Node {
   };
 }
 
+// Vue watch stop-handles for the map's reactive bindings. Tracked at module scope so a remount
+// (Vite HMR / navigation) can stop the old watchers in destroyMap rather than accumulate them.
+let watchStops: Array<() => void> = [];
+
 const useStore = defineStore('store', {
   state() {
     return {
-      map: undefined as undefined | L.Map,
-      nodeMarkers: {} as Record<string, L.Marker>,
-      linkLayers: {} as Record<string, L.Polyline>,
+      // Typed `any` in state: MapLibre's Map type is too deep for Pinia's reactive state-type
+      // unwrap (it trips TS2589), so methods cast this.map to a typed local instead. It's markRaw'd
+      // at assignment, so it is never actually made reactive (see initMap / [[leaflet-markraw]]).
+      map: undefined as any,
+      nodeMarkers: {} as Record<string, maplibregl.Marker>,
       dragging: false,
-      localSites: [] as Site[], // in-memory only (raster is not JSON-serializable)
+      activeBasemap: useLocalStorage('activeBasemap', 'osm'),
+      localSites: [] as Site[], // in-memory only (raster/canvas are not JSON-serializable)
       simulationState: 'idle',
+      // Live progress for the active job (coverage/matrix/relay), polled from /status.
+      progress: null as { message: string; fraction: number | null } | null,
       matrixState: 'idle',
       matrixResult: null as MatrixResult | null, // in-memory only
       relayState: 'idle',
       relayResult: null as RelayResult | null, // in-memory only
       relayA: null as string | null, // selected endpoint node ids
       relayB: null as string | null,
-      relayLayers: [] as any[], // zone polygon layers (in-memory)
-      relayPointMarkers: [] as any[], // suggested-point markers (in-memory)
+      // 3D terrain (draped from the AWS Terrarium raster-dem). Persisted so the view survives a reload.
+      terrainEnabled: useLocalStorage('terrainEnabled', false),
+      terrainExaggeration: useLocalStorage('terrainExaggeration', 1.5),
       nodes: useLocalStorage<Node[]>('nodes', [seedNode()]),
       selectedNodeId: useLocalStorage<string | null>('selectedNodeId', null),
       // shared / global params (per-node radio lives on the nodes themselves)
@@ -107,7 +328,8 @@ const useStore = defineStore('store', {
           situation_fraction: 95.0,
           time_fraction: 95.0,
           simulation_extent: 30.0,
-          high_resolution: false
+          high_resolution: false,
+          terrain_source: 'dem'
         },
         display: {
           color_scale: 'plasma',
@@ -166,41 +388,52 @@ const useStore = defineStore('store', {
       node.transmitter.tx_lon = lon;
     },
     renderNodeMarkers() {
-      if (!this.map) {
+      // Markers attach to the map container, not the style, so they work before 'load'.
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map) {
         return;
       }
-      // Remove markers for nodes that no longer exist
+      // Remove markers for nodes that no longer exist.
       for (const id of Object.keys(this.nodeMarkers)) {
         if (!this.nodes.find((n) => n.id === id)) {
-          this.map.removeLayer(this.nodeMarkers[id]);
+          this.nodeMarkers[id].remove();
           delete this.nodeMarkers[id];
         }
       }
       const selectedId = this.selectedNode?.id;
       for (const node of this.nodes) {
-        const icon = node.id === selectedId ? selectedPinMarker : redPinMarker;
-        const latlng: [number, number] = [node.transmitter.tx_lat, node.transmitter.tx_lon];
+        const lngLat: [number, number] = [node.transmitter.tx_lon, node.transmitter.tx_lat];
+        const selected = node.id === selectedId;
         let marker = this.nodeMarkers[node.id];
         if (!marker) {
-          marker = L.marker(latlng, { icon, draggable: true });
+          const el = makePinElement(selected);
+          // MapLibre markers have no click event; listen on the element. stopPropagation keeps the
+          // pin click from also firing the map click used by "Set with map".
+          el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.selectNode(node.id);
+          });
+          marker = markRaw(
+            new maplibregl.Marker({ element: el, draggable: true, anchor: 'bottom' })
+              .setLngLat(lngLat)
+              // setText (not HTML) closes the latent XSS from Leaflet's bindPopup(name).
+              .setPopup(new maplibregl.Popup({ offset: 30 }).setText(node.transmitter.name))
+              .addTo(map)
+          );
           marker.on('dragstart', () => {
             this.dragging = true;
           });
-          marker.on('dragend', (e: L.DragEndEvent) => {
-            const { lat, lng } = (e.target as L.Marker).getLatLng();
+          marker.on('dragend', () => {
+            const { lng, lat } = marker.getLngLat();
             this.updateNodeCoords(node.id, lat, lng);
             this.dragging = false;
           });
-          marker.on('click', () => this.selectNode(node.id));
-          marker.addTo(this.map as L.Map);
-          // markRaw so the marker isn't wrapped in a reactive Proxy in state — Leaflet relies
-          // on raw `===` identity for its event bookkeeping (see initMap).
-          this.nodeMarkers[node.id] = markRaw(marker);
+          this.nodeMarkers[node.id] = marker;
         } else {
-          marker.setIcon(icon);
-          marker.setLatLng(latlng);
+          marker.setLngLat(lngLat);
+          stylePinElement(marker.getElement(), selected); // re-style in place; don't churn markers
+          marker.getPopup()?.setText(node.transmitter.name);
         }
-        marker.bindPopup(node.transmitter.name);
       }
     },
     toggleSiteVisibility(index: number) {
@@ -209,167 +442,274 @@ const useStore = defineStore('store', {
         return;
       }
       site.visible = site.visible === false;
-      this.redrawSites();
+      const id = 'cov-' + site.taskId;
+      // Keep the source resident (cheaper than re-uploading the texture); just toggle the layer.
+      if (this.map?.getLayer(id)) {
+        this.map.setLayoutProperty(id, 'visibility', site.visible ? 'visible' : 'none');
+      }
     },
     removeSite(index: number) {
-      if (!this.map) {
-        return
+      const site = this.localSites[index];
+      if (!site) {
+        return;
       }
-      this.localSites.splice(index, 1)
-      this.map.eachLayer((layer: L.Layer) => {
-        if (layer instanceof GeoRasterLayer) {
-          this.map!.removeLayer(layer);
-        }
-      });
-      this.redrawSites()
+      const id = 'cov-' + site.taskId;
+      if (this.map?.getLayer(id)) {
+        this.map.removeLayer(id);
+      }
+      if (this.map?.getSource(id)) {
+        this.map.removeSource(id);
+      }
+      this.localSites.splice(index, 1);
     },
     redrawSites() {
-      if (!this.map) {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map || !map.isStyleLoaded()) {
+        return; // re-run from the 'load' handler once the style is ready
+      }
+      const opacity = 1 - (this.splatParams.display.overlay_transparency ?? 0) / 100;
+      for (const site of this.localSites) {
+        if (!site.image || !site.coords) {
+          continue; // not parsed yet
+        }
+        const id = 'cov-' + site.taskId;
+        if (!map.getSource(id)) {
+          map.addSource(id, { type: 'canvas', canvas: site.image, coordinates: site.coords, animate: false } as any);
+          map.addLayer(
+            {
+              id,
+              type: 'raster',
+              source: id,
+              paint: { 'raster-opacity': opacity, 'raster-resampling': 'nearest' },
+            } as any,
+            map.getLayer(COVERAGE_BEFORE) ? COVERAGE_BEFORE : undefined
+          );
+        }
+        map.setLayoutProperty(id, 'visibility', site.visible === false ? 'none' : 'visible');
+      }
+    },
+    // Live-apply the global transparency slider to every coverage layer (watched in initMap).
+    applyCoverageOpacity() {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map || !map.isStyleLoaded()) {
         return;
       }
-
-      // Remove existing GeoRasterLayers
-      this.map.eachLayer((layer: L.Layer) => {
-        if (layer instanceof GeoRasterLayer) {
-          this.map!.removeLayer(layer);
+      const opacity = 1 - (this.splatParams.display.overlay_transparency ?? 0) / 100;
+      for (const site of this.localSites) {
+        const id = 'cov-' + site.taskId;
+        if (map.getLayer(id)) {
+          map.setPaintProperty(id, 'raster-opacity', opacity);
         }
-      });
-
-      // Add GeoRasterLayers back to the map (skip results hidden via the eye toggle)
-      this.localSites.forEach((site: Site) => {
-        if (site.visible === false) {
-          return;
-        }
-        const rasterLayer = new GeoRasterLayer({
-          georaster: {...site}.raster,
-          opacity: 0.7,
-          // noDataValue is a valid runtime option but missing from the lib's types (4.1.2)
-          noDataValue: 255,
-          resolution: 256,
-          // georaster-layer-for-leaflet 4.1.2 keeps its tile `cache` on the prototype
-          // (shared across all instances) keyed only by tile coords, so a removed layer's
-          // tiles get served to a new layer over the same bounds. Disable it so each
-          // result renders its own raster.
-          caching: false,
-          // The library only sets these GridLayer flags for URL-sourced rasters; for our
-          // in-memory rasters it leaves the defaults (updateWhenIdle:true,
-          // updateWhenZooming:false), which makes the overlay rely on a CSS transform during
-          // zoom and only refresh when the map goes idle. A single wheel-notch zoom desyncs
-          // that transform and leaves the overlay offset until a later zoom forces a full
-          // reset. Re-rendering during zoom and on every move keeps it aligned with the map.
-          updateWhenIdle: false,
-          updateWhenZooming: true,
-        } as any);
-        rasterLayer.addTo(this.map as L.Map);
-        rasterLayer.bringToFront();
-      });
+      }
     },
     destroyMap() {
-      // Leaflet only unsubscribes a layer's map events via a once('remove') handler that
-      // fires from map.removeLayer. If a map is abandoned without map.remove(), every layer
-      // it holds (base tiles, overlays, markers) stays subscribed to that map's 'zoomanim';
-      // on the next zoom GridLayer._updateLevels dereferences the now-null _map and throws
-      // "map is null", which aborts the zoom and leaves layers drifted. map.remove() tears
-      // every layer down cleanly. Pair this with the onUnmounted hook so a component remount
-      // (Vite HMR, navigation) can't leave orphaned handlers behind.
+      for (const stop of watchStops) {
+        stop();
+      }
+      watchStops = [];
       if (!this.map) {
         return;
       }
+      // map.remove() releases the WebGL context and tears down all DOM markers + event handlers —
+      // required before a remount (Vite HMR / navigation) so the GL context and listeners can't leak.
       this.map.remove();
       this.map = undefined;
       this.nodeMarkers = {};
-      this.linkLayers = {};
     },
     initMap() {
-      // Guard against re-initialising onto a live map: initMap runs from Transmitter's
-      // onMounted, which fires again on a remount. Without tearing down first, the old map's
-      // layers leak their 'zoomanim' handlers (see destroyMap).
+      // Guard against re-initialising onto a live map: initMap runs from Transmitter's onMounted,
+      // which fires again on a remount. Tear the old map down first so its WebGL context and
+      // watchers don't leak.
       this.destroyMap();
-      // markRaw is essential: this.map lives in Pinia state, so without it Vue wraps the map
-      // in a reactive Proxy and deeply proxies its internals — including the _events registry.
-      // Leaflet stores each listener's context there and later matches it with raw `===` in
-      // off()/_listens(). A proxied stored context never equals the raw layer passed to
-      // removeLayer, so the layer's 'zoomanim' handler is never unsubscribed; on the next zoom
-      // it runs with a null _map and throws "map is null", aborting the zoom and drifting every
-      // layer. Keeping the map raw makes all of Leaflet's identity checks work.
-      this.map = markRaw(L.map("map", {
-        // center: [51.102167, -114.098667],
-        zoom: 10,
-        zoomControl: false,
-      }));
 
       const start = this.selectedNode;
-      const position: [number, number] = [
+      const center: [number, number] = [
+        start ? start.transmitter.tx_lon : DEFAULT_LON,
         start ? start.transmitter.tx_lat : DEFAULT_LAT,
-        start ? start.transmitter.tx_lon : DEFAULT_LON
       ];
-      this.map.setView(position, 10);
-
-      L.control.zoom({ position: "bottomleft" }).addTo(this.map as L.Map);
-
-      const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        attribution: '© OpenStreetMap contributors © CARTO',
-      });
-
-      const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors',
-      })
-
-      const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles © Esri — Source: Esri, USGS, NOAA',
-      });
-
-      const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-        attribution: 'Map data: © OpenStreetMap contributors, SRTM | OpenTopoMap',
-      });
-
-      streetLayer.addTo(this.map as L.Map);
-
-      // Base Layers
-      const baseLayers = {
-        "OSM": streetLayer,
-        "Carto Light": cartoLight,
-        "Satellite": satelliteLayer,
-        "Topo Map": topoLayer
-      };
-
-      // EasyPrint control
-      (L as any).easyPrint({
-        title: "Save",
-        position: "bottomleft",
-        sizeModes: ["A4Portrait", "A4Landscape"],
-        filename: "sites",
-        exportOnly: true
-      }).addTo(this.map as L.Map);
-
-      L.control.layers(baseLayers, {}, {
-        position: "bottomleft",
-      }).addTo(this.map as L.Map);
-
-      this.map.on("baselayerchange", () => {
-        this.redrawSites(); // Re-apply the GeoRasterLayer on top
-      });
+      // markRaw is essential: this.map lives in Pinia state, so without it Vue deep-proxies the Map
+      // and its internal registries, breaking MapLibre's identity-based event bookkeeping — the same
+      // hazard that applied to Leaflet (see the leaflet-markraw memory).
+      this.map = markRaw(
+        new maplibregl.Map({
+          container: 'map',
+          style: buildStyle(),
+          center,
+          zoom: 10,
+          maxPitch: 85, // unlocks tilt/rotate for reading hill elevation in 3D
+        })
+      );
+      // The compass gives tilt/rotate handles; visualizePitch shows the current pitch on the control.
+      this.map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), 'bottom-left');
 
       if (!this.selectedNodeId && this.nodes[0]) {
         this.selectedNodeId = this.nodes[0].id;
       }
-      this.renderNodeMarkers();
-      this.redrawSites();
 
-      // Keep markers in sync with manual lat/lon edits and renames.
-      // Guard against re-rendering mid-drag (dragend handles that).
-      watch(
-        () =>
-          this.nodes
-            .map((n) => `${n.id}:${n.transmitter.tx_lat}:${n.transmitter.tx_lon}:${n.transmitter.name}`)
-            .join('|'),
-        () => {
-          if (!this.dragging) {
-            this.renderNodeMarkers();
-            this.redrawLinks();
-          }
+      const map = this.map as maplibregl.Map; // just assigned above; never undefined here
+      // All source/layer/terrain setup must run after the style loads — MapLibre rejects
+      // addSource/addLayer/setTerrain before then. On a remount the new map fires 'load' again and
+      // restores every overlay from the persisted in-memory state.
+      map.on('load', () => {
+        if (this.map !== map) {
+          return; // a newer initMap superseded this map
         }
+        this.setupOverlays();
+        this.setBasemap(this.activeBasemap);
+        if (this.terrainEnabled) {
+          this.applyTerrain();
+        }
+        this.renderNodeMarkers();
+        this.redrawSites();
+        this.redrawLinks();
+        this.redrawRelay();
+      });
+
+      // Markers can render immediately; the rest waits for 'load'.
+      this.renderNodeMarkers();
+
+      // Keep markers + link endpoints in sync with manual lat/lon edits and renames. Guarded against
+      // re-rendering mid-drag (dragend handles that). Live-apply the transparency slider too.
+      watchStops.push(
+        watch(
+          () =>
+            this.nodes
+              .map((n) => `${n.id}:${n.transmitter.tx_lat}:${n.transmitter.tx_lon}:${n.transmitter.name}`)
+              .join('|'),
+          () => {
+            if (!this.dragging) {
+              this.renderNodeMarkers();
+              this.redrawLinks();
+            }
+          }
+        ),
+        watch(
+          () => this.splatParams.display.overlay_transparency,
+          () => this.applyCoverageOpacity()
+        )
       );
+    },
+    // Add the empty overlay sources and their style layers once, bottom-to-top among overlays:
+    //   basemaps < coverage rasters < relay zone (fill, line) < links < relay points < DOM markers.
+    // Also wire the map-level popups (GeoJSON layers have no per-feature popup).
+    setupOverlays() {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map) {
+        return;
+      }
+      map.addSource('links', { type: 'geojson', data: EMPTY_FC as any });
+      map.addSource('relay-zone', { type: 'geojson', data: EMPTY_FC as any });
+      map.addSource('relay-pts', { type: 'geojson', data: EMPTY_FC as any });
+
+      const bandColor = ['match', ['get', 'band'], 0, '#e08326', 1, '#d9c021', '#2e9e3f'];
+      map.addLayer({
+        id: 'relay-zone-fill', type: 'fill', source: 'relay-zone',
+        paint: { 'fill-color': bandColor, 'fill-opacity': 0.35 },
+      } as any);
+      map.addLayer({
+        id: 'relay-zone-line', type: 'line', source: 'relay-zone',
+        paint: { 'line-color': bandColor, 'line-width': 1 },
+      } as any);
+      // Dashed (non-viable) vs solid (viable) links: line-dasharray isn't data-drivable, so two
+      // layers share the source, split by a filter on the `viable` property.
+      map.addLayer({
+        id: 'links-solid', type: 'line', source: 'links',
+        filter: ['==', ['get', 'viable'], true],
+        paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'width'], 'line-opacity': ['get', 'opacity'] },
+      } as any);
+      map.addLayer({
+        id: 'links-dashed', type: 'line', source: 'links',
+        filter: ['==', ['get', 'viable'], false],
+        paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'width'], 'line-opacity': ['get', 'opacity'], 'line-dasharray': [2, 2] },
+      } as any);
+      map.addLayer({
+        id: 'relay-pts', type: 'circle', source: 'relay-pts',
+        paint: {
+          'circle-radius': 7,
+          'circle-color': ['get', 'fill'],
+          'circle-stroke-color': '#1d3557',
+          'circle-stroke-width': 2,
+          'circle-opacity': 0.95,
+        },
+      } as any);
+
+      this.wireOverlayPopups();
+    },
+    wireOverlayPopups() {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map) {
+        return;
+      }
+      // Read-only info popups for links + relay zone.
+      for (const layer of ['links-solid', 'links-dashed', 'relay-zone-fill']) {
+        map.on('click', layer, (e: any) => {
+          const f = e.features?.[0];
+          if (!f) {
+            return;
+          }
+          new maplibregl.Popup({ offset: 8 }).setLngLat(e.lngLat).setHTML(String(f.properties?.popupHtml ?? '')).addTo(map);
+        });
+        map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+      }
+      // Relay candidate points carry a "Promote to node" button in their popup.
+      map.on('click', 'relay-pts', (e: any) => {
+        const f = e.features?.[0];
+        if (!f) {
+          return;
+        }
+        const [lon, lat] = f.geometry.coordinates as [number, number]; // geometry coords stay numeric
+        const popup = new maplibregl.Popup({ offset: 12 }).setLngLat([lon, lat]).setHTML(String(f.properties?.popupHtml ?? '')).addTo(map);
+        const btn = popup.getElement()?.querySelector('.relay-promote-btn');
+        btn?.addEventListener('click', () => {
+          this.promoteRelayPoint(lat, lon);
+          popup.remove();
+        }, { once: true });
+      });
+      map.on('mouseenter', 'relay-pts', () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', 'relay-pts', () => { map.getCanvas().style.cursor = ''; });
+    },
+    setBasemap(id: string) {
+      this.activeBasemap = id;
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map || !map.isStyleLoaded()) {
+        return;
+      }
+      // Overlays keep a fixed z-order via beforeId, so switching the basemap never disturbs them.
+      for (const b of BASEMAPS) {
+        if (map.getLayer('basemap-' + b.id)) {
+          map.setLayoutProperty('basemap-' + b.id, 'visibility', b.id === id ? 'visible' : 'none');
+        }
+      }
+    },
+    toggleTerrain() {
+      this.terrainEnabled = !this.terrainEnabled;
+      this.applyTerrain();
+      // Terrain relief only shows when the camera is tilted — a flat top-down view looks identical
+      // with terrain on or off (and rotating bearing alone doesn't reveal it). Pitch in on enable so
+      // turning it on visibly does something; resetView() returns to top-down.
+      if (this.terrainEnabled) {
+        const map = this.map as maplibregl.Map | undefined;
+        if (map && map.getPitch() < 20) {
+          map.easeTo({ pitch: 60 });
+        }
+      }
+    },
+    setTerrainExaggeration(x: number) {
+      this.terrainExaggeration = x;
+      if (this.terrainEnabled) {
+        this.applyTerrain();
+      }
+    },
+    applyTerrain() {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map || !map.isStyleLoaded()) {
+        return;
+      }
+      map.setTerrain(this.terrainEnabled ? { source: 'terrain-dem', exaggeration: this.terrainExaggeration } : null);
+    },
+    resetView() {
+      this.map?.easeTo({ pitch: 0, bearing: 0 });
     },
     async runSimulation() {
       console.log('Simulation running...')
@@ -408,6 +748,7 @@ const useStore = defineStore('store', {
           situation_fraction: this.splatParams.simulation.situation_fraction,
           time_fraction: this.splatParams.simulation.time_fraction,
           high_resolution: this.splatParams.simulation.high_resolution,
+          terrain_source: this.splatParams.simulation.terrain_source,
 
           // Display parameters (shared)
           colormap: this.splatParams.display.color_scale,
@@ -417,6 +758,7 @@ const useStore = defineStore('store', {
 
         console.log("Payload:", payload);
         this.simulationState = 'running';
+        this.progress = null;
 
         // Send the request to the backend's /predict endpoint
         const predictResponse = await fetch("/predict", {
@@ -450,9 +792,11 @@ const useStore = defineStore('store', {
 
           const statusData = await statusResponse.json();
           console.log("Task status:", statusData);
+          this.progress = statusData.progress ?? null;
 
           if (statusData.status === "completed") {
             this.simulationState = 'completed';
+            this.progress = null;
             console.log("Simulation completed! Adding result to the map...");
 
             // Fetch the GeoTIFF data
@@ -465,9 +809,12 @@ const useStore = defineStore('store', {
             else
             {
               const arrayBuffer = await resultResponse.arrayBuffer();
-              // markRaw: the parsed georaster is a large in-memory object handed straight to
-              // Leaflet (GeoRasterLayer); keep it raw so it isn't deeply proxied in state.
+              // markRaw: the parsed georaster is a large in-memory object; keep it raw so it isn't
+              // deeply proxied in state.
               const geoRaster = markRaw(await parseGeoraster(arrayBuffer));
+              // Decode the palette image to an RGBA canvas once, at parse time (not per redraw).
+              const image = markRaw(await buildCoverageCanvas(geoRaster, this.splatParams.display.color_scale));
+              const coords = coverageCoords(geoRaster);
               const params: SplatParams = cloneObject({
                 transmitter: node.transmitter,
                 receiver: node.receiver,
@@ -479,13 +826,16 @@ const useStore = defineStore('store', {
                 params,
                 taskId,
                 raster: geoRaster,
-                visible: true
+                visible: true,
+                image,
+                coords
               });
               this.redrawSites();
             }
           }
           else if (statusData.status === "failed") {
             this.simulationState = 'failed';
+            this.progress = null;
           } else {
             setTimeout(pollStatus, pollInterval); // Retry after interval
           }
@@ -497,50 +847,54 @@ const useStore = defineStore('store', {
       }
     },
     redrawLinks() {
-      if (!this.map) {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map || !map.isStyleLoaded()) {
         return;
       }
-      // Remove existing link polylines
-      for (const key of Object.keys(this.linkLayers)) {
-        this.map.removeLayer(this.linkLayers[key]);
-        delete this.linkLayers[key];
+      const src = map.getSource('links') as maplibregl.GeoJSONSource | undefined;
+      if (!src) {
+        return;
       }
       if (!this.matrixResult) {
+        src.setData(EMPTY_FC as any);
         return;
       }
       const byId: Record<string, Node> = {};
       for (const n of this.nodes) {
         byId[n.id] = n;
       }
+      const features: any[] = [];
       for (const link of this.matrixResult.links) {
         const a = byId[link.a];
         const b = byId[link.b];
         if (!a || !b) {
           continue; // node was deleted since the matrix ran
         }
-        const poly = L.polyline(
-          [
-            [a.transmitter.tx_lat, a.transmitter.tx_lon],
-            [b.transmitter.tx_lat, b.transmitter.tx_lon]
-          ],
-          {
-            color: linkColor(link.margin_db),
-            weight: link.viable ? 3 : 1.5,
-            opacity: link.viable ? 0.9 : 0.5,
-            dashArray: link.viable ? undefined : '6 6'
-          }
-        );
         const details = link.error
-          ? `Error: ${link.error}`
+          ? `Error: ${escapeHtml(link.error)}`
           : `Margin: ${link.margin_db ?? '—'} dB<br>` +
             `Path loss: ${link.path_loss_db ?? '—'} dB<br>` +
             `Fresnel zone: ${link.fresnel_pct ?? '—'} % clear<br>` +
             `Distance: ${link.distance_km ?? '—'} km`;
-        poly.bindPopup(`<strong>${a.transmitter.name} ↔ ${b.transmitter.name}</strong><br>${details}`);
-        poly.addTo(this.map as L.Map);
-        // markRaw: keep the polyline a raw Leaflet object in state (see initMap).
-        this.linkLayers[`${link.a}|${link.b}`] = markRaw(poly);
+        features.push({
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [a.transmitter.tx_lon, a.transmitter.tx_lat],
+              [b.transmitter.tx_lon, b.transmitter.tx_lat],
+            ],
+          },
+          properties: {
+            color: linkColor(link.margin_db),
+            width: link.viable ? 3 : 1.5,
+            opacity: link.viable ? 0.9 : 0.5,
+            viable: link.viable,
+            popupHtml: `<strong>${escapeHtml(a.transmitter.name)} ↔ ${escapeHtml(b.transmitter.name)}</strong><br>${details}`,
+          },
+        });
       }
+      src.setData({ type: 'FeatureCollection', features } as any);
     },
     async runMatrix() {
       if (this.nodes.length < 2) {
@@ -573,7 +927,8 @@ const useStore = defineStore('store', {
           polarization: this.splatParams.environment.polarization,
           situation_fraction: this.splatParams.simulation.situation_fraction,
           time_fraction: this.splatParams.simulation.time_fraction,
-          high_resolution: this.splatParams.simulation.high_resolution
+          high_resolution: this.splatParams.simulation.high_resolution,
+          terrain_source: this.splatParams.simulation.terrain_source
         };
 
         const matrixResponse = await fetch('/matrix', {
@@ -653,7 +1008,8 @@ const useStore = defineStore('store', {
           polarization: this.splatParams.environment.polarization,
           situation_fraction: this.splatParams.simulation.situation_fraction,
           time_fraction: this.splatParams.simulation.time_fraction,
-          high_resolution: this.splatParams.simulation.high_resolution
+          high_resolution: this.splatParams.simulation.high_resolution,
+          terrain_source: this.splatParams.simulation.terrain_source
         };
 
         const relayResponse = await fetch('/relay', {
@@ -696,90 +1052,68 @@ const useStore = defineStore('store', {
       }
     },
     redrawRelay() {
-      if (!this.map) {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map || !map.isStyleLoaded()) {
         return;
       }
-      // Tear down any existing relay overlay (zone polygons + suggested points).
-      for (const layer of this.relayLayers) {
-        this.map.removeLayer(layer);
+      const zoneSrc = map.getSource('relay-zone') as maplibregl.GeoJSONSource | undefined;
+      const ptsSrc = map.getSource('relay-pts') as maplibregl.GeoJSONSource | undefined;
+      if (!zoneSrc || !ptsSrc) {
+        return;
       }
-      this.relayLayers = [];
-      for (const marker of this.relayPointMarkers) {
-        this.map.removeLayer(marker);
-      }
-      this.relayPointMarkers = [];
-
       const result = this.relayResult;
       if (!result || result.empty) {
+        zoneSrc.setData(EMPTY_FC as any);
+        ptsSrc.setData(EMPTY_FC as any);
         return;
       }
 
-      // Candidate zone: one polygon per island, coloured by its margin band.
-      const zoneLayer = L.geoJSON(result.zone as any, {
-        style: (feature) => {
-          const band = feature?.properties?.band ?? 0;
-          const color = relayBandColor(band);
-          return { color, weight: 1, fillColor: color, fillOpacity: 0.35 };
-        },
-        onEachFeature: (feature, layer) => {
-          const p = feature.properties;
-          layer.bindPopup(
-            `<strong>Relay zone</strong><br>` +
-            `Band: ${p.label}<br>` +
-            `Peak margin: ${p.peak_margin} dB<br>` +
-            `Area: ${p.area_km2} km²`
-          );
-        }
-      });
-      zoneLayer.addTo(this.map as L.Map);
-      this.relayLayers.push(zoneLayer);
+      // Zone + points come from the backend as FeatureCollections; the zone fill/line colour by
+      // `band` via a paint expression, so here we only attach the per-feature popup HTML.
+      const zone = {
+        type: 'FeatureCollection',
+        features: result.zone.features.map((f) => ({
+          type: 'Feature',
+          geometry: f.geometry,
+          properties: {
+            ...f.properties,
+            popupHtml:
+              `<strong>Relay zone</strong><br>` +
+              `Band: ${escapeHtml(f.properties.label)}<br>` +
+              `Peak margin: ${f.properties.peak_margin} dB<br>` +
+              `Area: ${f.properties.area_km2} km²`,
+          },
+        })),
+      };
+      zoneSrc.setData(zone as any);
 
-      // Suggested points: clickable circle markers with a "Promote to node" action.
-      for (const feature of result.points.features) {
-        const [lon, lat] = feature.geometry.coordinates as [number, number];
-        const p = feature.properties;
-        const marker = L.circleMarker([lat, lon], {
-          radius: 7,
-          color: '#1d3557',
-          weight: 2,
-          fillColor: linkColor(p.min_margin),
-          fillOpacity: 0.95
-        });
-        const html =
-          `<strong>Relay candidate #${p.rank}</strong><br>` +
-          `Min margin: ${p.min_margin} dB<br>` +
-          `Margin to A: ${p.margin_a} dB · to B: ${p.margin_b} dB<br>` +
-          `<button type="button" class="btn btn-sm btn-success mt-2 relay-promote-btn">Promote to node</button>`;
-        marker.bindPopup(html);
-        marker.on('popupopen', (e: L.PopupEvent) => {
-          const el = (e.popup as L.Popup).getElement();
-          const btn = el?.querySelector('.relay-promote-btn');
-          if (btn) {
-            btn.addEventListener(
-              'click',
-              () => {
-                this.promoteRelayPoint(lat, lon);
-                this.map?.closePopup();
-              },
-              { once: true }
-            );
-          }
-        });
-        marker.addTo(this.map as L.Map);
-        this.relayPointMarkers.push(marker);
-      }
+      const pts = {
+        type: 'FeatureCollection',
+        features: result.points.features.map((f) => {
+          const p = f.properties;
+          return {
+            type: 'Feature',
+            geometry: f.geometry,
+            properties: {
+              ...p,
+              fill: linkColor(p.min_margin), // drives circle-color
+              popupHtml:
+                `<strong>Relay candidate #${p.rank}</strong><br>` +
+                `Min margin: ${p.min_margin} dB<br>` +
+                `Margin to A: ${p.margin_a} dB · to B: ${p.margin_b} dB<br>` +
+                `<button type="button" class="btn btn-sm btn-success mt-2 relay-promote-btn">Promote to node</button>`,
+            },
+          };
+        }),
+      };
+      ptsSrc.setData(pts as any);
     },
     clearRelay() {
-      if (this.map) {
-        for (const layer of this.relayLayers) {
-          this.map.removeLayer(layer);
-        }
-        for (const marker of this.relayPointMarkers) {
-          this.map.removeLayer(marker);
-        }
+      const map = this.map as maplibregl.Map | undefined;
+      if (map && map.isStyleLoaded()) {
+        (map.getSource('relay-zone') as maplibregl.GeoJSONSource | undefined)?.setData(EMPTY_FC as any);
+        (map.getSource('relay-pts') as maplibregl.GeoJSONSource | undefined)?.setData(EMPTY_FC as any);
       }
-      this.relayLayers = [];
-      this.relayPointMarkers = [];
       this.relayResult = null;
       this.relayState = 'idle';
     },

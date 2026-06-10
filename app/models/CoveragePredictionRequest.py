@@ -105,3 +105,10 @@ class CoveragePredictionRequest(BaseModel):
         False,
         description="Use optional 1-arcsecond / 30 meter resolution  terrain tiles instead of the default 3-arcsecond / 90 meter (default: False).",
     )
+
+    terrain_source: Literal["dem", "dsm"] = Field(
+        "dem",
+        description="Terrain product to use where a high-res source offers a choice (e.g. NZ LINZ "
+        "LIDAR): 'dem' = bare earth, 'dsm' = surface (includes buildings/canopy). Ignored by "
+        "sources that don't distinguish, such as global SRTM (default: 'dem').",
+    )

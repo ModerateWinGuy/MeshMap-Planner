@@ -28,6 +28,20 @@
                 </div>
             </div>
         </div>
+        <div class="row mt-3">
+            <div class="col-12">
+                <label for="terrain_source" class="form-label">Terrain Model</label>
+                <select v-model="simulation.terrain_source" class="form-select form-select-sm" id="terrain_source">
+                    <option value="dem">DEM — bare earth (default)</option>
+                    <option value="dsm">DSM — surface (buildings &amp; trees)</option>
+                </select>
+                <div class="form-text">
+                    Only affects areas with high-resolution LIDAR coverage (e.g. New Zealand); global
+                    SRTM is bare-earth regardless. DSM bakes buildings/canopy into the terrain — set
+                    Clutter Height to 0 when using it to avoid counting obstructions twice.
+                </div>
+            </div>
+        </div>
     </form>
 </template>
 

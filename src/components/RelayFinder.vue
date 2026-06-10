@@ -115,7 +115,7 @@ function pointLatLon(pt: { geometry: { coordinates: [number, number] } }): [numb
 
 function panTo(pt: { geometry: { coordinates: [number, number] } }) {
     const [lat, lon] = pointLatLon(pt)
-    store.map?.setView([lat, lon], Math.max(store.map.getZoom(), 12))
+    store.map?.flyTo({ center: [lon, lat], zoom: Math.max(store.map.getZoom(), 12) }) // [lng, lat]
 }
 
 function promote(pt: { geometry: { coordinates: [number, number] } }) {
