@@ -25,6 +25,16 @@
     >
       {{ store.terrainEnabled ? '3D: on' : '3D: off' }}
     </button>
+    <button
+      type="button"
+      class="btn btn-sm shadow w-100 mt-2"
+      :class="store.hillshadeEnabled ? 'btn-primary' : 'btn-light'"
+      :aria-pressed="store.hillshadeEnabled"
+      title="Toggle terrain shading (relief / ambient-occlusion look). Works in flat and 3D view."
+      @click="store.toggleHillshade()"
+    >
+      {{ store.hillshadeEnabled ? 'Shade: on' : 'Shade: off' }}
+    </button>
   </div>
 </template>
 

@@ -6,7 +6,28 @@
           Toggle <strong>3D terrain</strong> with the <strong>3D</strong> button on the map
           (top-left, under the basemap buttons). It drapes the map over an elevation mesh (AWS
           Terrarium / SRTM); tilt with right-drag (or the compass control) to read hill elevation.
+          The <strong>Shade</strong> button beside it adds relief shading that reads hills on flat
+          basemaps — works in both top-down and 3D view.
         </div>
+      </div>
+    </div>
+
+    <div class="row mt-3" v-if="store.hillshadeEnabled">
+      <div class="col-12">
+        <label for="hillshade_intensity" class="form-label">
+          Shading intensity: {{ Math.round(store.hillshadeExaggeration * 100) }}%
+        </label>
+        <input
+          type="range"
+          class="form-range"
+          id="hillshade_intensity"
+          min="0"
+          max="1"
+          step="0.05"
+          :value="store.hillshadeExaggeration"
+          @input="store.setHillshadeExaggeration(Number(($event.target as HTMLInputElement).value))"
+        />
+        <div class="form-text">Multidirectional relief shading from the DEM. Higher = stronger.</div>
       </div>
     </div>
 

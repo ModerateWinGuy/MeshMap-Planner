@@ -308,7 +308,11 @@ const useStore = defineStore('store', {
       relayB: null as string | null,
       // 3D terrain (draped from the AWS Terrarium raster-dem). Persisted so the view survives a reload.
       terrainEnabled: useLocalStorage('terrainEnabled', false),
-      terrainExaggeration: useLocalStorage('terrainExaggeration', 1.5),
+      terrainExaggeration: useLocalStorage('terrainExaggeration', 1),
+      // Relief shading: a MapLibre hillshade layer over the same raster-dem. Independent of 3D — it
+      // reads relief on flat solid-colour basemaps too. hillshade-exaggeration is a 0..1 intensity.
+      hillshadeEnabled: useLocalStorage('hillshadeEnabled', false),
+      hillshadeExaggeration: useLocalStorage('hillshadeExaggeration', 0.3),
       nodes: useLocalStorage<Node[]>('nodes', [seedNode()]),
       selectedNodeId: useLocalStorage<string | null>('selectedNodeId', null),
       // shared / global params (per-node radio lives on the nodes themselves)
@@ -601,6 +605,26 @@ const useStore = defineStore('store', {
       map.addSource('relay-zone', { type: 'geojson', data: EMPTY_FC as any });
       map.addSource('relay-pts', { type: 'geojson', data: EMPTY_FC as any });
 
+      // Relief shading over the existing raster-dem. Added first so it sits directly above the
+      // basemaps and below every data overlay (coverage inserts before relay-zone-fill, so it lands
+      // on top of this) — the heatmap stays vibrant while only the basemap gets shaded. Multidirectional
+      // gives the soft, ambient-occlusion-like look; illumination-anchor 'map' keeps the light fixed to
+      // the ground rather than the camera. Visibility is restored from persisted state on every remount.
+      map.addLayer({
+        id: 'hillshade',
+        type: 'hillshade',
+        source: 'terrain-dem',
+        layout: { visibility: this.hillshadeEnabled ? 'visible' : 'none' },
+        paint: {
+          'hillshade-method': 'multidirectional',
+          'hillshade-exaggeration': this.hillshadeExaggeration,
+          'hillshade-illumination-anchor': 'map',
+          // Shadows only: the default white highlight brightens sunlit slopes, which washes out
+          // solid-colour basemaps. Transparent highlight leaves just the darkening.
+          'hillshade-highlight-color': 'rgba(255, 255, 255, 0.18)',
+        },
+      } as any);
+
       const bandColor = ['match', ['get', 'band'], 0, '#e08326', 1, '#d9c021', '#2e9e3f'];
       map.addLayer({
         id: 'relay-zone-fill', type: 'fill', source: 'relay-zone',
@@ -699,6 +723,20 @@ const useStore = defineStore('store', {
       this.terrainExaggeration = x;
       if (this.terrainEnabled) {
         this.applyTerrain();
+      }
+    },
+    toggleHillshade() {
+      this.hillshadeEnabled = !this.hillshadeEnabled;
+      const map = this.map as maplibregl.Map | undefined;
+      if (map && map.getLayer('hillshade')) {
+        map.setLayoutProperty('hillshade', 'visibility', this.hillshadeEnabled ? 'visible' : 'none');
+      }
+    },
+    setHillshadeExaggeration(x: number) {
+      this.hillshadeExaggeration = x;
+      const map = this.map as maplibregl.Map | undefined;
+      if (map && map.getLayer('hillshade')) {
+        map.setPaintProperty('hillshade', 'hillshade-exaggeration', x);
       }
     },
     applyTerrain() {
