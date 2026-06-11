@@ -8,8 +8,8 @@ import { type Site, type SplatParams, type Node, type MatrixResult, type RelayRe
 import { cloneObject, escapeHtml } from './utils.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
 
-const DEFAULT_LAT = 51.102167;
-const DEFAULT_LON = -114.098667;
+const DEFAULT_LAT = -41.257053283864224;
+const DEFAULT_LON = 174.86568331718445;
 
 // Meshtastic LoRa modem presets (must match app/services/link_budget.py PRESET_TABLE).
 export const LORA_PRESETS = [

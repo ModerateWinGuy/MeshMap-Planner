@@ -38,17 +38,68 @@ Requirements:
 
 - Docker and Docker Compose
 - Git
-- pnpm
+- pnpm (for the convenience scripts and the dev server)
+
+Clone with submodules — SPLAT! is a git submodule:
 
 ```bash
 git clone --recurse-submodules https://github.com/ModerateWinGuy/MeshMap-Planner && cd MeshMap-Planner
-
-pnpm i && pnpm run build
-
-docker-compose up --build
+pnpm install
 ```
 
-For running a development server, use `pnpm run dev`.
+### Running locally
+
+The whole stack (Vue frontend + FastAPI backend, served together on port 8080) builds and
+runs in Docker. The image now builds the frontend itself, so there is no separate
+`pnpm run build` step:
+
+```bash
+pnpm docker:dev      # = docker compose up --build
+```
+
+Then open http://localhost:8080.
+
+The available scripts:
+
+- `pnpm docker:dev` — build + run the full stack locally (port 8080) from the baked image
+- `pnpm docker:reload` — same, but bind-mounts the Python source and runs `uvicorn --reload` for backend hot-reload (frontend stays the baked build)
+- `pnpm docker:down` — stop the stack
+- `pnpm docker:build` — build the image
+- `pnpm docker:push` — push the image to your registry
+- `pnpm docker:release` — build + push in one step
+- `pnpm run dev` — Vite dev server with hot-reload on http://localhost:5173 (proxies API calls to the backend on :8080)
+
+For frontend work use `pnpm run dev` (live HMR). For backend work use `pnpm docker:reload`,
+which reloads on Python edits without rebuilding the image. The `docker:reload` overlay
+(`docker-compose.dev.yml`) intentionally does **not** mount the built `app/ui`, so it never
+shadows the frontend baked into the image.
+
+### Deploying
+
+The image is self-contained, so you can build it once, push it to a registry, and run it on a
+server with just the image plus a Redis container — `docker-compose.prod.yml` is provided for that.
+
+1. Replace `REGISTRY/meshmap-planner:latest` in `docker-compose.yml` and
+   `docker-compose.prod.yml` with your registry reference.
+2. Build and push from your dev machine (run `docker login REGISTRY` first if needed):
+
+   ```bash
+   pnpm docker:release
+   ```
+
+3. On the server, edit `docker-compose.prod.yml`: set the cache/override bind-mount paths and
+   the published host port (default `18080:8080` — pick a free one), then:
+
+   ```bash
+   docker compose -f docker-compose.prod.yml pull
+   docker compose -f docker-compose.prod.yml up -d
+   ```
+
+4. Point your reverse proxy / subdomain at the published host port. The container serves the UI
+   and API together on port 8080 internally.
+
+The terrain/SDF cache is persisted via a bind mount so live-fetched terrain tiles survive
+restarts — the first computation over a new area is the slow step.
 
 ## Credits
 
