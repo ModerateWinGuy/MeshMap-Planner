@@ -52,9 +52,9 @@ class MatrixRequest(BaseModel):
     situation_fraction: Optional[float] = Field(50, gt=1, le=100, description="Fraction of situations (default 50).")
     time_fraction: Optional[float] = Field(90, gt=1, le=100, description="Fraction of time (default 90).")
     high_resolution: bool = Field(False, description="Use 1-arcsecond / 30 m terrain tiles.")
-    terrain_source: Literal["dem", "dsm"] = Field(
-        "dem", description="Terrain product where a high-res source offers it (e.g. NZ LINZ): 'dem' "
-        "(bare earth) or 'dsm' (surface). Ignored by SRTM."
+    terrain_source: Literal["srtm", "dem", "dsm"] = Field(
+        "srtm", description="Terrain product: 'srtm' (global bare earth, skips LINZ), 'dem' (LINZ bare "
+        "earth) or 'dsm' (LINZ surface). 'dem'/'dsm' only differ over NZ."
     )
 
     @model_validator(mode="after")

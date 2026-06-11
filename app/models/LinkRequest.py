@@ -60,9 +60,9 @@ class LinkRequest(BaseModel):
     high_resolution: bool = Field(
         False, description="Use 1-arcsecond / 30 m terrain tiles instead of the default 3-arcsecond / 90 m."
     )
-    terrain_source: Literal["dem", "dsm"] = Field(
-        "dem", description="Terrain product where a high-res source offers it (e.g. NZ LINZ): 'dem' "
-        "(bare earth) or 'dsm' (surface, includes buildings/canopy). Ignored by SRTM."
+    terrain_source: Literal["srtm", "dem", "dsm"] = Field(
+        "srtm", description="Terrain product: 'srtm' (global bare earth, skips LINZ), 'dem' (LINZ bare "
+        "earth) or 'dsm' (LINZ surface, includes buildings/canopy). 'dem'/'dsm' only differ over NZ."
     )
 
     @model_validator(mode="after")

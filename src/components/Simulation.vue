@@ -32,13 +32,16 @@
             <div class="col-12">
                 <label for="terrain_source" class="form-label">Terrain Model</label>
                 <select v-model="simulation.terrain_source" class="form-select form-select-sm" id="terrain_source">
-                    <option value="dem">DEM — bare earth (default)</option>
-                    <option value="dsm">DSM — surface (buildings &amp; trees)</option>
+                    <option value="srtm">SRTM — global bare earth (default)</option>
+                    <option value="dem">LINZ DEM — bare earth (NZ LIDAR)</option>
+                    <option value="dsm">LINZ DSM — surface, buildings &amp; trees (NZ LIDAR)</option>
                 </select>
                 <div class="form-text">
-                    Only affects areas with high-resolution LIDAR coverage (e.g. New Zealand); global
-                    SRTM is bare-earth regardless. DSM bakes buildings/canopy into the terrain — set
-                    Clutter Height to 0 when using it to avoid counting obstructions twice.
+                    <strong>SRTM</strong> is the global bare-earth baseline (AWS Terrarium on the map). The
+                    <strong>LINZ</strong> options only differ where high-resolution LIDAR coverage exists
+                    (currently only New Zealand): <strong>DEM</strong> is bare earth, <strong>DSM</strong> bakes
+                    buildings/canopy into the terrain — set Clutter Height to 0 when using it to avoid counting
+                    obstructions twice. The map's 3D terrain and hillshade follow this choice too.
                 </div>
             </div>
         </div>

@@ -11,6 +11,7 @@ export default defineConfig({
       '/result': 'http://localhost:8080/',
       '/matrix': 'http://localhost:8080/',
       '/relay': 'http://localhost:8080/',
+      '/terrain': 'http://localhost:8080/',
     },
   },
   build: {

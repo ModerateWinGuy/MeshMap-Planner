@@ -111,6 +111,11 @@ class LinzProvider(DEMProvider):
     # Provider contract
     # ------------------------------------------------------------------ #
     def try_get_sdf(self, tile: TerrainTile) -> Optional[bytes]:
+        # 0. Only serve when the caller asked for a LINZ product. 'srtm' (or anything else) means the
+        # user explicitly wants the global SRTM baseline, so defer to the next provider in the chain.
+        if tile.terrain_source not in ("dem", "dsm"):
+            return None
+
         # 1. Cheap coverage gate — no network for the rest of the planet.
         if not self._cell_intersects(tile.lat, tile.lon, self.bbox):
             return None
@@ -138,8 +143,35 @@ class LinzProvider(DEMProvider):
             return None
 
     # ------------------------------------------------------------------ #
+    # Coverage
+    # ------------------------------------------------------------------ #
+    def covers(self, west: float, south: float, east: float, north: float) -> bool:
+        """True if a WGS84 ``(w, s, e, n)`` box intersects this provider's NZ coverage bbox.
+
+        Public so the map's XYZ tile endpoint can gate on the configured ``LINZ_BBOX`` (honouring
+        any override) before doing any network work, exactly as ``try_get_sdf`` gates per cell.
+        """
+        return _bbox_intersects((west, south, east, north), self.bbox)
+
+    # ------------------------------------------------------------------ #
     # STAC discovery
     # ------------------------------------------------------------------ #
+    def discover_cog_urls_for_bbox(self, bbox: Tuple[float, float, float, float], product: str) -> List[str]:
+        """COG asset URLs (as /vsicurl/ paths) for ``product`` intersecting an arbitrary WGS84
+        ``(w, s, e, n)`` bbox. Shares the weekly-cached STAC index with the SDF cell path, so the
+        map endpoint and the simulation pay the catalog walk only once between them."""
+        collections = self._collection_index()  # cached survey extents
+        matching = [
+            c for c in collections
+            if c.get("product") == product and _bbox_intersects(bbox, c["bbox"])
+        ]
+        urls: List[str] = []
+        for coll in matching:
+            items = self._collection_items(coll["url"])  # cached per collection
+            hits = [it for it in items if it.get("href") and _bbox_intersects(bbox, it["bbox"])]
+            urls.extend(_to_vsicurl(it["href"]) for it in hits)
+        return urls
+
     def _discover_cog_urls(self, tile: TerrainTile, product: str) -> List[str]:
         """COG asset URLs (as /vsicurl/ paths) for ``product`` intersecting this 1-degree cell."""
         cell = (tile.lon, tile.lat, tile.lon + 1, tile.lat + 1)  # (w, s, e, n)

@@ -174,7 +174,24 @@ def test_linz_defers_outside_nz_without_network():
         assert provider.try_get_sdf(us_tile) is None
 
 
+def test_linz_defers_when_source_is_not_a_linz_product():
+    # A 'srtm' request means "use the global baseline, skip LINZ": an in-NZ cell must still defer,
+    # and before any network (the product gate runs first), so the chain falls through to SRTM.
+    with tempfile.TemporaryDirectory() as cache_dir:
+        provider = LinzProvider(splat_path="/app/splat", cache_dir=cache_dir)
+        nz_tile = _tile(source="srtm")  # Wellington cell, inside the NZ bbox
+        assert provider.try_get_sdf(nz_tile) is None
+
+
 def test_linz_cell_intersects_nz():
     # Wellington cell intersects the default NZ bbox; California does not.
     assert LinzProvider._cell_intersects(-42, 174, (166.0, -47.5, 179.5, -34.0)) is True
     assert LinzProvider._cell_intersects(35, -120, (166.0, -47.5, 179.5, -34.0)) is False
+
+
+def test_linz_covers_bbox():
+    # The public bbox gate the map's XYZ tile endpoint uses: NZ boxes overlap, others don't.
+    with tempfile.TemporaryDirectory() as cache_dir:
+        provider = LinzProvider(splat_path="/app/splat", cache_dir=cache_dir)
+        assert provider.covers(174.0, -42.0, 175.0, -41.0) is True   # Wellington
+        assert provider.covers(-120.0, 35.0, -119.0, 36.0) is False  # California

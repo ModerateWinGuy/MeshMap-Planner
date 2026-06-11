@@ -12,13 +12,15 @@ Endpoints:
 
 import redis
 from fastapi import FastAPI, BackgroundTasks
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from uuid import uuid4
 from itertools import combinations
 from app.services.splat import Splat
 from app.services.dem_providers import build_providers
+from app.services.terrain_tiles_xyz import TerrainXyzService
 from app.services.progress import set_progress_sink, clear_progress_sink, report as report_progress
 from app.services.link_budget import receiver_sensitivity_dbm
 from app.models.CoveragePredictionRequest import CoveragePredictionRequest
@@ -44,6 +46,13 @@ dem_providers = build_providers(_provider_order, os.environ)
 
 # Initialize SPLAT service
 splat_service = Splat(splat_path=os.environ.get("SPLAT_PATH", "/app/splat"), dem_providers=dem_providers)
+
+# Terrain XYZ tile service for the 3D map: serves LINZ DEM/DSM as terrarium raster-dem tiles over NZ
+# (reusing the LINZ provider's cached COG discovery) and redirects to AWS Terrarium elsewhere. If
+# LINZ isn't in the chain it's None and the endpoint always redirects to Terrarium.
+_linz_provider = next((p for p in dem_providers if getattr(p, "name", "") == "linz"), None)
+terrain_tiles = TerrainXyzService.from_env(_linz_provider, os.environ)
+_TERRARIUM_TILE_URL = "https://elevation-tiles-prod.s3.amazonaws.com/v2/terrarium/{z}/{x}/{y}.png"
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -389,5 +398,28 @@ async def get_relay_result(task_id: str):
         return JSONResponse({"status": "failed", "error": error.decode("utf-8") if error else "unknown error"})
 
     return JSONResponse({"status": "processing"})
+
+@app.get("/terrain/config")
+async def terrain_config():
+    """Zoom band (minzoom gate + per-source maxzoom cap) for the 3D terrain source. The frontend
+    fetches this once so the raster-dem source it builds matches the backend's served band; it falls
+    back to its own defaults if this is unreachable."""
+    return JSONResponse(terrain_tiles.config())
+
+@app.get("/terrain/{source}/{z}/{x}/{y}.png")
+async def terrain_tile(source: str, z: int, x: int, y: int):
+    """Terrarium-encoded raster-dem tile for the 3D map. Serves LINZ DEM/DSM over NZ; for anything it
+    can't serve (bad source, outside NZ, outside the zoom band, or any failure) it 307-redirects to
+    AWS Terrarium so the single MapLibre terrain source is never left with a hole."""
+    if source not in ("dem", "dsm"):
+        return JSONResponse({"error": "source must be 'dem' or 'dsm'"}, status_code=400)
+    # render_tile blocks on remote COG reads — run it in the threadpool so a cold NZ tile can't stall
+    # the event loop (and thus /status polling for in-flight predictions).
+    png = await run_in_threadpool(terrain_tiles.render_tile, source, z, x, y)
+    if png is None:
+        return RedirectResponse(_TERRARIUM_TILE_URL.format(z=z, x=x, y=y), status_code=307)
+    # Immutable per-survey LIDAR — let the browser/CDN cache hard; our diskcache holds it server-side.
+    return Response(content=png, media_type="image/png",
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 app.mount("/", StaticFiles(directory="app/ui", html=True), name="ui")

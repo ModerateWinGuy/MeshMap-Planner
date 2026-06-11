@@ -23,6 +23,14 @@ services:
       - LOCAL_SDF_DIR=/app/local_sdf
       - SPLAT_CACHE_DIR=/app/.splat_tiles
       - SPLAT_PATH=/app/splat
+      # 3D-map terrain tiles (LINZ DEM/DSM served as terrarium raster-dem over NZ). Cached in a
+      # dedicated LRU cache under SPLAT_CACHE_DIR/xyz on the bind mount below — point ./splat_cache at
+      # the NAS and raise LINZ_TILE_CACHE_GB to keep more of NZ resident (full NZ ≈ 50–90 GB).
+      - LINZ_TILE_CACHE_GB=64
+      - LINZ_TILE_TTL_DAYS=180        # 0 = never expire (per-survey LIDAR is immutable)
+      - LINZ_TILE_MINZOOM=11          # below this, redirect to AWS Terrarium (LIDAR detail invisible)
+      - LINZ_TILE_MAXZOOM_DEM=15      # ~3.6 m at NZ — beats the current 8 m AWS baseline
+      - LINZ_TILE_MAXZOOM_DSM=14      # ~7 m at NZ — crisp surface detail, lighter than z15
     mem_limit: 12G
     ports:
       - 8080:8080

@@ -81,10 +81,80 @@ function linkColor(margin: number | null): string {
   return `rgb(${r}, ${g}, 50)`;
 }
 
+// Zoom band for the 3D terrain source, fetched from the backend (GET /terrain/config) so the
+// raster-dem source matches the band the backend actually serves. Defaults mirror the backend's so
+// the map works unchanged if the config fetch fails. Per-source: DEM is served finer (z15) than DSM
+// (z14) — see app/services/terrain_tiles_xyz.py.
+type TerrainConfig = { minzoom: number; maxzoom: { dem: number; dsm: number } };
+const DEFAULT_TERRAIN_CONFIG: TerrainConfig = { minzoom: 0, maxzoom: { dem: 15, dsm: 14 } };
+
+// AWS Terrarium tiles — the global baseline used for the 'srtm' option (and, server-side, as the
+// fallback the backend redirects to outside NZ). Already carry LINZ 8 m DEM over NZ + 30 m SRTM.
+const TERRARIUM_TILES = 'https://elevation-tiles-prod.s3.amazonaws.com/v2/terrarium/{z}/{x}/{y}.png';
+
+// The raster-dem source backing both the 3D terrain mesh and the hillshade, chosen by terrain_source:
+//   'srtm' → AWS Terrarium directly (global bare-earth baseline, no backend dependency)
+//   'dem'/'dsm' → our backend tile endpoint, which serves LINZ LIDAR over NZ and redirects to
+//                 Terrarium elsewhere — so the rendered terrain matches the RF simulation's choice.
+function terrainDemSource(terrainSource: string, config: TerrainConfig): any {
+  const isLinz = terrainSource === 'dem' || terrainSource === 'dsm';
+  return {
+    type: 'raster-dem',
+    tiles: isLinz ? [`/terrain/${terrainSource}/{z}/{x}/{y}.png`] : [TERRARIUM_TILES],
+    tileSize: 256,
+    // 'terrarium' is mandatory: these tiles decode to garbage under the default mapbox encoding.
+    encoding: 'terrarium',
+    // minzoom 0, not the backend's LINZ threshold: MapLibre must request terrain at every zoom (the
+    // map opens at z10) — the backend redirects below LINZ_TILE_MINZOOM to AWS Terrarium itself, so a
+    // higher source minzoom would just leave the zoomed-out view with no terrain at all (flat).
+    minzoom: 0,
+    // Cap requests at the served band; MapLibre overzooms past this rather than fetching finer tiles.
+    maxzoom: isLinz ? ((config.maxzoom as any)[terrainSource] ?? 15) : 15,
+    attribution: isLinz ? 'Terrain: LINZ (NZ) / AWS Mapzen / SRTM' : 'Terrain: AWS / Mapzen / SRTM',
+  };
+}
+
+// Live LINZ tiles are slow to render cold (the backend warps a COG window per tile), so the Terrain
+// panel offers a "download this view" prefetch that warms them with a progress bar. Concurrency is
+// capped to stay gentle on the backend/link; the tile count is capped so one click can't queue a
+// whole-country download (zoom in for a smaller, finer area instead).
+const PREFETCH_CONCURRENCY = 6;
+const MAX_PREFETCH_TILES = 600;
+
+// Slippy-map tile coords for a lon/lat at zoom z (web-mercator XYZ).
+function lonToTileX(lon: number, z: number): number {
+  return Math.floor(((lon + 180) / 360) * 2 ** z);
+}
+function latToTileY(lat: number, z: number): number {
+  const r = (Math.max(-85.05112878, Math.min(85.05112878, lat)) * Math.PI) / 180;
+  return Math.floor(((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * 2 ** z);
+}
+// XYZ tiles covering a lon/lat bbox at zoom z, padded by `pad` tiles so a little panning is covered too.
+function tilesForBounds(w: number, s: number, e: number, n: number, z: number, pad = 2): { z: number; x: number; y: number }[] {
+  const max = 2 ** z - 1;
+  const x0 = Math.max(0, lonToTileX(w, z) - pad);
+  const x1 = Math.min(max, lonToTileX(e, z) + pad);
+  const y0 = Math.max(0, latToTileY(n, z) - pad); // north edge -> smaller y
+  const y1 = Math.min(max, latToTileY(s, z) + pad);
+  const out: { z: number; x: number; y: number }[] = [];
+  for (let x = x0; x <= x1; x++) {
+    for (let y = y0; y <= y1; y++) {
+      out.push({ z, x, y });
+    }
+  }
+  return out;
+}
+
 // Build the initial MapLibre style: the four raster basemaps (the persisted one visible) plus the
-// AWS Terrarium raster-dem for 3D terrain, draped via the style's `terrain` when enabled so both
-// render on the first frame. Overlay sources/layers are added later, on 'load'.
-function buildStyle(activeBasemap: string, terrainEnabled: boolean, terrainExaggeration: number): any {
+// terrain raster-dem for 3D terrain, draped via the style's `terrain` when enabled so both render on
+// the first frame. Overlay sources/layers are added later, on 'load'.
+function buildStyle(
+  activeBasemap: string,
+  terrainEnabled: boolean,
+  terrainExaggeration: number,
+  terrainSource: string,
+  terrainConfig: TerrainConfig,
+): any {
   const sources: Record<string, any> = {};
   const layers: any[] = [];
   // Fall back to the first basemap if the persisted id is unknown, so a stale value can't leave
@@ -94,15 +164,7 @@ function buildStyle(activeBasemap: string, terrainEnabled: boolean, terrainExagg
     sources[b.id] = { type: 'raster', tiles: b.tiles, tileSize: 256, attribution: b.attribution, maxzoom: b.maxzoom };
     layers.push({ id: `basemap-${b.id}`, type: 'raster', source: b.id, layout: { visibility: b.id === visibleId ? 'visible' : 'none' } });
   });
-  sources['terrain-dem'] = {
-    type: 'raster-dem',
-    tiles: ['https://elevation-tiles-prod.s3.amazonaws.com/v2/terrarium/{z}/{x}/{y}.png'],
-    tileSize: 256,
-    // 'terrarium' is mandatory: these tiles decode to garbage under the default mapbox encoding.
-    encoding: 'terrarium',
-    maxzoom: 15,
-    attribution: 'Terrain: AWS / Mapzen / SRTM',
-  };
+  sources['terrain-dem'] = terrainDemSource(terrainSource, terrainConfig);
   const style: any = { version: 8, sources, layers };
   // Top-level `terrain` drapes the map over the DEM; runtime toggles go through setTerrain.
   if (terrainEnabled) {
@@ -317,9 +379,15 @@ const useStore = defineStore('store', {
       relayResult: null as RelayResult | null, // in-memory only
       relayA: null as string | null, // selected endpoint node ids
       relayB: null as string | null,
-      // 3D terrain (draped from the AWS Terrarium raster-dem). Persisted so the view survives a reload.
+      // 3D terrain (draped from the terrain raster-dem). Persisted so the view survives a reload.
       terrainEnabled: useLocalStorage('terrainEnabled', false),
       terrainExaggeration: useLocalStorage('terrainExaggeration', 1),
+      // Zoom band for the terrain source, fetched from GET /terrain/config in initMap. In-memory only
+      // (it's a backend deployment fact, not a user setting); defaults match the backend so the map
+      // works before/without the fetch.
+      terrainConfig: { ...DEFAULT_TERRAIN_CONFIG } as TerrainConfig,
+      // Progress of a "download terrain for this view" prefetch (null when idle). In-memory only.
+      terrainDownload: null as null | { running: boolean; done: number; total: number; cancelled: boolean; tooLarge: boolean },
       // Relief shading: a MapLibre hillshade layer over the same raster-dem. Independent of 3D — it
       // reads relief on flat solid-colour basemaps too. hillshade-exaggeration is a 0..1 intensity.
       hillshadeEnabled: useLocalStorage('hillshadeEnabled', false),
@@ -347,7 +415,7 @@ const useStore = defineStore('store', {
           time_fraction: 95.0,
           simulation_extent: 30.0,
           high_resolution: false,
-          terrain_source: 'dem'
+          terrain_source: 'srtm'
         },
         display: {
           color_scale: 'plasma',
@@ -539,11 +607,21 @@ const useStore = defineStore('store', {
       this.map = undefined;
       this.nodeMarkers = {};
     },
-    initMap() {
+    async initMap() {
+      // Pull the terrain zoom band before building the style so the raster-dem source matches the
+      // band the backend serves. Best-effort with a short timeout: if it fails we keep the defaults
+      // and the map still works (tiles fall back to Terrarium via the backend redirect).
+      await this.fetchTerrainConfig();
+
       // Guard against re-initialising onto a live map: initMap runs from App's onMounted, which
       // fires again on a remount (Vite HMR). Tear the old map down first so its WebGL context and
       // watchers don't leak.
       this.destroyMap();
+
+      // MapLibre globally caps in-flight tile image requests (default 16) across ALL sources. Slow
+      // LINZ terrain tiles can otherwise hog every slot and starve the basemap, leaving the map
+      // textureless while heightmaps trickle in. Give both room.
+      (maplibregl as any).config.MAX_PARALLEL_IMAGE_REQUESTS = 48;
 
       const start = this.selectedNode;
       const center: [number, number] = [
@@ -556,7 +634,13 @@ const useStore = defineStore('store', {
       this.map = markRaw(
         new maplibregl.Map({
           container: 'map',
-          style: buildStyle(this.activeBasemap, this.terrainEnabled, this.terrainExaggeration),
+          style: buildStyle(
+            this.activeBasemap,
+            this.terrainEnabled,
+            this.terrainExaggeration,
+            this.splatParams.simulation.terrain_source,
+            this.terrainConfig,
+          ),
           center,
           zoom: 10,
           maxPitch: 85, // unlocks tilt/rotate for reading hill elevation in 3D
@@ -612,6 +696,12 @@ const useStore = defineStore('store', {
         watch(
           () => this.splatParams.display.overlay_transparency,
           () => this.applyCoverageOpacity()
+        ),
+        // Re-point the terrain raster-dem at the new DEM/DSM tile endpoint when the simulation's
+        // terrain model changes, so the 3D mesh + hillshade reflect the same surface the sim uses.
+        watch(
+          () => this.splatParams.simulation.terrain_source,
+          () => this.swapTerrainSource()
         )
       );
     },
@@ -629,23 +719,8 @@ const useStore = defineStore('store', {
 
       // Relief shading over the existing raster-dem. Added first so it sits directly above the
       // basemaps and below every data overlay (coverage inserts before relay-zone-fill, so it lands
-      // on top of this) — the heatmap stays vibrant while only the basemap gets shaded. Multidirectional
-      // gives the soft, ambient-occlusion-like look; illumination-anchor 'map' keeps the light fixed to
-      // the ground rather than the camera. Visibility is restored from persisted state on every remount.
-      map.addLayer({
-        id: 'hillshade',
-        type: 'hillshade',
-        source: 'terrain-dem',
-        layout: { visibility: this.hillshadeEnabled ? 'visible' : 'none' },
-        paint: {
-          'hillshade-method': 'multidirectional',
-          'hillshade-exaggeration': this.hillshadeExaggeration,
-          'hillshade-illumination-anchor': 'map',
-          // Shadows only: the default white highlight brightens sunlit slopes, which washes out
-          // solid-colour basemaps. Transparent highlight leaves just the darkening.
-          'hillshade-highlight-color': 'rgba(255, 248, 227, 0.48)',
-        },
-      } as any);
+      // on top of this) — the heatmap stays vibrant while only the basemap gets shaded.
+      this.addHillshadeLayer(map);
 
       const bandColor = ['match', ['get', 'band'], 0, '#e08326', 1, '#d9c021', '#2e9e3f'];
       map.addLayer({
@@ -772,6 +847,129 @@ const useStore = defineStore('store', {
         return;
       }
       map.setTerrain(this.terrainEnabled ? { source: 'terrain-dem', exaggeration: this.terrainExaggeration } : null);
+    },
+    // Add the relief-shading layer over the terrain raster-dem. Shared by setupOverlays (initial) and
+    // swapTerrainSource (after a source swap). beforeId keeps it below the data overlays on re-add;
+    // omit it on first setup, where the relay/coverage layers are added afterwards anyway.
+    addHillshadeLayer(map: maplibregl.Map, beforeId?: string) {
+      map.addLayer({
+        id: 'hillshade',
+        type: 'hillshade',
+        source: 'terrain-dem',
+        layout: { visibility: this.hillshadeEnabled ? 'visible' : 'none' },
+        paint: {
+          // Multidirectional gives the soft, ambient-occlusion-like look; illumination-anchor 'map'
+          // keeps the light fixed to the ground rather than the camera.
+          'hillshade-method': 'multidirectional',
+          'hillshade-exaggeration': this.hillshadeExaggeration,
+          'hillshade-illumination-anchor': 'map',
+          // Shadows only: the default white highlight brightens sunlit slopes, which washes out
+          // solid-colour basemaps. Transparent highlight leaves just the darkening.
+          'hillshade-highlight-color': 'rgba(255, 248, 227, 0.48)',
+        },
+      } as any, beforeId);
+    },
+    // Re-point the terrain raster-dem at the tile endpoint for the current terrain_source ('dem' vs
+    // 'dsm'). MapLibre can't mutate a source's url/maxzoom in place, so swap the source: detach
+    // terrain, drop the hillshade layer (it references the source), remove + re-add the source with
+    // the new url and per-source maxzoom, then restore hillshade and re-attach terrain.
+    swapTerrainSource() {
+      const map = this.map as maplibregl.Map | undefined;
+      // Gate on an overlay layer existing, which means setupOverlays (on 'load') has run: removeSource
+      // /addSource need a loaded style, and we re-add the hillshade it created. Before load the source
+      // was just built by buildStyle with the current terrain_source, so there's nothing to swap yet.
+      if (!map || !map.getLayer('relay-zone-fill')) {
+        return;
+      }
+      const source = this.splatParams.simulation.terrain_source;
+      map.setTerrain(null); // detach before removing — MapLibre errors on removing a live terrain source
+      if (map.getLayer('hillshade')) {
+        map.removeLayer('hillshade');
+      }
+      map.removeSource('terrain-dem');
+      map.addSource('terrain-dem', terrainDemSource(source, this.terrainConfig));
+      // Re-add hillshade just below the data overlays (relay-zone-fill is the lowest) so it can't cover them.
+      this.addHillshadeLayer(map, 'relay-zone-fill');
+      this.applyTerrain();
+    },
+    // Fetch the backend terrain zoom band (GET /terrain/config) into this.terrainConfig. Best-effort:
+    // a short abort timeout and a silent catch so a down/slow backend just leaves the defaults.
+    async fetchTerrainConfig() {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 3000);
+        const res = await fetch('/terrain/config', { signal: ctrl.signal });
+        clearTimeout(timer);
+        if (!res.ok) {
+          return;
+        }
+        const cfg = await res.json();
+        if (cfg && cfg.maxzoom) {
+          this.terrainConfig = {
+            minzoom: cfg.minzoom ?? DEFAULT_TERRAIN_CONFIG.minzoom,
+            maxzoom: {
+              dem: cfg.maxzoom.dem ?? DEFAULT_TERRAIN_CONFIG.maxzoom.dem,
+              dsm: cfg.maxzoom.dsm ?? DEFAULT_TERRAIN_CONFIG.maxzoom.dsm,
+            },
+          };
+        }
+      } catch {
+        // backend unreachable/slow: keep defaults; terrain still works via the backend's Terrarium fallback
+      }
+    },
+    // Warm the backend (and browser) cache for the LINZ tiles covering the current view, with a
+    // progress bar, so the 3D terrain fills in promptly instead of trickling in over a slow live
+    // fetch. Only meaningful for the LINZ sources ('srtm' uses fast AWS tiles directly).
+    async downloadVisibleTerrain() {
+      const map = this.map as maplibregl.Map | undefined;
+      const source = this.splatParams.simulation.terrain_source;
+      if (!map || (source !== 'dem' && source !== 'dsm') || this.terrainDownload?.running) {
+        return;
+      }
+      // Fetch at the zoom MapLibre actually requests for this view (capped to the served band), so the
+      // warmed tiles are exactly the ones the mesh needs.
+      const z = Math.min(Math.round(map.getZoom()), (this.terrainConfig.maxzoom as any)[source] ?? 15);
+      const b = map.getBounds();
+      const tiles = tilesForBounds(b.getWest(), b.getSouth(), b.getEast(), b.getNorth(), z);
+      if (tiles.length > MAX_PREFETCH_TILES) {
+        this.terrainDownload = { running: false, done: 0, total: tiles.length, cancelled: false, tooLarge: true };
+        return;
+      }
+      this.terrainDownload = { running: true, done: 0, total: tiles.length, cancelled: false, tooLarge: false };
+      const queue = tiles.slice();
+      const worker = async () => {
+        while (queue.length) {
+          if (this.terrainDownload?.cancelled) {
+            return;
+          }
+          const t = queue.pop()!;
+          try {
+            // Consume the body so the connection frees and the browser caches the (immutable) tile.
+            await (await fetch(`/terrain/${source}/${t.z}/${t.x}/${t.y}.png`)).blob();
+          } catch {
+            // a failed tile just stays cold; keep going
+          }
+          if (this.terrainDownload) {
+            this.terrainDownload.done++;
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: PREFETCH_CONCURRENCY }, worker));
+      const cancelled = this.terrainDownload?.cancelled ?? false;
+      if (this.terrainDownload) {
+        this.terrainDownload.running = false;
+      }
+      // Re-request the now-cached tiles so the mesh renders immediately (MapLibre won't refetch tiles
+      // it already gave up on without a nudge).
+      if (!cancelled) {
+        this.swapTerrainSource();
+      }
+    },
+    cancelTerrainDownload() {
+      if (this.terrainDownload) {
+        this.terrainDownload.cancelled = true;
+        this.terrainDownload.running = false;
+      }
     },
     resetView() {
       this.map?.easeTo({ pitch: 0, bearing: 0 });
