@@ -4,7 +4,7 @@ import { watch, markRaw } from 'vue';
 import { randanimalSync } from 'randanimal';
 import maplibregl from 'maplibre-gl';
 import parseGeoraster from 'georaster';
-import { type Site, type SplatParams, type Node, type MatrixResult, type RelayResult, type UiMode } from './types.ts';
+import { type Site, type SplatParams, type Node, type MatrixResult, type RelayResult, type ProfileResult, type UiMode } from './types.ts';
 import { cloneObject, escapeHtml } from './utils.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
 
@@ -379,6 +379,15 @@ const useStore = defineStore('store', {
       relayResult: null as RelayResult | null, // in-memory only
       relayA: null as string | null, // selected endpoint node ids
       relayB: null as string | null,
+      // Point-to-point terrain/LOS profile (bottom strip). In-memory only; the two endpoint ids
+      // drive both the chart header and the on-map path line.
+      profileState: 'idle',
+      profileResult: null as ProfileResult | null,
+      profileError: null as string | null,
+      profileFromId: null as string | null,
+      profileToId: null as string | null,
+      // The "other" node chosen in the Check-LOS dropdown. Persisted so the choice survives reload.
+      losTargetId: useLocalStorage<string | null>('losTargetId', null),
       // 3D terrain (draped from the terrain raster-dem). Persisted so the view survives a reload.
       terrainEnabled: useLocalStorage('terrainEnabled', false),
       terrainExaggeration: useLocalStorage('terrainExaggeration', 1),
@@ -716,6 +725,7 @@ const useStore = defineStore('store', {
       map.addSource('links', { type: 'geojson', data: EMPTY_FC as any });
       map.addSource('relay-zone', { type: 'geojson', data: EMPTY_FC as any });
       map.addSource('relay-pts', { type: 'geojson', data: EMPTY_FC as any });
+      map.addSource('profile-path', { type: 'geojson', data: EMPTY_FC as any });
 
       // Relief shading over the existing raster-dem. Added first so it sits directly above the
       // basemaps and below every data overlay (coverage inserts before relay-zone-fill, so it lands
@@ -753,6 +763,13 @@ const useStore = defineStore('store', {
           'circle-opacity': 0.95,
         },
       } as any);
+      // The point-to-point profile path. A bright dashed line on top of everything so the slice the
+      // bottom-strip chart describes is obvious against the basemap, links and coverage.
+      map.addLayer({
+        id: 'profile-path-line', type: 'line', source: 'profile-path',
+        layout: { 'line-cap': 'round' },
+        paint: { 'line-color': '#22d3ee', 'line-width': 3, 'line-dasharray': [1.5, 1.5] },
+      } as any);
 
       this.wireOverlayPopups();
     },
@@ -761,14 +778,34 @@ const useStore = defineStore('store', {
       if (!map) {
         return;
       }
-      // Read-only info popups for links + relay zone.
-      for (const layer of ['links-solid', 'links-dashed', 'relay-zone-fill']) {
+      // Read-only info popup for the relay zone.
+      for (const layer of ['relay-zone-fill']) {
         map.on('click', layer, (e: any) => {
           const f = e.features?.[0];
           if (!f) {
             return;
           }
           new maplibregl.Popup({ offset: 8 }).setLngLat(e.lngLat).setHTML(String(f.properties?.popupHtml ?? '')).addTo(map);
+        });
+        map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+      }
+      // Link popups carry a "Show line profile" button (relay-pts pattern below): clicking it draws
+      // the terrain profile for that pair into the bottom strip.
+      for (const layer of ['links-solid', 'links-dashed']) {
+        map.on('click', layer, (e: any) => {
+          const f = e.features?.[0];
+          if (!f) {
+            return;
+          }
+          const popup = new maplibregl.Popup({ offset: 8 }).setLngLat(e.lngLat).setHTML(String(f.properties?.popupHtml ?? '')).addTo(map);
+          const a = f.properties?.a as string | undefined;
+          const b = f.properties?.b as string | undefined;
+          const btn = popup.getElement()?.querySelector('.link-profile-btn');
+          btn?.addEventListener('click', () => {
+            this.runProfile(a ?? null, b ?? null);
+            popup.remove();
+          }, { once: true });
         });
         map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
@@ -1153,7 +1190,10 @@ const useStore = defineStore('store', {
             width: link.viable ? 3 : 1.5,
             opacity: link.viable ? 0.9 : 0.5,
             viable: link.viable,
-            popupHtml: `<strong>${escapeHtml(a.transmitter.name)} ↔ ${escapeHtml(b.transmitter.name)}</strong><br>${details}`,
+            a: link.a,
+            b: link.b,
+            popupHtml: `<strong>${escapeHtml(a.transmitter.name)} ↔ ${escapeHtml(b.transmitter.name)}</strong><br>${details}`
+              + `<br><button type="button" class="link-profile-btn btn btn-sm btn-primary mt-2 w-100">Show line profile</button>`,
           },
         });
       }
@@ -1232,6 +1272,135 @@ const useStore = defineStore('store', {
         console.error('Matrix error:', error);
         this.matrixState = 'failed';
       }
+    },
+    // Run a point-to-point terrain/LOS profile between two nodes and show it in the bottom strip.
+    // Called from the Check-LOS control and from the on-map link popup; the from node is the TX,
+    // the to node the RX (its tx_height is the antenna height, matching the link-matrix convention).
+    async runProfile(fromId: string | null, toId: string | null) {
+      const a = this.nodes.find((n) => n.id === fromId);
+      const b = this.nodes.find((n) => n.id === toId);
+      if (!a || !b || a.id === b.id) {
+        console.warn('Line profile needs two distinct nodes.');
+        return;
+      }
+      this.profileFromId = a.id;
+      this.profileToId = b.id;
+      this.profileError = null;
+      this.redrawProfilePath();
+      try {
+        this.profileState = 'running';
+        this.progress = null;
+        const preset = this.splatParams.lora?.preset ?? 'LongFast';
+        const payload = {
+          tx_lat: a.transmitter.tx_lat,
+          tx_lon: a.transmitter.tx_lon,
+          tx_height: a.transmitter.tx_height,
+          tx_power: 10 * Math.log10(a.transmitter.tx_power) + 30, // watts -> dBm
+          tx_gain: a.transmitter.tx_gain,
+          rx_lat: b.transmitter.tx_lat,
+          rx_lon: b.transmitter.tx_lon,
+          rx_height: b.transmitter.tx_height,
+          rx_gain: b.receiver.rx_gain,
+          frequency_mhz: a.transmitter.tx_freq,
+          system_loss: b.receiver.rx_loss,
+          lora_preset: preset,
+          // shared environment / simulation params (mirror runMatrix)
+          clutter_height: this.splatParams.environment.clutter_height,
+          ground_dielectric: this.splatParams.environment.ground_dielectric,
+          ground_conductivity: this.splatParams.environment.ground_conductivity,
+          atmosphere_bending: this.splatParams.environment.atmosphere_bending,
+          radio_climate: this.splatParams.environment.radio_climate,
+          polarization: this.splatParams.environment.polarization,
+          situation_fraction: this.splatParams.simulation.situation_fraction,
+          time_fraction: this.splatParams.simulation.time_fraction,
+          high_resolution: this.splatParams.simulation.high_resolution,
+          terrain_source: this.splatParams.simulation.terrain_source
+        };
+
+        const profileResponse = await fetch('/profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!profileResponse.ok) {
+          this.profileState = 'failed';
+          this.profileError = await profileResponse.text();
+          throw new Error(`Failed to start profile: ${this.profileError}`);
+        }
+        const { task_id: taskId } = await profileResponse.json();
+        console.log(`Link profile started with task ID: ${taskId}`);
+
+        const pollInterval = 1000;
+        const pollStatus = async () => {
+          const statusResponse = await fetch(`/status/${taskId}`);
+          if (!statusResponse.ok) {
+            throw new Error('Failed to fetch profile status.');
+          }
+          const statusData = await statusResponse.json();
+          this.progress = statusData.progress ?? null;
+          if (statusData.status === 'completed') {
+            const resultResponse = await fetch(`/profile/result/${taskId}`);
+            if (!resultResponse.ok) {
+              throw new Error('Failed to fetch profile result.');
+            }
+            this.profileResult = await resultResponse.json();
+            this.profileState = 'completed';
+            this.progress = null;
+            this.redrawProfilePath();
+          } else if (statusData.status === 'failed') {
+            // Pull the error text from the result endpoint so the strip can show why (e.g. >100 km).
+            const resultResponse = await fetch(`/profile/result/${taskId}`);
+            const data = resultResponse.ok ? await resultResponse.json() : null;
+            this.profileError = data?.error ?? 'Profile computation failed.';
+            this.profileState = 'failed';
+            this.progress = null;
+          } else {
+            setTimeout(pollStatus, pollInterval);
+          }
+        };
+        pollStatus();
+      } catch (error) {
+        console.error('Profile error:', error);
+        this.profileState = 'failed';
+      }
+    },
+    redrawProfilePath() {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map) {
+        return;
+      }
+      const src = map.getSource('profile-path') as maplibregl.GeoJSONSource | undefined;
+      if (!src) {
+        return;
+      }
+      const a = this.nodes.find((n) => n.id === this.profileFromId);
+      const b = this.nodes.find((n) => n.id === this.profileToId);
+      if (!a || !b) {
+        src.setData(EMPTY_FC as any);
+        return;
+      }
+      src.setData({
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [a.transmitter.tx_lon, a.transmitter.tx_lat],
+              [b.transmitter.tx_lon, b.transmitter.tx_lat],
+            ],
+          },
+          properties: {},
+        }],
+      } as any);
+    },
+    clearProfile() {
+      this.profileResult = null;
+      this.profileError = null;
+      this.profileState = 'idle';
+      this.profileFromId = null;
+      this.profileToId = null;
+      this.redrawProfilePath();
     },
     async runRelay(aId: string, bId: string) {
       const a = this.nodes.find((n) => n.id === aId);

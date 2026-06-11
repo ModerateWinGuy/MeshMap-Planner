@@ -31,7 +31,13 @@
     </nav>
 
     <div class="content-row">
-      <div id="map" ref="map"></div>
+      <!-- Map column: the map fills it, with the point-to-point profile strip docked below when a
+           profile exists. Wrapped (rather than a bare #map) so the strip can shrink the map via flex
+           instead of overlapping it; MapLibre's ResizeObserver re-fits the canvas automatically. -->
+      <div class="map-col">
+        <div id="map" ref="map"></div>
+        <ProfilePanel v-if="store.profileResult || store.profileState === 'running' || store.profileState === 'failed'" />
+      </div>
       <!-- data-bs-theme="dark" puts every Bootstrap component in this dark sidebar onto its dark-mode
            palette (Bootstrap 5.3 color modes). Without it, descendants default to light-mode colours
            that vanish on the dark background: .form-text / .text-muted render near-black, and
@@ -127,6 +133,7 @@ import Display from "./components/Display.vue"
 import Terrain from "./components/Terrain.vue"
 import BasemapControl from "./components/BasemapControl.vue"
 import BasemapButtons from "./components/BasemapButtons.vue"
+import ProfilePanel from "./components/ProfilePanel.vue"
 import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical } from "@lucide/vue"
 import type { Component } from "vue"
 

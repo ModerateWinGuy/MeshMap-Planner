@@ -399,6 +399,95 @@ async def get_relay_result(task_id: str):
 
     return JSONResponse({"status": "processing"})
 
+def run_profile(task_id: str, request: LinkRequest):
+    """
+    Run a single point-to-point link with its terrain/LOS/Fresnel profile and store the result
+    as JSON in Redis. Mirrors `run_matrix` for one pair, but also asks SPLAT! for the profile
+    graph curves and adds the derived link-budget headline figures (TX EIRP, estimated RX signal,
+    margin) the chart annotates.
+    """
+    try:
+        set_progress_sink(_progress_sink(task_id))
+        logger.info(f"Starting link profile for task {task_id}.")
+
+        # Receiver sensitivity: explicit override wins, else derive from the LoRa preset.
+        if request.rx_sensitivity is not None:
+            sensitivity = request.rx_sensitivity
+        else:
+            sensitivity = receiver_sensitivity_dbm(request.lora_preset)
+
+        report_progress("Analysing terrain profile…", 0.1)
+        metrics = splat_service.point_to_point(request, include_profile=True)
+
+        result = dict(metrics)
+        result["tx_eirp_dbm"] = round(request.tx_power + request.tx_gain, 2)
+        result["sensitivity_dbm"] = round(sensitivity, 2)
+        rx_power = metrics.get("rx_power_dbm")
+        if rx_power is not None:
+            # SPLAT! received power excludes the receive antenna gain (matches run_matrix).
+            rx_signal = rx_power + request.rx_gain
+            margin = rx_signal - sensitivity
+            result["rx_signal_dbm"] = round(rx_signal, 2)
+            result["margin_db"] = round(margin, 2)
+            result["viable"] = margin >= 0
+        else:
+            result["rx_signal_dbm"] = None
+            result["margin_db"] = None
+            result["viable"] = False
+
+        redis_client.setex(task_id, 3600, json.dumps(result))
+        redis_client.setex(f"{task_id}:status", 3600, "completed")
+        logger.info(f"Profile task {task_id} marked as completed.")
+    except Exception as e:
+        logger.error(f"Error in profile task {task_id}: {e}")
+        redis_client.setex(f"{task_id}:status", 3600, "failed")
+        redis_client.setex(f"{task_id}:error", 3600, str(e))
+        raise
+    finally:
+        clear_progress_sink()
+
+@app.post("/profile")
+async def profile(payload: LinkRequest, background_tasks: BackgroundTasks) -> JSONResponse:
+    """
+    Compute a single point-to-point link with its terrain profile (terrain, line-of-sight,
+    Fresnel zone and earth-curvature curves) plus link-budget figures.
+
+    Submits a background task and stores one JSON result. Poll progress with GET /status/{task_id}
+    and fetch the result with GET /profile/result/{task_id}.
+    """
+    task_id = str(uuid4())
+    redis_client.setex(f"{task_id}:status", 3600, "processing")
+    background_tasks.add_task(run_profile, task_id, payload)
+    return JSONResponse({"task_id": task_id})
+
+@app.get("/profile/result/{task_id}")
+async def get_profile_result(task_id: str):
+    """
+    Retrieve the JSON link-profile result for a given task.
+
+    - If "completed": returns the stored metrics + profile-curve JSON.
+    - If "failed": returns the error message.
+    - If "processing": indicates the task is still running.
+    - Returns 404 if the task ID is not found.
+    """
+    status = redis_client.get(f"{task_id}:status")
+    if not status:
+        logger.warning(f"Task {task_id} not found in Redis.")
+        return JSONResponse({"error": "Task not found"}, status_code=404)
+
+    status = status.decode("utf-8")
+    if status == "completed":
+        data = redis_client.get(task_id)
+        if not data:
+            logger.error(f"No data found for completed profile task {task_id}.")
+            return JSONResponse({"error": "No result found"}, status_code=500)
+        return JSONResponse(json.loads(data.decode("utf-8")))
+    elif status == "failed":
+        error = redis_client.get(f"{task_id}:error")
+        return JSONResponse({"status": "failed", "error": error.decode("utf-8") if error else "unknown error"})
+
+    return JSONResponse({"status": "processing"})
+
 @app.get("/terrain/config")
 async def terrain_config():
     """Zoom band (minzoom gate + per-source maxzoom cap) for the 3D terrain source. The frontend

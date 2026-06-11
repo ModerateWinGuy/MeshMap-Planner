@@ -75,6 +75,31 @@ export interface MatrixResult {
     links: LinkResult[];
 }
 
+// A SPLAT! profile curve: a list of [distance_km, value_m] samples along the path.
+export type ProfileCurve = Array<[number, number]>;
+
+// Curves SPLAT! emits for the terrain graph (`-p`). Just the ground elevation above sea level
+// (metres) vs distance (km), TX->RX; the frontend derives the line of sight and Fresnel zone.
+export interface ProfileCurves {
+    terrain: ProfileCurve;      // ground profile, elevation AMSL (profile.gp)
+}
+
+// Result of POST /profile: the point-to-point link metrics plus the chart curves and the derived
+// headline link-budget figures the bottom strip annotates.
+export interface ProfileResult {
+    distance_km: number | null;
+    path_loss_db: number | null;
+    free_space_db: number | null;
+    rx_power_dbm: number | null;
+    fresnel_pct: number | null;
+    tx_eirp_dbm: number;
+    rx_signal_dbm: number | null;
+    margin_db: number | null;
+    sensitivity_dbm: number;
+    viable: boolean;
+    profile: ProfileCurves;
+}
+
 // Geometry is `any` to avoid a dependency on @types/geojson; properties are typed per layer.
 export interface FeatureCollection<P> {
     type: 'FeatureCollection';

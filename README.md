@@ -61,18 +61,23 @@ Then open http://localhost:8080.
 
 The available scripts:
 
-- `pnpm docker:dev` — build + run the full stack locally (port 8080) from the baked image
-- `pnpm docker:reload` — same, but bind-mounts the Python source and runs `uvicorn --reload` for backend hot-reload (frontend stays the baked build)
-- `pnpm docker:down` — stop the stack
+- `pnpm dev:full` — **the everyday dev command**: backend in Docker (detached, `uvicorn --reload`) + Vite HMR; open http://localhost:5173
+- `pnpm run dev` — Vite dev server only (HMR on http://localhost:5173, proxies API to :8080); needs the backend running separately
+- `pnpm docker:dev` — run the **production image** locally on http://localhost:8080 (static baked frontend — for testing the deployable artifact, not live editing)
+- `pnpm docker:reload` — backend in Docker with `uvicorn --reload` (foreground), serving the baked frontend
+- `pnpm docker:down` — stop the Docker stack
 - `pnpm docker:build` — build the image
 - `pnpm docker:push` — push the image to your registry
 - `pnpm docker:release` — build + push in one step
-- `pnpm run dev` — Vite dev server with hot-reload on http://localhost:5173 (proxies API calls to the backend on :8080)
 
-For frontend work use `pnpm run dev` (live HMR). For backend work use `pnpm docker:reload`,
-which reloads on Python edits without rebuilding the image. The `docker:reload` overlay
-(`docker-compose.dev.yml`) intentionally does **not** mount the built `app/ui`, so it never
-shadows the frontend baked into the image.
+**For day-to-day development use `pnpm dev:full` and open http://localhost:5173** — frontend
+edits hot-reload instantly via Vite, and the backend reloads on Python edits. (Ctrl+C stops
+Vite; `pnpm docker:down` stops the backend.)
+
+`http://localhost:8080` (`pnpm docker:dev`) serves the frontend that was **baked into the
+image at build time**, so it does not live-reload — it's for verifying the real deployable
+image, not for editing. The `docker:reload`/`dev:full` overlay (`docker-compose.dev.yml`)
+deliberately does **not** mount `app/ui`, so it never shadows that baked frontend.
 
 ### Deploying
 

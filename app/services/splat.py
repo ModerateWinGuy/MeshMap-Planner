@@ -225,7 +225,7 @@ class Splat:
                 logger.error(f"Error during coverage prediction: {e}")
                 raise RuntimeError(f"Error during coverage prediction: {e}")
 
-    def point_to_point(self, request: LinkRequest) -> dict:
+    def point_to_point(self, request: LinkRequest, include_profile: bool = False) -> dict:
         """
         Run a SPLAT! point-to-point path analysis between a transmitter and a receiver and
         return the parsed link metrics.
@@ -236,12 +236,16 @@ class Splat:
 
         Args:
             request (LinkRequest): The point-to-point link request.
+            include_profile (bool): When True, also ask SPLAT! to emit its terrain-profile graph
+                data (`-h`) and return the parsed curves under a "profile" key. Off by default so
+                the link-matrix path stays as cheap as before.
 
         Returns:
             dict: Parsed metrics with keys: distance_km, path_loss_db, free_space_db,
                 rx_power_dbm, fresnel_pct. Any field SPLAT! does not report is None. Viability
                 margin is NOT computed here — the caller combines rx_power_dbm with the LoRa
-                receiver sensitivity.
+                receiver sensitivity. When include_profile is True, a "profile" dict of
+                distance/value curves (terrain, los, fresnel, fresnel_60, curvature) is added.
 
         Raises:
             RuntimeError: If SPLAT! fails to execute or the link exceeds the 100 km limit.
@@ -314,6 +318,13 @@ class Splat:
                     str(request.clutter_height),
                     "-olditm",
                 ]
+                if include_profile:
+                    # `-p` makes SPLAT! write its terrain graph data (profile.gp): two columns of
+                    # distance (km) and ground elevation above sea level (m). We derive the line of
+                    # sight and Fresnel zone from this on the frontend. `-gpsav` keeps the .gp file
+                    # even when the gnuplot render succeeds; it is also left behind when gnuplot is
+                    # absent (as in our container), since SPLAT! only deletes it on success.
+                    splat_command += ["-p", "profile.png", "-gpsav"]
                 logger.debug(f"Executing SPLAT! P2P command: {' '.join(splat_command)}")
 
                 splat_result = subprocess.run(
@@ -336,6 +347,15 @@ class Splat:
                 report_text = Splat._read_p2p_report(tmpdir)
                 metrics = Splat._parse_p2p_report(report_text)
                 metrics["distance_km"] = round(distance_km, 3)
+
+                if include_profile:
+                    terrain = Splat._read_gp(os.path.join(tmpdir, "profile.gp"))
+                    # GraphTerrain walks the path from receiver to transmitter, so profile.gp arrives
+                    # RX->TX. Flip it to TX->RX (distance 0 = transmitter) to match the chart's A->B.
+                    if terrain:
+                        total = terrain[-1][0]
+                        terrain = [[round(total - d, 6), e] for d, e in reversed(terrain)]
+                    metrics["profile"] = {"terrain": terrain}
 
                 logger.info("SPLAT! point-to-point analysis completed successfully.")
                 return metrics
@@ -740,6 +760,30 @@ class Splat:
                     },
                 })
         return features
+
+    @staticmethod
+    def _read_gp(path: str) -> List[List[float]]:
+        """
+        Parse a SPLAT! gnuplot data file into a list of [distance, value] pairs.
+
+        These files (profile.gp, reference.gp, fresnel.gp, ...) are plain two-column whitespace-
+        separated ASCII; with SPLAT!'s `-metric` flag the columns are distance in km and the
+        value in metres. A file SPLAT! does not emit (e.g. fresnel.gp outside 20–20000 MHz) or
+        any unparseable line is skipped, returning [] rather than failing.
+        """
+        if not os.path.isfile(path):
+            return []
+        points: List[List[float]] = []
+        with open(path, "r", encoding="utf-8", errors="replace") as gp_file:
+            for line in gp_file:
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                try:
+                    points.append([float(parts[0]), float(parts[1])])
+                except ValueError:
+                    continue
+        return points
 
     @staticmethod
     def _read_p2p_report(tmpdir: str) -> str:

@@ -14,48 +14,88 @@
 
         <p v-if="store.nodes.length < 2" class="text-muted small mb-0">Add at least two nodes to compute links.</p>
 
-        <template v-else-if="store.matrixResult">
-            <p class="small text-muted mb-2">
-                Preset <strong>{{ store.matrixResult.preset }}</strong> ·
-                sensitivity <strong>{{ store.matrixResult.sensitivity_dbm }} dBm</strong>.
-                Cells show link margin (dB); green = viable, red = not.
-            </p>
-            <div class="table-responsive" style="max-height: 50vh; overflow: auto;">
-                <table class="table table-sm table-dark table-bordered text-center small mb-0">
-                    <thead>
-                        <tr>
-                            <th></th>
-                            <th v-for="n in store.nodes" :key="n.id" class="text-truncate" style="max-width: 90px;">
-                                {{ n.transmitter.name }}
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="row in store.nodes" :key="row.id">
-                            <th class="text-truncate text-start" style="max-width: 90px;">{{ row.transmitter.name }}</th>
-                            <td
-                                v-for="col in store.nodes"
-                                :key="col.id"
-                                :style="cellStyle(row.id, col.id)"
-                                :title="cellTitle(row.id, col.id)"
-                            >
-                                {{ cellText(row.id, col.id) }}
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
+        <template v-else>
+            <p v-if="!store.selectedNode" class="text-muted small mb-0">Select a node to see its links.</p>
+
+            <template v-else>
+                <p class="small text-muted mb-2">
+                    Links from <strong>{{ store.selectedNode.transmitter.name }}</strong>
+                    <template v-if="store.matrixResult">
+                        · preset <strong>{{ store.matrixResult.preset }}</strong>
+                        · sensitivity <strong>{{ store.matrixResult.sensitivity_dbm }} dBm</strong>
+                    </template>
+                </p>
+
+                <!-- Per-node link list (selected node -> every other node). Replaces the old N×N grid,
+                     which got unreadable past a handful of nodes. -->
+                <div v-if="store.matrixResult" class="table-responsive mb-2" style="max-height: 38vh; overflow: auto;">
+                    <table class="table table-sm table-dark table-bordered text-center small mb-0 align-middle">
+                        <thead>
+                            <tr>
+                                <th class="text-start">To</th>
+                                <th title="Link margin (dB); green = viable">Margin</th>
+                                <th>Dist</th>
+                                <th>Loss</th>
+                                <th title="First Fresnel zone clearance">Fresnel</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="other in otherNodes" :key="other.id">
+                                <th class="text-truncate text-start" style="max-width: 90px;">{{ other.transmitter.name }}</th>
+                                <td :style="cellStyle(other.id)">{{ marginText(other.id) }}</td>
+                                <td>{{ fieldText(other.id, 'distance_km', ' km') }}</td>
+                                <td>{{ fieldText(other.id, 'path_loss_db', ' dB') }}</td>
+                                <td>{{ fieldText(other.id, 'fresnel_pct', '%') }}</td>
+                                <td>
+                                    <button
+                                        type="button"
+                                        class="btn btn-sm p-0 border-0 bg-transparent lh-1 text-info"
+                                        :disabled="store.profileState === 'running'"
+                                        title="Show line profile"
+                                        @click="store.runProfile(store.selectedNodeId, other.id)"
+                                    >
+                                        <Spline :size="16" />
+                                    </button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p v-else class="text-muted small mb-2">Click "Compute Links" for margins, or check a single link below.</p>
+
+                <!-- Check LOS: draw the terrain/LOS profile to one chosen node. Independent of the
+                     matrix, so it works before (or instead of) computing every pair. -->
+                <label class="form-label small mb-1">Check line-of-sight to:</label>
+                <div class="d-flex gap-2">
+                    <select v-model="store.losTargetId" class="form-select form-select-sm">
+                        <option :value="null" disabled>Select node…</option>
+                        <option v-for="other in otherNodes" :key="other.id" :value="other.id">
+                            {{ other.transmitter.name }}
+                        </option>
+                    </select>
+                    <button
+                        type="button"
+                        class="btn btn-primary btn-sm text-nowrap"
+                        :disabled="!store.losTargetId || store.profileState === 'running'"
+                        @click="store.runProfile(store.selectedNodeId, store.losTargetId)"
+                    >
+                        <span v-if="store.profileState === 'running'" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        Show profile
+                    </button>
+                </div>
+            </template>
         </template>
 
-        <p v-else-if="store.matrixState === 'failed'" class="text-danger small mb-0">Matrix computation failed. See console.</p>
-        <p v-else class="text-muted small mb-0">Click "Compute Links" to analyse every node pair.</p>
+        <p v-if="store.matrixState === 'failed'" class="text-danger small mb-0 mt-2">Matrix computation failed. See console.</p>
     </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Spline } from '@lucide/vue'
 import { useStore } from '../store.ts'
-import { type LinkResult } from '../types.ts'
+import { type LinkResult, type Node } from '../types.ts'
 
 const store = useStore()
 
@@ -65,36 +105,39 @@ const buttonText = computed(() => {
     return 'Compute Links'
 })
 
-function linkFor(a: string, b: string): LinkResult | undefined {
+// Every node except the currently selected one — the rows/options of the "from selected node" view.
+const otherNodes = computed<Node[]>(() =>
+    store.nodes.filter((n) => n.id !== store.selectedNodeId)
+)
+
+function linkFor(other: string): LinkResult | undefined {
+    const sel = store.selectedNodeId
+    if (!sel) return undefined
     return store.matrixResult?.links.find(
-        (l) => (l.a === a && l.b === b) || (l.a === b && l.b === a)
+        (l) => (l.a === sel && l.b === other) || (l.a === other && l.b === sel)
     )
 }
 
-function cellText(a: string, b: string): string {
-    if (a === b) return '—'
-    const link = linkFor(a, b)
+function marginText(other: string): string {
+    const link = linkFor(other)
     if (!link) return ''
     if (link.error) return '!'
     return link.margin_db === null ? '?' : `${link.margin_db}`
 }
 
-function cellStyle(a: string, b: string): Record<string, string> {
-    if (a === b) return { background: '#222' }
-    const link = linkFor(a, b)
+function fieldText(other: string, key: 'distance_km' | 'path_loss_db' | 'fresnel_pct', unit: string): string {
+    const link = linkFor(other)
+    const value = link?.[key]
+    return value === null || value === undefined ? '—' : `${value}${unit}`
+}
+
+function cellStyle(other: string): Record<string, string> {
+    const link = linkFor(other)
     if (!link || link.margin_db === null) return {}
+    // Same red->green margin ramp the old grid used (margin 0..30 dB maps to red..green).
     const t = Math.max(0, Math.min(1, link.margin_db / 30))
     const r = Math.round(200 * (1 - t))
     const g = Math.round(40 + 140 * t)
     return { background: `rgb(${r}, ${g}, 50)`, color: '#fff' }
-}
-
-function cellTitle(a: string, b: string): string {
-    if (a === b) return ''
-    const link = linkFor(a, b)
-    if (!link) return ''
-    if (link.error) return `Error: ${link.error}`
-    return `Margin ${link.margin_db ?? '?'} dB · path loss ${link.path_loss_db ?? '?'} dB · `
-        + `Fresnel ${link.fresnel_pct ?? '?'} % clear · ${link.distance_km ?? '?'} km`
 }
 </script>

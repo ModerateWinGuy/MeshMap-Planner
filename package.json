@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:full": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build && vite",
     "build": "vue-tsc -b && vite build && cp -r public/* app/ui",
     "preview": "vite preview",
     "docker:dev": "docker compose up --build",
