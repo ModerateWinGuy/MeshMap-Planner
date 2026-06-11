@@ -21,7 +21,7 @@
                 </li>
             </ul>
         </template>
-        <p v-else class="text-muted medium centered mb-0">No nodes yet. Click "Add node" to create one.</p>
+        <p v-else class="text-muted medium centered mb-0">Add a node to begin.</p>
         <div class="d-flex gap-2 mb-2 mt-3">
             <button @click="store.addNode()" type="button" class="btn btn-success btn-sm w-100 d-flex align-items-center justify-content-center gap-1"><Plus :size="16" /> Add node</button>
         </div>

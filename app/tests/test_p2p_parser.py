@@ -36,3 +36,29 @@ def test_longley_rice_label_variant_is_parsed():
     text = "Longley-Rice path loss: 150.20 dB\n"
     metrics = Splat._parse_p2p_report(text)
     assert metrics["path_loss_db"] == 150.20
+
+
+def test_fresnel_not_confused_with_fraction_lines():
+    # Regression: the parser must not grab the "Fraction of Time/Situations: NN%" lines that
+    # precede the Fresnel sentence. A clear path reports 100%, not the 95% time fraction.
+    text = (
+        "Fraction of Situations: 95.0%\n"
+        "Fraction of Time: 95.0%\n\n"
+        "The first Fresnel zone is clear.\n"
+    )
+    assert Splat._parse_p2p_report(text)["fresnel_pct"] == 100.0
+
+
+def test_fresnel_partial_clearance_is_parsed():
+    text = "Fraction of Time: 95.0%\n60% of the first Fresnel zone is clear.\n"
+    assert Splat._parse_p2p_report(text)["fresnel_pct"] == 60.0
+
+
+def test_fresnel_obstructed_path_is_none():
+    # When obstructed, SPLAT! only says how high to raise the antenna — no percentage.
+    text = (
+        "Fraction of Time: 95.0%\n"
+        "Antenna at rx must be raised to at least 12.00 meters AGL\n"
+        "to clear the first Fresnel zone.\n"
+    )
+    assert Splat._parse_p2p_report(text)["fresnel_pct"] is None

@@ -27,7 +27,7 @@
                     <span><span class="text-muted">Est. RX</span> <strong>{{ fmt(r.rx_signal_dbm) }} dBm</strong></span>
                     <span><span class="text-muted">Distance</span> <strong>{{ fmt(r.distance_km) }} km</strong></span>
                     <span><span class="text-muted">Path loss</span> <strong>{{ fmt(r.path_loss_db) }} dB</strong></span>
-                    <span><span class="text-muted">Fresnel</span> <strong>{{ fmt(r.fresnel_pct) }}%</strong></span>
+                    <span><span class="text-muted">Fresnel clear</span> <strong>{{ fresnelPct === null ? '—' : fresnelPct + '%' }}</strong></span>
                     <span class="badge" :style="{ background: marginColor }">
                         {{ r.margin_db === null ? 'no signal' : `${r.margin_db >= 0 ? '+' : ''}${r.margin_db} dB ${r.viable ? 'viable' : 'fail'}` }}
                     </span>
@@ -210,6 +210,11 @@ const chart = computed(() => {
 
     return { terrainLine, terrainFill, losLine: toPath(los), fresnelBand, fresnel60Line, xTicks, xMinorTicks, yTicks }
 })
+
+// Worst-point first-Fresnel-zone clearance for the header. Computed once on the backend (so the
+// link matrix and this chart always agree) as (LOS - terrain) / Fresnel-radius at the worst point:
+// 100% = fully clear, 60% = the rule-of-thumb boundary, 0% = grazing the LOS, negative = blocked.
+const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pct ?? null)
 </script>
 
 <style scoped>

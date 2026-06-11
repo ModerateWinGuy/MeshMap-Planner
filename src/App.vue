@@ -50,10 +50,15 @@
                onMounted hook — is never torn down by a panel unmount. -->
           <div v-show="store.activeMode === 'nodes'">
             <NodePanel />
-            <hr />
-            <Transmitter />
-            <hr />
-            <Receiver />
+            <!-- The transmitter/receiver editors only make sense once a node exists; hiding them when
+                 the list is empty leaves NodePanel's single "Add a node to begin." prompt, instead of
+                 each panel repeating its own "no node selected" message. -->
+            <template v-if="store.nodes.length">
+              <hr />
+              <Transmitter />
+              <hr />
+              <Receiver />
+            </template>
           </div>
 
           <div v-show="store.activeMode === 'radio'">

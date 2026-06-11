@@ -18,7 +18,7 @@
                 </select>
             </div>
 
-            <div class="d-flex gap-2 mb-2 align-items-center">
+            <div class="d-grid gap-2 mb-2">
                 <button
                     :disabled="store.relayState === 'running' || !canRun"
                     @click="run"

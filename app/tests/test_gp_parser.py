@@ -22,3 +22,19 @@ def test_missing_file_returns_empty_list(tmp_path):
     # SPLAT! omits e.g. fresnel.gp outside 20–20000 MHz; that must be [] not an error.
     points = Splat._read_gp(str(tmp_path / "does_not_exist.gp"))
     assert points == []
+
+
+def test_fresnel_clearance_clear_path_is_100():
+    # Flat sea-level ground with 30 m masts at 900 MHz over 5 km: the first Fresnel zone is clear.
+    flat = [[i * 0.05, 0.0] for i in range(101)]
+    assert Splat._fresnel_clearance_pct(flat, 30, 30, 900, 5.0) == 100.0
+
+
+def test_fresnel_clearance_blocked_path_is_negative():
+    # A 45 m ridge mid-path rises above the ~30 m line of sight -> negative clearance.
+    block = [[i * 0.05, (45.0 if 45 <= i <= 55 else 0.0)] for i in range(101)]
+    assert Splat._fresnel_clearance_pct(block, 30, 30, 900, 5.0) < 0
+
+
+def test_fresnel_clearance_none_without_terrain():
+    assert Splat._fresnel_clearance_pct([], 30, 30, 900, 5.0) is None

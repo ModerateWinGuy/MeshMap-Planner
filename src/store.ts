@@ -386,6 +386,9 @@ const useStore = defineStore('store', {
       profileError: null as string | null,
       profileFromId: null as string | null,
       profileToId: null as string | null,
+      // Lazy cache of computed profiles, keyed by the full request payload (so any change to a node
+      // or radio param yields a new key and recomputes). In-memory only; entries are markRaw'd.
+      profileCache: {} as Record<string, ProfileResult>,
       // The "other" node chosen in the Check-LOS dropdown. Persisted so the choice survives reload.
       losTargetId: useLocalStorage<string | null>('losTargetId', null),
       // 3D terrain (draped from the terrain raster-dem). Persisted so the view survives a reload.
@@ -1287,35 +1290,49 @@ const useStore = defineStore('store', {
       this.profileToId = b.id;
       this.profileError = null;
       this.redrawProfilePath();
+
+      const preset = this.splatParams.lora?.preset ?? 'LongFast';
+      const payload = {
+        tx_lat: a.transmitter.tx_lat,
+        tx_lon: a.transmitter.tx_lon,
+        tx_height: a.transmitter.tx_height,
+        tx_power: 10 * Math.log10(a.transmitter.tx_power) + 30, // watts -> dBm
+        tx_gain: a.transmitter.tx_gain,
+        rx_lat: b.transmitter.tx_lat,
+        rx_lon: b.transmitter.tx_lon,
+        rx_height: b.transmitter.tx_height,
+        rx_gain: b.receiver.rx_gain,
+        frequency_mhz: a.transmitter.tx_freq,
+        system_loss: b.receiver.rx_loss,
+        lora_preset: preset,
+        // shared environment / simulation params (mirror runMatrix)
+        clutter_height: this.splatParams.environment.clutter_height,
+        ground_dielectric: this.splatParams.environment.ground_dielectric,
+        ground_conductivity: this.splatParams.environment.ground_conductivity,
+        atmosphere_bending: this.splatParams.environment.atmosphere_bending,
+        radio_climate: this.splatParams.environment.radio_climate,
+        polarization: this.splatParams.environment.polarization,
+        situation_fraction: this.splatParams.simulation.situation_fraction,
+        time_fraction: this.splatParams.simulation.time_fraction,
+        high_resolution: this.splatParams.simulation.high_resolution,
+        terrain_source: this.splatParams.simulation.terrain_source
+      };
+
+      // The payload fully determines the result, so it doubles as the cache key: editing a node or
+      // any radio param changes the key and forces a recompute; reopening an unchanged pair is instant.
+      const cacheKey = JSON.stringify(payload);
+      const cached = this.profileCache[cacheKey];
+      if (cached) {
+        this.profileResult = cached;
+        this.profileState = 'completed';
+        this.progress = null;
+        this.redrawProfilePath();
+        return;
+      }
+
       try {
         this.profileState = 'running';
         this.progress = null;
-        const preset = this.splatParams.lora?.preset ?? 'LongFast';
-        const payload = {
-          tx_lat: a.transmitter.tx_lat,
-          tx_lon: a.transmitter.tx_lon,
-          tx_height: a.transmitter.tx_height,
-          tx_power: 10 * Math.log10(a.transmitter.tx_power) + 30, // watts -> dBm
-          tx_gain: a.transmitter.tx_gain,
-          rx_lat: b.transmitter.tx_lat,
-          rx_lon: b.transmitter.tx_lon,
-          rx_height: b.transmitter.tx_height,
-          rx_gain: b.receiver.rx_gain,
-          frequency_mhz: a.transmitter.tx_freq,
-          system_loss: b.receiver.rx_loss,
-          lora_preset: preset,
-          // shared environment / simulation params (mirror runMatrix)
-          clutter_height: this.splatParams.environment.clutter_height,
-          ground_dielectric: this.splatParams.environment.ground_dielectric,
-          ground_conductivity: this.splatParams.environment.ground_conductivity,
-          atmosphere_bending: this.splatParams.environment.atmosphere_bending,
-          radio_climate: this.splatParams.environment.radio_climate,
-          polarization: this.splatParams.environment.polarization,
-          situation_fraction: this.splatParams.simulation.situation_fraction,
-          time_fraction: this.splatParams.simulation.time_fraction,
-          high_resolution: this.splatParams.simulation.high_resolution,
-          terrain_source: this.splatParams.simulation.terrain_source
-        };
 
         const profileResponse = await fetch('/profile', {
           method: 'POST',
@@ -1343,7 +1360,12 @@ const useStore = defineStore('store', {
             if (!resultResponse.ok) {
               throw new Error('Failed to fetch profile result.');
             }
-            this.profileResult = await resultResponse.json();
+            // markRaw: the result holds a terrain array of many points and is cached; keep it out of
+            // Vue's deep reactivity (its contents never mutate). Reassigning profileResult still
+            // triggers the chart to re-render.
+            const result = markRaw(await resultResponse.json() as ProfileResult);
+            this.profileResult = result;
+            this.profileCache[cacheKey] = result;
             this.profileState = 'completed';
             this.progress = null;
             this.redrawProfilePath();

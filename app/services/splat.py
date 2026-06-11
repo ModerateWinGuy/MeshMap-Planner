@@ -317,14 +317,16 @@ class Splat:
                     "-gc",
                     str(request.clutter_height),
                     "-olditm",
-                ]
-                if include_profile:
                     # `-p` makes SPLAT! write its terrain graph data (profile.gp): two columns of
-                    # distance (km) and ground elevation above sea level (m). We derive the line of
-                    # sight and Fresnel zone from this on the frontend. `-gpsav` keeps the .gp file
-                    # even when the gnuplot render succeeds; it is also left behind when gnuplot is
-                    # absent (as in our container), since SPLAT! only deletes it on success.
-                    splat_command += ["-p", "profile.png", "-gpsav"]
+                    # distance (km) and ground elevation above sea level (m). We always emit it so we
+                    # can derive a geometric Fresnel-zone clearance below (the text report only states
+                    # whether the zone is clear, not by how much). `-gpsav` keeps the .gp file even
+                    # when gnuplot succeeds; it is also left behind when gnuplot is absent (as in our
+                    # container), since SPLAT! only deletes it on a successful render.
+                    "-p",
+                    "profile.png",
+                    "-gpsav",
+                ]
                 logger.debug(f"Executing SPLAT! P2P command: {' '.join(splat_command)}")
 
                 splat_result = subprocess.run(
@@ -348,13 +350,24 @@ class Splat:
                 metrics = Splat._parse_p2p_report(report_text)
                 metrics["distance_km"] = round(distance_km, 3)
 
+                terrain = Splat._read_gp(os.path.join(tmpdir, "profile.gp"))
+                # GraphTerrain walks the path from receiver to transmitter, so profile.gp arrives
+                # RX->TX. Flip it to TX->RX (distance 0 = transmitter) to match the chart's A->B, and
+                # round to chart precision (distance to the metre, elevation to whole metres) to keep
+                # the payload small — sub-metre detail is invisible on the profile chart.
+                if terrain:
+                    total = terrain[-1][0]
+                    terrain = [[round(total - d, 3), round(e)] for d, e in reversed(terrain)]
+
+                # Geometric first-Fresnel-zone clearance (overrides the coarse text-report value):
+                # a real percentage that is consistent between the link matrix and the profile chart.
+                metrics["fresnel_pct"] = Splat._fresnel_clearance_pct(
+                    terrain, request.tx_height, request.rx_height, request.frequency_mhz, distance_km
+                )
+
+                # The full terrain curve is only needed to draw the profile chart; the matrix wants
+                # just the scalar above, so don't bloat its per-pair JSON with thousands of points.
                 if include_profile:
-                    terrain = Splat._read_gp(os.path.join(tmpdir, "profile.gp"))
-                    # GraphTerrain walks the path from receiver to transmitter, so profile.gp arrives
-                    # RX->TX. Flip it to TX->RX (distance 0 = transmitter) to match the chart's A->B.
-                    if terrain:
-                        total = terrain[-1][0]
-                        terrain = [[round(total - d, 6), e] for d, e in reversed(terrain)]
                     metrics["profile"] = {"terrain": terrain}
 
                 logger.info("SPLAT! point-to-point analysis completed successfully.")
@@ -785,6 +798,54 @@ class Splat:
                     continue
         return points
 
+    # Effective earth radius (4/3 model, standard refractivity) for the line-of-sight curvature bulge.
+    _EARTH_RADIUS_M = 6371000.0
+    _K_FACTOR = 4.0 / 3.0
+
+    @staticmethod
+    def _fresnel_clearance_pct(
+        terrain: List[List[float]],
+        tx_height_m: float,
+        rx_height_m: float,
+        freq_mhz: float,
+        distance_km: float,
+    ) -> Optional[float]:
+        """
+        Worst-point first-Fresnel-zone clearance along the path, as a percentage of the Fresnel
+        radius: ``(LOS - terrain) / F1`` minimised over the path.
+
+        100% = terrain just touches the edge of the first Fresnel zone (fully clear); 60% = the
+        usual rule-of-thumb boundary; 0% = terrain grazes the line of sight; negative = the LOS is
+        blocked by terrain. The line of sight runs antenna-top to antenna-top (ground + AGL) and is
+        sagged by the earth-curvature bulge so long paths read correctly. Mirrors the geometry the
+        frontend draws, so the figure agrees with the profile chart. Returns None if terrain is
+        unavailable. This is a geometric indicator only — link viability comes from the ITM margin.
+        """
+        if not terrain or len(terrain) < 2 or freq_mhz <= 0:
+            return None
+
+        distance_m = max(distance_km * 1000.0, 1.0)
+        wavelength = 299.792458 / freq_mhz  # metres
+        top_a = terrain[0][1] + tx_height_m   # antenna tops above sea level (LOS endpoints)
+        top_b = terrain[-1][1] + rx_height_m
+
+        min_clear: Optional[float] = None
+        for dist_km, ground in terrain:
+            d1 = min(max(dist_km * 1000.0, 0.0), distance_m)
+            frac = d1 / distance_m
+            bulge = d1 * (distance_m - d1) / (2.0 * Splat._K_FACTOR * Splat._EARTH_RADIUS_M)
+            los = top_a + (top_b - top_a) * frac - bulge
+            f1 = math.sqrt(max(wavelength * d1 * (distance_m - d1) / distance_m, 0.0))
+            # Skip the path ends where F1 collapses to 0 and the ratio is meaningless.
+            if f1 > 0.5:
+                clearance = (los - ground) / f1
+                if min_clear is None or clearance < min_clear:
+                    min_clear = clearance
+
+        if min_clear is None:
+            return None
+        return round(min(min_clear * 100.0, 100.0), 1)
+
     @staticmethod
     def _read_p2p_report(tmpdir: str) -> str:
         """
@@ -826,12 +887,18 @@ class Splat:
             "fresnel_pct": None,
         }
 
-        # Fresnel-zone clearance wording differs between builds; try both orderings.
-        fresnel = re.search(r"first Fresnel zone[^%\d]*?([\d.]+)\s*%", text, re.IGNORECASE)
+        # Fresnel-zone clearance. The number must sit next to "Fresnel zone" in the same sentence —
+        # an earlier, looser pattern matched any "NN%" before "first Fresnel zone", which silently
+        # grabbed the unrelated "Fraction of Time: 95.0%" line. SPLAT! only ever states whether the
+        # zone is clear (100%), partially clear (the stated %), or — when obstructed — how high to
+        # raise the antenna (no percentage), so an obstructed path stays None.
+        fresnel = re.search(r"first Fresnel zone is\s*([\d.]+)\s*%\s*clear", text, re.IGNORECASE)
         if not fresnel:
-            fresnel = re.search(r"([\d.]+)\s*%[^%]*?first Fresnel zone", text, re.IGNORECASE)
+            fresnel = re.search(r"([\d.]+)\s*%\s*of the first Fresnel zone is clear", text, re.IGNORECASE)
         if fresnel:
             metrics["fresnel_pct"] = float(fresnel.group(1))
+        elif re.search(r"first Fresnel zone is clear", text, re.IGNORECASE):
+            metrics["fresnel_pct"] = 100.0
 
         return metrics
 

@@ -5,7 +5,7 @@
                 :disabled="store.matrixState === 'running' || store.nodes.length < 2"
                 @click="store.runMatrix"
                 type="button"
-                class="btn btn-success btn-sm"
+                class="btn btn-success btn-sm w-100"
             >
                 <span v-if="store.matrixState === 'running'" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                 {{ buttonText }}
@@ -28,21 +28,21 @@
 
                 <!-- Per-node link list (selected node -> every other node). Replaces the old N×N grid,
                      which got unreadable past a handful of nodes. -->
-                <div v-if="store.matrixResult" class="table-responsive mb-2" style="max-height: 38vh; overflow: auto;">
-                    <table class="table table-sm table-dark table-bordered text-center small mb-0 align-middle">
+                <div v-if="store.matrixResult" class="mb-2" style="max-height: 38vh; overflow-y: auto; overflow-x: hidden;">
+                    <table class="table table-sm table-dark table-bordered text-center small mb-0 align-middle" style="table-layout: fixed; width: 100%;">
                         <thead>
                             <tr>
-                                <th class="text-start">To</th>
+                                <th class="text-start" style="width: 28%;">To</th>
                                 <th title="Link margin (dB); green = viable">Margin</th>
                                 <th>Dist</th>
                                 <th>Loss</th>
                                 <th title="First Fresnel zone clearance">Fresnel</th>
-                                <th></th>
+                                <th style="width: 32px;"></th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr v-for="other in otherNodes" :key="other.id">
-                                <th class="text-truncate text-start" style="max-width: 90px;">{{ other.transmitter.name }}</th>
+                                <th class="text-truncate text-start">{{ other.transmitter.name }}</th>
                                 <td :style="cellStyle(other.id)">{{ marginText(other.id) }}</td>
                                 <td>{{ fieldText(other.id, 'distance_km', ' km') }}</td>
                                 <td>{{ fieldText(other.id, 'path_loss_db', ' dB') }}</td>
