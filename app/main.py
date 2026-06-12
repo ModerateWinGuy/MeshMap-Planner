@@ -30,7 +30,10 @@ from app.models.RelayRequest import RelayRequest
 import json
 import logging
 import io
+import math
 import os
+
+from haversine import haversine, Unit
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -52,6 +55,20 @@ splat_service = Splat(splat_path=os.environ.get("SPLAT_PATH", "/app/splat"), dem
 # LINZ isn't in the chain it's None and the endpoint always redirects to Terrarium.
 _linz_provider = next((p for p in dem_providers if getattr(p, "name", "") == "linz"), None)
 terrain_tiles = TerrainXyzService.from_env(_linz_provider, os.environ)
+
+# SRTM gives cheap global bare-earth point elevations for the radio-horizon link pre-filter. Using
+# bare earth everywhere (regardless of the run's terrain_source) is fine for a generous LOS bound.
+_srtm_provider = next((p for p in dem_providers if getattr(p, "name", "") == "srtm"), None)
+
+# Distance to the geometric line-of-sight horizon, with the standard k=4/3 effective-Earth radius
+# (R=6 371 000 m): d_km = sqrt(2·k·R·h)/1000 = 4.1225·sqrt(h_m), summed over both antennas. Heights
+# are above sea level (ground + AGL), making the bound generous so only impossible pairs are dropped.
+_RADIO_HORIZON_KM_PER_SQRT_M = math.sqrt(2 * (4 / 3) * 6_371_000) / 1000  # ~4.1225
+
+
+def _radio_horizon_km(height_amsl_a_m: float, height_amsl_b_m: float) -> float:
+    """Max line-of-sight distance (km) between two antennas at the given heights above sea level."""
+    return _RADIO_HORIZON_KM_PER_SQRT_M * (math.sqrt(height_amsl_a_m) + math.sqrt(height_amsl_b_m))
 _TERRARIUM_TILE_URL = "https://elevation-tiles-prod.s3.amazonaws.com/v2/terrarium/{z}/{x}/{y}.png"
 
 # Initialize FastAPI app
@@ -145,7 +162,7 @@ def run_matrix(task_id: str, request: MatrixRequest):
     Compute every unordered pair of nodes as a point-to-point link and store the resulting
     matrix as JSON in Redis. Mirrors `run_splat` but produces JSON rather than a GeoTIFF.
 
-    A bad pair (e.g. one beyond the 100 km limit) is recorded with an `error` and `viable:false`
+    A bad pair (e.g. one beyond the distance limit) is recorded with an `error` and `viable:false`
     rather than failing the whole matrix.
     """
     try:
@@ -158,8 +175,49 @@ def run_matrix(task_id: str, request: MatrixRequest):
         else:
             sensitivity = receiver_sensitivity_dbm(request.lora_preset)
 
-        pairs = list(combinations(request.nodes, 2))
+        all_pairs = list(combinations(request.nodes, 2))
+        # Pre-filter pairs beyond the line-of-sight radio horizon (Earth curvature) so we never run
+        # SPLAT! on physically impossible links. Ground elevation is sampled once per node from SRTM
+        # bare earth; a node we can't sample (or no SRTM provider at all) skips filtering for its
+        # pairs, so an unknown elevation never drops a link we're unsure about.
+        if request.filter_radio_horizon and _srtm_provider is not None:
+            ground_by_id: dict = {}
+            for node in request.nodes:
+                try:
+                    ground_by_id[node.id] = _srtm_provider.sample_elevation(node.lat, node.lon)
+                except Exception as elev_error:
+                    logger.warning(f"Elevation sample failed for node {node.id}: {elev_error}")
+                    ground_by_id[node.id] = None
+
+            def _within_horizon(tx: MatrixNode, rx: MatrixNode) -> bool:
+                ground_a, ground_b = ground_by_id.get(tx.id), ground_by_id.get(rx.id)
+                if ground_a is None or ground_b is None:
+                    return True
+                horizon_km = _radio_horizon_km(ground_a + tx.height, ground_b + rx.height)
+                distance_km = haversine((tx.lat, tx.lon), (rx.lat, rx.lon), unit=Unit.KILOMETERS)
+                return distance_km <= horizon_km
+
+            pairs = [(tx, rx) for tx, rx in all_pairs if _within_horizon(tx, rx)]
+            skipped = len(all_pairs) - len(pairs)
+            if skipped:
+                logger.info(f"Radio-horizon filter skipped {skipped}/{len(all_pairs)} pair(s).")
+        else:
+            pairs = all_pairs
+
         links = []
+        node_ids = [n.id for n in request.nodes]
+        sensitivity_rounded = round(sensitivity, 2)
+
+        def _publish():
+            # Republish the growing matrix after every link so the frontend can render each one as
+            # it lands (polled via GET /matrix/result) rather than waiting for the whole job.
+            redis_client.setex(task_id, 3600, json.dumps({
+                "nodes": node_ids,
+                "preset": request.lora_preset,
+                "sensitivity_dbm": sensitivity_rounded,
+                "links": links,
+            }))
+
         for pair_index, (tx, rx) in enumerate(pairs):
             report_progress(
                 f"Analysing link {pair_index + 1}/{len(pairs)} ({tx.id}↔{rx.id})…",
@@ -181,14 +239,9 @@ def run_matrix(task_id: str, request: MatrixRequest):
                 logger.warning(f"Pair {tx.id}-{rx.id} failed: {pair_error}")
                 link["error"] = str(pair_error)
             links.append(link)
+            _publish()
 
-        result = {
-            "nodes": [n.id for n in request.nodes],
-            "preset": request.lora_preset,
-            "sensitivity_dbm": round(sensitivity, 2),
-            "links": links,
-        }
-        redis_client.setex(task_id, 3600, json.dumps(result))
+        _publish()
         redis_client.setex(f"{task_id}:status", 3600, "completed")
         logger.info(f"Link matrix task {task_id} marked as completed.")
     except Exception as e:
@@ -317,16 +370,19 @@ async def get_matrix_result(task_id: str):
         return JSONResponse({"error": "Task not found"}, status_code=404)
 
     status = status.decode("utf-8")
-    if status == "completed":
-        data = redis_client.get(task_id)
-        if not data:
-            logger.error(f"No data found for completed matrix task {task_id}.")
-            return JSONResponse({"error": "No result found"}, status_code=500)
-        return JSONResponse(json.loads(data.decode("utf-8")))
-    elif status == "failed":
+    if status == "failed":
         error = redis_client.get(f"{task_id}:error")
         return JSONResponse({"status": "failed", "error": error.decode("utf-8") if error else "unknown error"})
 
+    # Serve whatever is stored so far. run_matrix republishes the growing links list after every
+    # pair, so this returns the partial matrix while still processing and the full one when complete
+    # (same shape either way). Only "processing with nothing computed yet" has no data to return.
+    data = redis_client.get(task_id)
+    if data:
+        return JSONResponse(json.loads(data.decode("utf-8")))
+    if status == "completed":
+        logger.error(f"No data found for completed matrix task {task_id}.")
+        return JSONResponse({"error": "No result found"}, status_code=500)
     return JSONResponse({"status": "processing"})
 
 def run_relay(task_id: str, request: RelayRequest):

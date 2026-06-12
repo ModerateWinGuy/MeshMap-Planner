@@ -4,9 +4,10 @@ import { watch, markRaw } from 'vue';
 import { randanimalSync } from 'randanimal';
 import maplibregl from 'maplibre-gl';
 import parseGeoraster from 'georaster';
-import { type Site, type SplatParams, type Node, type MatrixResult, type RelayResult, type ProfileResult, type UiMode } from './types.ts';
+import { type Site, type SplatParams, type Node, type MatrixResult, type LinkResult, type RelayResult, type ProfileResult, type UiMode } from './types.ts';
 import { cloneObject, escapeHtml } from './utils.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
+import { Links3DLayer, buildLinkGeometry, setLinkColorFn, type LinkPick } from './links3d.ts';
 
 const DEFAULT_LAT = -41.257053283864224;
 const DEFAULT_LON = 174.86568331718445;
@@ -71,7 +72,7 @@ const EMPTY_FC = { type: 'FeatureCollection', features: [] };
 const MAX_TEXTURE = 4096;
 
 // Colour a link by its margin: green (strong) -> red (marginal/none). Grey when unknown.
-function linkColor(margin: number | null): string {
+export function linkColor(margin: number | null): string {
   if (margin === null || margin === undefined) {
     return '#888888';
   }
@@ -79,6 +80,27 @@ function linkColor(margin: number | null): string {
   const r = Math.round(220 * (1 - t));
   const g = Math.round(40 + 150 * t);
   return `rgb(${r}, ${g}, 50)`;
+}
+
+// The popup body for a link, shared by the 2D line layers and the 3D-line click pick so both show
+// identical details + the "Show line profile" button (wired to runProfile by the click handler).
+function linkPopupHtml(link: LinkResult, aName: string, bName: string): string {
+  const details = link.error
+    ? `Error: ${escapeHtml(link.error)}`
+    : `Margin: ${link.margin_db ?? '—'} dB<br>` +
+      `Path loss: ${link.path_loss_db ?? '—'} dB<br>` +
+      `Fresnel zone: ${link.fresnel_pct ?? '—'} % clear<br>` +
+      `Distance: ${link.distance_km ?? '—'} km`;
+  return `<strong>${escapeHtml(aName)} ↔ ${escapeHtml(bName)}</strong><br>${details}`
+    + `<br><button type="button" class="link-profile-btn btn btn-sm btn-primary mt-2 w-100">Show line profile</button>`;
+}
+
+// The popup shown when a second node is shift-clicked: just the pair and a button to compute the
+// link + show its profile (wired to runProfile by showPairPopup). No metrics yet — they don't exist
+// until the link is calculated.
+function pairPopupHtml(aName: string, bName: string): string {
+  return `<strong>${escapeHtml(aName)} ↔ ${escapeHtml(bName)}</strong>`
+    + `<br><button type="button" class="pair-profile-btn btn btn-sm btn-primary mt-2 w-100">Calculate link &amp; show profile</button>`;
 }
 
 // Zoom band for the 3D terrain source, fetched from the backend (GET /terrain/config) so the
@@ -357,6 +379,34 @@ function seedNode(): Node {
 // (Vite HMR / navigation) can stop the old watchers in destroyMap rather than accumulate them.
 let watchStops: Array<() => void> = [];
 
+// The 3D-links custom layer and its rebuild debounce. Module-scoped (not Pinia state) for the same
+// reason as the Map: GL/three objects must never be deep-proxied by Vue (see [[maplibre-isstyleloaded]]
+// and the markRaw note in initMap). map.remove() in destroyMap tears the layer's GL down with it.
+let links3dLayer: Links3DLayer | null = null;
+let rebuild3dTimer: ReturnType<typeof setTimeout> | null = null;
+// Elevated per-link polylines for click hit-testing the 3D lines (the 2D click target is offset
+// from the visible 3D line once the camera tilts). Rebuilt alongside the geometry.
+let links3dPicks: LinkPick[] = [];
+// Whether the 3D-line hover handler currently owns the cursor, so it only clears a cursor it set.
+let cursor3dActive = false;
+// The on-map popup offering to compute a shift-clicked node pair. Module-scoped (like the Map) so
+// Vue never proxies the GL popup; only one is ever open at a time.
+let pairPopup: maplibregl.Popup | null = null;
+// Share the link palette with the 3D layer so its chords match the 2D links exactly.
+setLinkColorFn(linkColor);
+
+// Distance from point p to segment a-b, in pixels; used to hit-test a click against a projected line.
+function distToSegment(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 > 0 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  const cx = a.x + t * dx;
+  const cy = a.y + t * dy;
+  return Math.hypot(p.x - cx, p.y - cy);
+}
+
 const useStore = defineStore('store', {
   state() {
     return {
@@ -386,6 +436,9 @@ const useStore = defineStore('store', {
       profileError: null as string | null,
       profileFromId: null as string | null,
       profileToId: null as string | null,
+      // The node shift-clicked while another is selected: drives the dashed preview link and the
+      // "calculate link" popup. In-memory only; it's a transient selection, not a saved setting.
+      pairTargetId: null as string | null,
       // Lazy cache of computed profiles, keyed by the full request payload (so any change to a node
       // or radio param yields a new key and recomputes). In-memory only; entries are markRaw'd.
       profileCache: {} as Record<string, ProfileResult>,
@@ -394,6 +447,17 @@ const useStore = defineStore('store', {
       // 3D terrain (draped from the terrain raster-dem). Persisted so the view survives a reload.
       terrainEnabled: useLocalStorage('terrainEnabled', false),
       terrainExaggeration: useLocalStorage('terrainExaggeration', 1),
+      // The 3D line-of-sight links (chords through the air + masts + drop-curtains). When off, the
+      // flat 2D draped links show at full opacity instead. Only render with 3D terrain on. Persisted.
+      links3dEnabled: useLocalStorage('links3dEnabled', true),
+      // Whether the drop-curtain part of the 3D links is drawn. Persisted.
+      linkCurtainEnabled: useLocalStorage('linkCurtainEnabled', true),
+      // Opacity (0..1) of the translucent curtain dropped from each 3D link to the ground. Persisted.
+      linkCurtainOpacity: useLocalStorage('linkCurtainOpacity', 0.5),
+      // When true, the map shows ONLY links touching the selected node (viable or not) — the rest are
+      // hidden entirely. When false, the default applies: viable links always show, non-viable ones
+      // only for the selected node. Both feed visibleLinks. Persisted.
+      linksSelectedOnly: useLocalStorage('linksSelectedOnly', false),
       // Zoom band for the terrain source, fetched from GET /terrain/config in initMap. In-memory only
       // (it's a backend deployment fact, not a user setting); defaults match the backend so the map
       // works before/without the fetch.
@@ -427,7 +491,8 @@ const useStore = defineStore('store', {
           time_fraction: 95.0,
           simulation_extent: 30.0,
           high_resolution: false,
-          terrain_source: 'srtm'
+          terrain_source: 'srtm',
+          filter_radio_horizon: true
         },
         display: {
           color_scale: 'plasma',
@@ -441,7 +506,30 @@ const useStore = defineStore('store', {
   getters: {
     selectedNode(state): Node | undefined {
       return state.nodes.find((n) => n.id === state.selectedNodeId) ?? state.nodes[0];
-    }
+    },
+    // The 3D links only make sense (and queryTerrainElevation only works) with terrain on, and they
+    // can be switched off independently. Gates rendering, click-picking and the 2D-line dimming.
+    links3dActive(state): boolean {
+      return state.terrainEnabled && state.links3dEnabled;
+    },
+    // The links actually drawn on the map (2D draped lines and 3D air-links both filter through
+    // this). A dense mesh shows every node-to-node link, most of them non-viable, which buries the
+    // useful ones, so:
+    //   - linksSelectedOnly on  → only links touching the selected node show (viable or not);
+    //   - linksSelectedOnly off → viable links always show, non-viable ones only for the selected node.
+    // Recomputed wherever the selection changes (redrawLinks is called from selectNode/addNode/...).
+    visibleLinks(state): LinkResult[] {
+      const all = state.matrixResult?.links;
+      if (!all) {
+        return [];
+      }
+      const sel = state.selectedNodeId;
+      const touchesSelected = (l: LinkResult): boolean => l.a === sel || l.b === sel;
+      if (state.linksSelectedOnly) {
+        return all.filter(touchesSelected);
+      }
+      return all.filter((l) => l.viable || touchesSelected(l));
+    },
   },
   actions: {
     addNode() {
@@ -460,10 +548,13 @@ const useStore = defineStore('store', {
       this.nodes.push(node);
       this.selectedNodeId = node.id;
       this.renderNodeMarkers();
+      this.redrawLinks(); // selection changed → re-filter the selected node's non-viable links
     },
     selectNode(id: string) {
+      this.clearPairTarget(); // a pending pair is relative to the old selection; drop it
       this.selectedNodeId = id;
       this.renderNodeMarkers();
+      this.redrawLinks(); // selection drives which non-viable links are visible (see visibleLinks)
     },
     toggleNodesLock() {
       this.nodesLocked = !this.nodesLocked;
@@ -475,10 +566,14 @@ const useStore = defineStore('store', {
         return;
       }
       this.nodes.splice(idx, 1);
+      if (this.pairTargetId === id) {
+        this.clearPairTarget(); // the pending pair's target just vanished
+      }
       if (this.selectedNodeId === id) {
         this.selectedNodeId = this.nodes[0]?.id ?? null;
       }
       this.renderNodeMarkers();
+      this.redrawLinks(); // drop the deleted node's links and re-filter for the new selection
     },
     updateNodeCoords(id: string, lat: number, lon: number) {
       const node = this.nodes.find((n) => n.id === id);
@@ -513,7 +608,15 @@ const useStore = defineStore('store', {
           // pin click from also firing the map click used by "Set with map".
           el.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.selectNode(node.id);
+            if (e.shiftKey && this.selectedNodeId && this.selectedNodeId !== node.id) {
+              // Shift-pick a second node: preview the ground link and offer to compute it, without
+              // moving the primary selection. stopImmediatePropagation suppresses the marker's own
+              // name-popup toggle (registered later via setPopup) so only our pair popup shows.
+              e.stopImmediatePropagation();
+              this.setPairTarget(node.id);
+            } else {
+              this.selectNode(node.id);
+            }
           });
           marker = markRaw(
             new maplibregl.Marker({ element: el, draggable: !this.nodesLocked, anchor: 'bottom' })
@@ -529,6 +632,7 @@ const useStore = defineStore('store', {
             const { lng, lat } = marker.getLngLat();
             this.updateNodeCoords(node.id, lat, lng);
             this.dragging = false;
+            this.redrawPairLink(); // keep the preview attached if this node is in the pending pair
           });
           this.nodeMarkers[node.id] = marker;
         } else {
@@ -615,6 +719,15 @@ const useStore = defineStore('store', {
       }
       // map.remove() releases the WebGL context and tears down all DOM markers + event handlers —
       // required before a remount (Vite HMR / navigation) so the GL context and listeners can't leak.
+      // It also calls the 3D layer's onRemove (disposing its three.js GL resources); just drop our
+      // refs and cancel any pending rebuild so they don't fire against the dead map.
+      if (rebuild3dTimer) {
+        clearTimeout(rebuild3dTimer);
+        rebuild3dTimer = null;
+      }
+      links3dLayer = null;
+      links3dPicks = [];
+      cursor3dActive = false;
       this.map.remove();
       this.map = undefined;
       this.nodeMarkers = {};
@@ -655,6 +768,9 @@ const useStore = defineStore('store', {
           ),
           center,
           zoom: 10,
+          // MSAA on the default framebuffer: smooths the terrain silhouette and, crucially, gives the
+          // 3D link lines anti-aliased edges (LineMaterial.alphaToCoverage relies on multisampling).
+          canvasContextAttributes: { antialias: true },
           maxPitch: 85, // unlocks tilt/rotate for reading hill elevation in 3D
           // A top-down view renders identically to flat (see toggleTerrain), so open tilted when 3D
           // is on to make the relief visible.
@@ -729,6 +845,7 @@ const useStore = defineStore('store', {
       map.addSource('relay-zone', { type: 'geojson', data: EMPTY_FC as any });
       map.addSource('relay-pts', { type: 'geojson', data: EMPTY_FC as any });
       map.addSource('profile-path', { type: 'geojson', data: EMPTY_FC as any });
+      map.addSource('pair-link', { type: 'geojson', data: EMPTY_FC as any });
 
       // Relief shading over the existing raster-dem. Added first so it sits directly above the
       // basemaps and below every data overlay (coverage inserts before relay-zone-fill, so it lands
@@ -756,6 +873,54 @@ const useStore = defineStore('store', {
         filter: ['==', ['get', 'viable'], false],
         paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'width'], 'line-opacity': ['get', 'opacity'], 'line-dasharray': [2, 2] },
       } as any);
+      // The 3D line-of-sight links (chords through the air + AGL masts), drawn on top of the 2D
+      // lines. queryTerrainElevation only reads loaded tiles, so rebuild as the view changes and as
+      // terrain tiles stream in (debounced — both events fire rapidly). Only meaningful with terrain.
+      links3dLayer = new Links3DLayer();
+      // addLayer runs the layer's onAdd, which creates its three.js material/mesh — so the curtain
+      // settings must be applied AFTER, not before (otherwise they touch undefined and throw).
+      map.addLayer(links3dLayer as any);
+      links3dLayer.setCurtainOpacity(this.linkCurtainOpacity);
+      links3dLayer.setCurtainVisible(this.linkCurtainEnabled);
+      map.on('moveend', () => this.rebuild3dLinks());
+      map.on('data', (e: any) => {
+        if (e.dataType === 'source' && e.sourceId === 'terrain-dem' && e.tile) {
+          this.rebuild3dLinks();
+        }
+      });
+      // Click + hover picking for the 3D lines: their 2D click target is offset from the visible line
+      // once the camera tilts, so hit-test the elevated geometry directly. Only active with terrain on
+      // (the 2D layer handlers in wireOverlayPopups bow out then); the general click also fires for the
+      // 2D layers but they short-circuit, so there's no double popup.
+      map.on('click', (e: any) => {
+        if (!this.links3dActive) {
+          return;
+        }
+        const hit = this.pick3dLink(e.point);
+        if (hit) {
+          this.showLinkPopupAt(hit.a, hit.b, e.lngLat);
+        }
+      });
+      // Hover cursor, throttled to one pick per frame so mousemove doesn't reproject every link.
+      let hoverScheduled = false;
+      map.on('mousemove', (e: any) => {
+        if (!this.links3dActive || hoverScheduled) {
+          return;
+        }
+        hoverScheduled = true;
+        requestAnimationFrame(() => {
+          hoverScheduled = false;
+          const hit = this.pick3dLink(e.point);
+          if (hit) {
+            map.getCanvas().style.cursor = 'pointer';
+            cursor3dActive = true;
+          } else if (cursor3dActive) {
+            map.getCanvas().style.cursor = '';
+            cursor3dActive = false;
+          }
+        });
+      });
+      this.set3dLinksVisible(this.links3dActive);
       map.addLayer({
         id: 'relay-pts', type: 'circle', source: 'relay-pts',
         paint: {
@@ -772,6 +937,13 @@ const useStore = defineStore('store', {
         id: 'profile-path-line', type: 'line', source: 'profile-path',
         layout: { 'line-cap': 'round' },
         paint: { 'line-color': '#22d3ee', 'line-width': 3, 'line-dasharray': [1.5, 1.5] },
+      } as any);
+      // The dashed ground link previewing a shift-clicked node pair, before it's computed. Amber to
+      // echo the selected pin's highlight and to read as "pending" against the cyan profile path.
+      map.addLayer({
+        id: 'pair-link-line', type: 'line', source: 'pair-link',
+        layout: { 'line-cap': 'round' },
+        paint: { 'line-color': '#ffb703', 'line-width': 2.5, 'line-dasharray': [2, 2] },
       } as any);
 
       this.wireOverlayPopups();
@@ -797,6 +969,11 @@ const useStore = defineStore('store', {
       // the terrain profile for that pair into the bottom strip.
       for (const layer of ['links-solid', 'links-dashed']) {
         map.on('click', layer, (e: any) => {
+          // While the 3D lines are active they are the click target (handled by the general click in
+          // setupOverlays); the faint draped 2D line is offset and shouldn't pop up its own.
+          if (this.links3dActive) {
+            return;
+          }
           const f = e.features?.[0];
           if (!f) {
             return;
@@ -849,6 +1026,8 @@ const useStore = defineStore('store', {
     toggleTerrain() {
       this.terrainEnabled = !this.terrainEnabled;
       this.applyTerrain();
+      this.set3dLinksVisible(this.links3dActive);
+      this.rebuild3dLinks();
       // Terrain relief only shows when the camera is tilted — a flat top-down view looks identical
       // with terrain on or off (and rotating bearing alone doesn't reveal it). Pitch in on enable so
       // turning it on visibly does something; resetView() returns to top-down.
@@ -863,6 +1042,37 @@ const useStore = defineStore('store', {
       this.terrainExaggeration = x;
       if (this.terrainEnabled) {
         this.applyTerrain();
+        this.rebuild3dLinks(); // altitudes scale with exaggeration
+      }
+    },
+    setLinkCurtainOpacity(x: number) {
+      this.linkCurtainOpacity = x;
+      // Material-only change — repaint without rebuilding geometry.
+      if (links3dLayer) {
+        links3dLayer.setCurtainOpacity(x);
+        const map = this.map as maplibregl.Map | undefined;
+        map?.triggerRepaint();
+      }
+    },
+    // Master switch for the whole 3D-links feature. When off, the flat 2D draped links return to full
+    // opacity and become the click target again.
+    toggleLinks3d() {
+      this.links3dEnabled = !this.links3dEnabled;
+      this.set3dLinksVisible(this.links3dActive);
+      this.rebuild3dLinks();
+    },
+    // Toggle "only show the selected node's links" (see visibleLinks). redrawLinks re-filters both the
+    // 2D and 3D links from the new visible set.
+    toggleLinksSelectedOnly() {
+      this.linksSelectedOnly = !this.linksSelectedOnly;
+      this.redrawLinks();
+    },
+    toggleLinkCurtain() {
+      this.linkCurtainEnabled = !this.linkCurtainEnabled;
+      if (links3dLayer) {
+        links3dLayer.setCurtainVisible(this.linkCurtainEnabled);
+        const map = this.map as maplibregl.Map | undefined;
+        map?.triggerRepaint();
       }
     },
     toggleHillshade() {
@@ -931,6 +1141,7 @@ const useStore = defineStore('store', {
       // Re-add hillshade just below the data overlays (relay-zone-fill is the lowest) so it can't cover them.
       this.addHillshadeLayer(map, 'relay-zone-fill');
       this.applyTerrain();
+      this.rebuild3dLinks(); // terrain heights changed with the source
     },
     // Fetch the backend terrain zoom band (GET /terrain/config) into this.terrainConfig. Best-effort:
     // a short abort timeout and a silent catch so a down/slow backend just leaves the defaults.
@@ -1151,9 +1362,13 @@ const useStore = defineStore('store', {
     },
     redrawLinks() {
       const map = this.map as maplibregl.Map | undefined;
-      if (!map || !map.isStyleLoaded()) {
+      if (!map) {
         return;
       }
+      // Gate on the source existing, NOT isStyleLoaded(): the latter is false while terrain/coverage
+      // tiles stream — e.g. right after a profile computes — which would skip the 2D update and the
+      // rebuild3dLinks() call below, so the merged link wouldn't appear until the next camera move
+      // re-triggered the 3D rebuild. See [[maplibre-isstyleloaded]].
       const src = map.getSource('links') as maplibregl.GeoJSONSource | undefined;
       if (!src) {
         return;
@@ -1167,18 +1382,12 @@ const useStore = defineStore('store', {
         byId[n.id] = n;
       }
       const features: any[] = [];
-      for (const link of this.matrixResult.links) {
+      for (const link of this.visibleLinks) {
         const a = byId[link.a];
         const b = byId[link.b];
         if (!a || !b) {
           continue; // node was deleted since the matrix ran
         }
-        const details = link.error
-          ? `Error: ${escapeHtml(link.error)}`
-          : `Margin: ${link.margin_db ?? '—'} dB<br>` +
-            `Path loss: ${link.path_loss_db ?? '—'} dB<br>` +
-            `Fresnel zone: ${link.fresnel_pct ?? '—'} % clear<br>` +
-            `Distance: ${link.distance_km ?? '—'} km`;
         features.push({
           type: 'Feature',
           geometry: {
@@ -1195,12 +1404,209 @@ const useStore = defineStore('store', {
             viable: link.viable,
             a: link.a,
             b: link.b,
-            popupHtml: `<strong>${escapeHtml(a.transmitter.name)} ↔ ${escapeHtml(b.transmitter.name)}</strong><br>${details}`
-              + `<br><button type="button" class="link-profile-btn btn btn-sm btn-primary mt-2 w-100">Show line profile</button>`,
+            popupHtml: linkPopupHtml(link, a.transmitter.name, b.transmitter.name),
           },
         });
       }
       src.setData({ type: 'FeatureCollection', features } as any);
+      this.rebuild3dLinks();
+    },
+    // Rebuild the 3D line-of-sight geometry from the current matrix + node positions, sampling the
+    // rendered terrain. Debounced because its triggers ('moveend', terrain 'data') fire in bursts,
+    // and gated on terrain being on (queryTerrainElevation returns null otherwise — nothing to clip
+    // against). The 2D links remain the click target, so this is purely visual.
+    rebuild3dLinks() {
+      if (rebuild3dTimer) {
+        clearTimeout(rebuild3dTimer);
+      }
+      rebuild3dTimer = setTimeout(() => {
+        rebuild3dTimer = null;
+        const map = this.map as maplibregl.Map | undefined;
+        if (!map || !links3dLayer || !map.getLayer('links-3d')) {
+          return;
+        }
+        if (!this.links3dActive || !this.matrixResult) {
+          links3dLayer.clear();
+          links3dPicks = [];
+          map.triggerRepaint();
+          return;
+        }
+        const byId: Record<string, Node> = {};
+        for (const n of this.nodes) {
+          byId[n.id] = n;
+        }
+        const geom = buildLinkGeometry(
+          this.visibleLinks,
+          byId,
+          (ll) => map.queryTerrainElevation(ll) ?? null,
+          this.terrainExaggeration,
+        );
+        links3dLayer.setData(geom);
+        links3dPicks = geom.picks;
+        map.triggerRepaint();
+      }, 200);
+    },
+    // Show the 3D links only with terrain on, and dim the draped 2D links to a faint ground
+    // reference so they still anchor the links and keep their popups/"Show line profile" clickable.
+    set3dLinksVisible(on: boolean) {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map || !map.getLayer('links-3d')) {
+        return;
+      }
+      map.setLayoutProperty('links-3d', 'visibility', on ? 'visible' : 'none');
+      // Multiply the data-driven per-feature opacity down when 3D is on; restore it when off.
+      const dim = on ? 0.25 : 1;
+      for (const id of ['links-solid', 'links-dashed']) {
+        if (map.getLayer(id)) {
+          map.setPaintProperty(id, 'line-opacity', ['*', ['get', 'opacity'], dim]);
+        }
+      }
+      if (!on && cursor3dActive) {
+        map.getCanvas().style.cursor = '';
+        cursor3dActive = false;
+      }
+    },
+    // Hit-test a screen point against the elevated 3D link polylines (projected with the layer's
+    // current matrix). Returns the nearest link's endpoint ids within the pixel threshold, or null.
+    pick3dLink(point: { x: number; y: number }): { a: string; b: string } | null {
+      const layer = links3dLayer;
+      if (!layer) {
+        return null;
+      }
+      const THRESHOLD = 8; // px
+      let best: LinkPick | null = null;
+      let bestDist = THRESHOLD;
+      for (const pk of links3dPicks) {
+        const pts = pk.pts;
+        let prev: { x: number; y: number } | null = null;
+        for (let i = 0; i < pts.length; i += 3) {
+          const s = layer.project(pts[i], pts[i + 1], pts[i + 2]);
+          if (s && prev) {
+            const d = distToSegment(point, prev, s);
+            if (d < bestDist) {
+              bestDist = d;
+              best = pk;
+            }
+          }
+          prev = s; // null breaks the polyline across the camera plane
+        }
+      }
+      return best ? { a: best.a, b: best.b } : null;
+    },
+    // Open the link popup for an endpoint pair at a clicked location, with the profile button wired —
+    // the 3D-line equivalent of the 2D layer's click handler.
+    showLinkPopupAt(a: string, b: string, lngLat: maplibregl.LngLat) {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map || !this.matrixResult) {
+        return;
+      }
+      const byId: Record<string, Node> = {};
+      for (const n of this.nodes) {
+        byId[n.id] = n;
+      }
+      const nodeA = byId[a];
+      const nodeB = byId[b];
+      const link = this.matrixResult.links.find((l) => l.a === a && l.b === b);
+      if (!nodeA || !nodeB || !link) {
+        return;
+      }
+      const popup = new maplibregl.Popup({ offset: 8 })
+        .setLngLat(lngLat)
+        .setHTML(linkPopupHtml(link, nodeA.transmitter.name, nodeB.transmitter.name))
+        .addTo(map);
+      const btn = popup.getElement()?.querySelector('.link-profile-btn');
+      btn?.addEventListener('click', () => {
+        this.runProfile(a, b);
+        popup.remove();
+      }, { once: true });
+    },
+    // Shift-click pairing: stage a second node against the selected one. Draws the dashed preview
+    // link and opens a popup whose button computes the link + profile. The pair is transient — any
+    // change of the primary selection (selectNode) or loss of either node clears it.
+    setPairTarget(id: string) {
+      if (!this.selectedNodeId || id === this.selectedNodeId) {
+        return;
+      }
+      this.pairTargetId = id;
+      this.redrawPairLink();
+      this.showPairPopup();
+    },
+    clearPairTarget() {
+      this.pairTargetId = null;
+      if (pairPopup) {
+        // Null the ref first so the popup's own 'close' handler (below) sees the pairing already
+        // gone and doesn't recurse back into clearPairTarget.
+        const p = pairPopup;
+        pairPopup = null;
+        p.remove();
+      }
+      this.redrawPairLink(); // no target now → clears the source
+    },
+    // Draw the dashed amber preview between the selected node and the pending pair target (or clear
+    // it). Mirrors redrawProfilePath but on the 'pair-link' source.
+    redrawPairLink() {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map) {
+        return;
+      }
+      const src = map.getSource('pair-link') as maplibregl.GeoJSONSource | undefined;
+      if (!src) {
+        return;
+      }
+      const a = this.nodes.find((n) => n.id === this.selectedNodeId);
+      const b = this.nodes.find((n) => n.id === this.pairTargetId);
+      if (!a || !b) {
+        src.setData(EMPTY_FC as any);
+        return;
+      }
+      src.setData({
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [a.transmitter.tx_lon, a.transmitter.tx_lat],
+              [b.transmitter.tx_lon, b.transmitter.tx_lat],
+            ],
+          },
+          properties: {},
+        }],
+      } as any);
+    },
+    // Popup anchored at the pair target with a button that runs the profile (which also computes the
+    // link and merges it onto the map). Reuses the wiring pattern from showLinkPopupAt.
+    showPairPopup() {
+      const map = this.map as maplibregl.Map | undefined;
+      const a = this.nodes.find((n) => n.id === this.selectedNodeId);
+      const b = this.nodes.find((n) => n.id === this.pairTargetId);
+      if (!map || !a || !b) {
+        return;
+      }
+      if (pairPopup) {
+        pairPopup.remove();
+        pairPopup = null;
+      }
+      const popup = new maplibregl.Popup({ offset: 30 })
+        .setLngLat([b.transmitter.tx_lon, b.transmitter.tx_lat])
+        .setHTML(pairPopupHtml(a.transmitter.name, b.transmitter.name))
+        .addTo(map);
+      const btn = popup.getElement()?.querySelector('.pair-profile-btn');
+      btn?.addEventListener('click', () => {
+        const from = this.selectedNodeId;
+        const to = this.pairTargetId;
+        this.clearPairTarget(); // closes this popup; runProfile draws its own cyan profile path
+        this.runProfile(from, to);
+      }, { once: true });
+      // Dismissing the popup (its X or a click away) cancels the pending pair. Guarded by the ref
+      // check so clearPairTarget's own remove() doesn't re-enter.
+      popup.on('close', () => {
+        if (pairPopup === popup) {
+          pairPopup = null;
+          this.clearPairTarget();
+        }
+      });
+      pairPopup = popup;
     },
     async runMatrix() {
       if (this.nodes.length < 2) {
@@ -1209,6 +1615,10 @@ const useStore = defineStore('store', {
       }
       try {
         this.matrixState = 'running';
+        // Clear the previous matrix so a new run starts from a blank map and fills in as links land,
+        // rather than briefly showing stale links until the first partial result arrives.
+        this.matrixResult = null;
+        this.redrawLinks();
         const preset = this.splatParams.lora?.preset ?? 'LongFast';
         const payload = {
           nodes: this.nodes.map((n) => ({
@@ -1234,7 +1644,9 @@ const useStore = defineStore('store', {
           situation_fraction: this.splatParams.simulation.situation_fraction,
           time_fraction: this.splatParams.simulation.time_fraction,
           high_resolution: this.splatParams.simulation.high_resolution,
-          terrain_source: this.splatParams.simulation.terrain_source
+          terrain_source: this.splatParams.simulation.terrain_source,
+          // ?? true: mergeDefaults is shallow, so params stored before this key existed lack it.
+          filter_radio_horizon: this.splatParams.simulation.filter_radio_horizon ?? true
         };
 
         const matrixResponse = await fetch('/matrix', {
@@ -1256,14 +1668,19 @@ const useStore = defineStore('store', {
             throw new Error('Failed to fetch matrix status.');
           }
           const statusData = await statusResponse.json();
-          if (statusData.status === 'completed') {
-            const resultResponse = await fetch(`/matrix/result/${taskId}`);
-            if (!resultResponse.ok) {
-              throw new Error('Failed to fetch matrix result.');
+          // Pull whatever links have been computed so far and draw them now — the backend
+          // republishes the growing matrix after every pair, so this fills in progressively
+          // instead of only rendering once the whole job is done.
+          const resultResponse = await fetch(`/matrix/result/${taskId}`);
+          if (resultResponse.ok) {
+            const data = await resultResponse.json();
+            if (data && Array.isArray(data.links)) {
+              this.matrixResult = data;
+              this.redrawLinks();
             }
-            this.matrixResult = await resultResponse.json();
+          }
+          if (statusData.status === 'completed') {
             this.matrixState = 'completed';
-            this.redrawLinks();
           } else if (statusData.status === 'failed') {
             this.matrixState = 'failed';
           } else {
@@ -1327,6 +1744,7 @@ const useStore = defineStore('store', {
         this.profileState = 'completed';
         this.progress = null;
         this.redrawProfilePath();
+        this.mergeProfileLink();
         return;
       }
 
@@ -1369,6 +1787,7 @@ const useStore = defineStore('store', {
             this.profileState = 'completed';
             this.progress = null;
             this.redrawProfilePath();
+            this.mergeProfileLink();
           } else if (statusData.status === 'failed') {
             // Pull the error text from the result endpoint so the strip can show why (e.g. >100 km).
             const resultResponse = await fetch(`/profile/result/${taskId}`);
@@ -1385,6 +1804,53 @@ const useStore = defineStore('store', {
         console.error('Profile error:', error);
         this.profileState = 'failed';
       }
+    },
+    // Persist the just-computed profile pair as a normal link on the map. /profile and /matrix share
+    // the same point_to_point() computation, so a ProfileResult carries every LinkResult field —
+    // convert it and upsert into matrixResult.links, then reuse redrawLinks (which also rebuilds the
+    // 3D links). The link then renders + is clickable like any matrix link and survives clearProfile
+    // (which only wipes the transient cyan slice), so it stays after the profile graph is closed.
+    mergeProfileLink() {
+      const r = this.profileResult;
+      const a = this.profileFromId;
+      const b = this.profileToId;
+      if (!r || !a || !b) {
+        return;
+      }
+      const link: LinkResult = {
+        a,
+        b,
+        distance_km: r.distance_km,
+        path_loss_db: r.path_loss_db,
+        rx_power_dbm: r.rx_power_dbm,
+        fresnel_pct: r.fresnel_pct,
+        margin_db: r.margin_db,
+        viable: r.viable,
+        error: null,
+      };
+      if (!this.matrixResult) {
+        this.matrixResult = {
+          nodes: [],
+          preset: this.splatParams.lora?.preset ?? null,
+          sensitivity_dbm: r.sensitivity_dbm,
+          links: [],
+        };
+      }
+      // Upsert on the unordered pair (matches LinkMatrix's lookup) so re-profiling updates in place
+      // and we don't draw a duplicate line if the matrix already holds the reverse direction.
+      const links = this.matrixResult.links;
+      const idx = links.findIndex((l) => (l.a === a && l.b === b) || (l.a === b && l.b === a));
+      if (idx >= 0) {
+        links[idx] = link;
+      } else {
+        links.push(link);
+      }
+      for (const id of [a, b]) {
+        if (!this.matrixResult.nodes.includes(id)) {
+          this.matrixResult.nodes.push(id);
+        }
+      }
+      this.redrawLinks();
     },
     redrawProfilePath() {
       const map = this.map as maplibregl.Map | undefined;
@@ -1586,6 +2052,7 @@ const useStore = defineStore('store', {
       this.nodes.push(node);
       this.selectedNodeId = node.id;
       this.renderNodeMarkers();
+      this.redrawLinks(); // selection changed → re-filter the selected node's non-viable links
     }
   }
 });

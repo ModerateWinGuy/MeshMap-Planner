@@ -304,7 +304,7 @@ class Splat:
                 distance/value curves (terrain, los, fresnel, fresnel_60, curvature) is added.
 
         Raises:
-            RuntimeError: If SPLAT! fails to execute or the link exceeds the 100 km limit.
+            RuntimeError: If SPLAT! fails to execute or the link exceeds the distance limit.
         """
         logger.debug(f"Point-to-point request: {request.json()}")
 
@@ -313,10 +313,15 @@ class Splat:
             (request.rx_lat, request.rx_lon),
             unit=Unit.KILOMETERS,
         )
-        # SPLAT! coverage caps at 100 km; keep point-to-point consistent.
-        if distance_km > 100:
+        # The SPLAT! binaries are compiled for an 8x8° (standard) / 4x4° (HD) analysis region (see
+        # the Dockerfile's `configure` MAXPAGES selection). Cap path length well inside that so the
+        # provisioned SDF tile span can't overflow SPLAT's fixed page array. Far links matter for
+        # high sites (e.g. checking *why* a long path fails); the old 100 km cap was just for
+        # consistency with the coverage radius, not a SPLAT! limit.
+        max_distance_km = 250.0 if request.high_resolution else 500.0
+        if distance_km > max_distance_km:
             raise RuntimeError(
-                f"Link distance {distance_km:.1f} km exceeds the 100 km maximum."
+                f"Link distance {distance_km:.1f} km exceeds the {max_distance_km:.0f} km maximum."
             )
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -356,7 +361,7 @@ class Splat:
                         tx_gain=request.tx_gain,
                         system_loss=request.system_loss))
 
-                range_km = min(max(distance_km + 1.0, 1.0), 100.0)
+                range_km = min(max(distance_km + 1.0, 1.0), max_distance_km)
                 splat_command = [
                     (
                         self.splat_hd_binary

@@ -52,6 +52,11 @@ class MatrixRequest(BaseModel):
     situation_fraction: Optional[float] = Field(50, gt=1, le=100, description="Fraction of situations (default 50).")
     time_fraction: Optional[float] = Field(90, gt=1, le=100, description="Fraction of time (default 90).")
     high_resolution: bool = Field(False, description="Use 1-arcsecond / 30 m terrain tiles.")
+    filter_radio_horizon: bool = Field(
+        True,
+        description="Skip pairs beyond the line-of-sight radio horizon (Earth curvature), based on "
+        "each node's antenna height above sea level. Turn off for non-line-of-sight bands.",
+    )
     terrain_source: Literal["srtm", "dem", "dsm"] = Field(
         "srtm", description="Terrain product: 'srtm' (global bare earth, skips LINZ), 'dem' (LINZ bare "
         "earth) or 'dsm' (LINZ surface). 'dem'/'dsm' only differ over NZ."

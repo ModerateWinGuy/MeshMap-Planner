@@ -46,6 +46,7 @@ export interface SplatParams {
         simulation_extent: number;
         high_resolution: boolean;
         terrain_source: 'srtm' | 'dem' | 'dsm';
+        filter_radio_horizon: boolean;
     };
     display: {
         color_scale: string;

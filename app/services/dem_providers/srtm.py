@@ -11,6 +11,7 @@ out of ``Splat`` behind the provider contract. Bare-earth and global, so it igno
 import gzip
 import io
 import logging
+import math
 import os
 import subprocess
 import tempfile
@@ -73,6 +74,43 @@ class SrtmProvider(DEMProvider):
         # cell with no SRTM coverage) propagate as errors, matching the app's prior behaviour.
         hgt = self._download_terrain_tile(tile.hgt_name)
         return self._convert_hgt_to_sdf(hgt, tile.hgt_name, tile.sdf_filename, tile.high_resolution)
+
+    def sample_elevation(self, lat: float, lon: float) -> Optional[float]:
+        """Bare-earth ground elevation (metres above sea level) at ``(lat, lon)``.
+
+        A cheap point lookup that reuses the cached ``.hgt.gz`` download but bypasses the SDF
+        conversion pipeline — used for the radio-horizon link pre-filter. Returns ``None`` when the
+        tile is unavailable (e.g. an ocean cell with no SRTM coverage) or the sampled pixel is an
+        SRTM void, so callers can fall back to not filtering rather than assuming sea level.
+        """
+        lat_tile, lon_tile = math.floor(lat), math.floor(lon)
+        ns = "N" if lat_tile >= 0 else "S"
+        ew = "E" if lon_tile >= 0 else "W"
+        tile_name = f"{ns}{abs(lat_tile):02d}{ew}{abs(lon_tile):03d}.hgt.gz"
+        try:
+            raw = gzip.decompress(self._download_terrain_tile(tile_name))
+        except Exception as e:
+            logger.warning("Elevation sample failed to fetch %s: %s", tile_name, e)
+            return None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # rasterio's SRTMHGT driver derives the tile's georeferencing from the filename, so the
+            # decompressed bytes must be written out under the original cell name before opening.
+            hgt_path = os.path.join(tmpdir, tile_name.replace(".gz", ""))
+            try:
+                with open(hgt_path, "wb") as hgt_file:
+                    hgt_file.write(raw)
+                with rasterio.open(hgt_path) as src:
+                    row, col = src.index(lon, lat)
+                    value = float(src.read(1, window=((row, row + 1), (col, col + 1)))[0, 0])
+                    nodata = src.nodata
+            except Exception as e:
+                logger.warning("Elevation sample failed to read %s: %s", tile_name, e)
+                return None
+
+        if (nodata is not None and value == nodata) or value <= -32768:  # SRTM void sentinel
+            return None
+        return value
 
     # ------------------------------------------------------------------ #
     # Tile download (S3, anonymous) + diskcache

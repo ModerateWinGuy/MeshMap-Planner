@@ -30,6 +30,19 @@
         </div>
         <div class="row mt-3">
             <div class="col-12">
+                <div class="form-check form-switch">
+                    <input v-model="simulation.filter_radio_horizon" type="checkbox" role="switch" class="form-check-input" id="filter_radio_horizon" />
+                    <label class="form-check-label" for="filter_radio_horizon">Filter line-of-sight horizon</label>
+                </div>
+                <div class="form-text">
+                    When computing the link matrix, skip pairs beyond the radio horizon — the
+                    line-of-sight distance set by the curve of the Earth and each node's height above
+                    sea level (higher nodes reach further). Turn off for non-line-of-sight bands.
+                </div>
+            </div>
+        </div>
+        <div class="row mt-3">
+            <div class="col-12">
                 <label for="terrain_source" class="form-label">Terrain Model</label>
                 <select v-model="simulation.terrain_source" class="form-select form-select-sm" id="terrain_source">
                     <option value="srtm">SRTM — global bare earth (default)</option>

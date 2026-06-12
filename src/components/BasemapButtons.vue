@@ -36,6 +36,18 @@
     Shade
   </button>
   <button
+    v-if="store.terrainEnabled"
+    type="button"
+    class="btn btn-sm shadow w-100 mt-2 d-flex align-items-center justify-content-center gap-1"
+    :class="store.links3dEnabled ? 'btn-primary' : 'btn-light'"
+    :aria-pressed="store.links3dEnabled"
+    title="Toggle 3D line-of-sight links (lines flying through the air between antenna tops, clipping sections in yellow)"
+    @click="store.toggleLinks3d()"
+  >
+    <Waypoints :size="16" />
+    Links
+  </button>
+  <button
     type="button"
     class="btn btn-sm shadow w-100 mt-2 d-flex align-items-center justify-content-center gap-1"
     :class="store.nodesLocked ? 'btn-primary' : 'btn-light'"
@@ -52,6 +64,6 @@
 
 <script setup lang="ts">
 import { useStore, BASEMAPS } from '../store.ts'
-import { Lock, LockOpen } from '@lucide/vue'
+import { Lock, LockOpen, Waypoints } from '@lucide/vue'
 const store = useStore()
 </script>

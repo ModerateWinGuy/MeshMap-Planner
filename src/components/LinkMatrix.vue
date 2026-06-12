@@ -12,6 +12,22 @@
             </button>
         </div>
 
+        <div class="form-check form-switch mb-2">
+            <input
+                class="form-check-input"
+                type="checkbox"
+                role="switch"
+                id="links_selected_only"
+                :checked="store.linksSelectedOnly"
+                @change="store.toggleLinksSelectedOnly()"
+            />
+            <label class="form-check-label small" for="links_selected_only">Only show selected node's links</label>
+            <div class="form-text">
+                Hide every link except those touching the selected node. Off: viable links always show,
+                marginal/failed links only for the selected node.
+            </div>
+        </div>
+
         <p v-if="store.nodes.length < 2" class="text-muted small mb-0">Add at least two nodes to compute links.</p>
 
         <template v-else>
