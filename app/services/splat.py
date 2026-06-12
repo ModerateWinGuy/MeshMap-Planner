@@ -6,6 +6,7 @@ import io
 import re
 import subprocess
 import tempfile
+import threading
 import xml.etree.ElementTree as ET
 from typing import Literal, List, Optional, Tuple
 
@@ -31,6 +32,57 @@ logging.getLogger("boto3").setLevel(logging.WARNING)
 logging.getLogger("botocore").setLevel(logging.WARNING)
 logging.getLogger("s3transfer").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+# SPLAT!'s -L coverage map (PlotLRMap) reports progress as four quartile passes: it prints a
+# "<lo>% to <hi>%" header, then ~64 `.oOo` symbols (it emits one every ppd/64 paths) as it sweeps
+# each pass. We read the lower bound as the quartile base and count symbols to interpolate within it.
+_SPLAT_QUARTILE_RE = re.compile(r"(\d+)% to\s+\d+%")
+_SPLAT_SYMBOLS_PER_QUARTILE = 64
+
+
+def _run_splat_streaming(cmd: List[str], cwd: str, on_fraction) -> subprocess.CompletedProcess:
+    """Run SPLAT! while streaming its stdout to surface live coverage progress.
+
+    Calls ``on_fraction(0..1)`` as the four quartile passes advance (base + symbols/64 of the
+    quartile's 25%), so a multi-minute coverage run moves instead of sitting frozen. Returns a
+    CompletedProcess so the caller keeps its existing stdout/stderr logging and error handling;
+    stderr is drained on a side thread to avoid a full-pipe deadlock.
+    """
+    proc = subprocess.Popen(
+        cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=os.environ.copy(),
+    )
+    stderr_chunks: List[str] = []
+    stderr_thread = threading.Thread(target=lambda: stderr_chunks.append(proc.stderr.read() or ""))
+    stderr_thread.start()
+
+    stdout_parts: List[str] = []
+    line = ""
+    base = 0.0
+    header_matched = False
+    symbols = 0
+    while True:
+        ch = proc.stdout.read(1)
+        if not ch:
+            break
+        stdout_parts.append(ch)
+        if ch == "\n":
+            line, header_matched = "", False  # each quartile header lands on its own line
+            continue
+        line += ch
+        if not header_matched:
+            m = _SPLAT_QUARTILE_RE.match(line.lstrip())
+            if m:
+                base = int(m.group(1)) / 100.0
+                header_matched, symbols = True, 0
+                on_fraction(base)
+        elif not ch.isspace():  # a printed `.oOo` symbol — one step through the current quartile
+            symbols += 1
+            frac = base + min(symbols, _SPLAT_SYMBOLS_PER_QUARTILE) / _SPLAT_SYMBOLS_PER_QUARTILE * 0.25
+            on_fraction(min(frac, base + 0.25))
+
+    proc.wait()
+    stderr_thread.join()
+    return subprocess.CompletedProcess(cmd, proc.returncode, "".join(stdout_parts), "".join(stderr_chunks))
 
 
 class Splat:
@@ -191,12 +243,16 @@ class Splat:
                 logger.debug(f"Executing SPLAT! command: {' '.join(splat_command)}")
 
                 report_progress("Running SPLAT! propagation model…", 0.7)
-                splat_result = subprocess.run(
+                # SPLAT! sweeps the coverage area in four quartile passes; _run_splat_streaming
+                # turns that into a live 0..1 fraction, which we map onto the 70%..90% slice of the
+                # overall bar (rendering takes it from there) so this multi-minute step visibly moves.
+                splat_result = _run_splat_streaming(
                     splat_command,
-                    cwd=tmpdir,
-                    capture_output=True,
-                    text=True,
-                    check=False,
+                    tmpdir,
+                    on_fraction=lambda f: report_progress(
+                        f"Running SPLAT! propagation model ({round(f * 100)}%)…",
+                        0.7 + 0.2 * f,
+                    ),
                 )
 
                 logger.debug(f"SPLAT! stdout:\n{splat_result.stdout}")

@@ -26,6 +26,7 @@ import logging
 import os
 import subprocess
 import tempfile
+import threading
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Mapping, Optional, Tuple
@@ -211,7 +212,12 @@ class LinzProvider(DEMProvider):
         while stack:
             if seen and seen % 100 == 0:
                 logger.info("LINZ: walked %d catalog nodes, %d surveys so far...", seen, len(collections))
-                report_progress(f"Building LINZ survey index ({len(collections)} surveys found)…")
+                # Surveys are found sparsely, so report the node count too — it advances every batch
+                # and reassures the user the walk is progressing between survey hits.
+                report_progress(
+                    f"Building LINZ survey index ({len(collections)} surveys found, "
+                    f"{seen} nodes scanned)…"
+                )
             if seen >= self.max_catalog_nodes:
                 logger.warning(
                     "LINZ catalog walk hit the %d-node cap; index may be incomplete.", self.max_catalog_nodes
@@ -300,16 +306,22 @@ class LinzProvider(DEMProvider):
                 "LINZ: warping to %dx%d EPSG:4326 — reading windows from %d remote COG(s); "
                 "this is the slow step on a cold cell...", samples, samples, len(cog_urls),
             )
-            report_progress(f"Downloading & warping LINZ terrain ({len(cog_urls)} tiles)…")
-            _run([
-                "gdalwarp",
+            total = len(cog_urls)
+            report_progress(f"Downloading & warping LINZ terrain (0/{total} tiles)…")
+            # gdalwarp reads the whole mosaic in one pass, so there's no literal per-tile loop to
+            # count; -progress gives us a 0..100% meter on stdout, which we map onto the tile total
+            # so the message visibly advances ("47/312 tiles") through this slow remote-read step.
+            _run_progress([
+                "gdalwarp", "-progress",
                 "-t_srs", "EPSG:4326",
                 "-te", str(tile.lon), str(tile.lat), str(tile.lon + 1), str(tile.lat + 1),
                 "-ts", str(samples), str(samples),
                 "-r", self.resample,
                 "-dstnodata", "-32768",
                 "-multi", "-overwrite", vrt, cell_tif,
-            ])
+            ], on_fraction=lambda frac: report_progress(
+                f"Downloading & warping LINZ terrain ({round(frac * total)}/{total} tiles)…"
+            ))
             if self.fill_voids:
                 self._fill_voids(cell_tif)
             logger.info("LINZ: writing SRTMHGT and converting with srtm2sdf...")
@@ -443,3 +455,42 @@ def _run(cmd: List[str], cwd: Optional[str] = None) -> None:
     result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
+
+
+def _run_progress(cmd: List[str], on_fraction, cwd: Optional[str] = None) -> None:
+    """Like :func:`_run`, but streams GDAL's ``-progress`` meter and calls ``on_fraction(0..1)`` as
+    it advances, so a long-running warp surfaces live progress instead of a frozen message.
+
+    GDAL prints the meter to stdout as ``0...10...20...100 - done.`` and flushes after each token,
+    so we read a character at a time and emit a fraction whenever a complete percent integer lands.
+    stderr is drained on a side thread to avoid a full-pipe deadlock and reused for the error on a
+    non-zero exit, matching :func:`_run`'s contract.
+    """
+    env = {**os.environ, **_GDAL_VSICURL_ENV}
+    proc = subprocess.Popen(
+        cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+    )
+    stderr_chunks: List[str] = []
+    stderr_thread = threading.Thread(target=lambda: stderr_chunks.append(proc.stderr.read() or ""))
+    stderr_thread.start()
+
+    digits = ""
+    last_pct = -1
+    while True:
+        ch = proc.stdout.read(1)
+        if not ch:
+            break
+        if ch.isdigit():
+            digits += ch
+            continue
+        if digits:
+            pct = int(digits)
+            digits = ""
+            if 0 <= pct <= 100 and pct != last_pct:
+                last_pct = pct
+                on_fraction(pct / 100.0)
+
+    proc.wait()
+    stderr_thread.join()
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, cmd, "", "".join(stderr_chunks))
