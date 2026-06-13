@@ -127,6 +127,20 @@ class Splat:
             [p.name for p in dem_providers],
         )
 
+    def get_sdf_bytes(self, tile: TerrainTile) -> Optional[bytes]:
+        """The canonical SDF for one cell: the first DEM provider to supply it wins, else ``None``.
+
+        Exposed (not just inlined in :meth:`_provision_sdf_tiles`) so other consumers — the
+        simulation-terrain tile endpoint — can fetch the exact same bytes SPLAT! reads, through the
+        same provider chain and per-cell cache. Provider exceptions propagate unchanged; only the
+        "nobody could serve it" case returns ``None`` (callers decide whether that's fatal).
+        """
+        for provider in self.dem_providers:
+            sdf = provider.try_get_sdf(tile)
+            if sdf is not None:
+                return sdf
+        return None
+
     def _provision_sdf_tiles(self, tmpdir, required_tiles, high_resolution, terrain_source):
         """Ensure every required `.sdf` tile exists in `tmpdir`, consulting DEM providers in
         precedence order.
@@ -143,17 +157,14 @@ class Splat:
                 f"Preparing terrain tile {index + 1}/{total}…",
                 0.05 + 0.55 * (index / total) if total else 0.05,
             )
-            for provider in self.dem_providers:
-                sdf = provider.try_get_sdf(tile)
-                if sdf is not None:
-                    with open(os.path.join(tmpdir, tile.sdf_filename), "wb") as sdf_file:
-                        sdf_file.write(sdf)
-                    break
-            else:
+            sdf = self.get_sdf_bytes(tile)
+            if sdf is None:
                 raise RuntimeError(
                     f"No DEM provider could supply terrain tile {tile.sdf_filename} "
                     f"(cell {tile.lat},{tile.lon})."
                 )
+            with open(os.path.join(tmpdir, tile.sdf_filename), "wb") as sdf_file:
+                sdf_file.write(sdf)
 
     def coverage_prediction(self, request: CoveragePredictionRequest) -> bytes:
         """

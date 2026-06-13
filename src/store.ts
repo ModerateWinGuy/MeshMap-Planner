@@ -114,11 +114,36 @@ const DEFAULT_TERRAIN_CONFIG: TerrainConfig = { minzoom: 0, maxzoom: { dem: 15, 
 // fallback the backend redirects to outside NZ). Already carry LINZ 8 m DEM over NZ + 30 m SRTM.
 const TERRARIUM_TILES = 'https://elevation-tiles-prod.s3.amazonaws.com/v2/terrarium/{z}/{x}/{y}.png';
 
+// Zoom at which one sim post (~30 m hd / ~90 m sd) is roughly a tile pixel; capping the source here
+// makes MapLibre overzoom (stretch) the coarse tiles into big flat quads instead of fetching finer
+// ones — the low-poly "what SPLAT sees" look. Purely visual; tune to taste.
+const SIM_MAXZOOM: Record<string, number> = { sd: 11, hd: 12 };
+
 // The raster-dem source backing both the 3D terrain mesh and the hillshade, chosen by terrain_source:
 //   'srtm' → AWS Terrarium directly (global bare-earth baseline, no backend dependency)
 //   'dem'/'dsm' → our backend tile endpoint, which serves LINZ LIDAR over NZ and redirects to
 //                 Terrarium elsewhere — so the rendered terrain matches the RF simulation's choice.
-function terrainDemSource(terrainSource: string, config: TerrainConfig): any {
+// With simulationTerrain on, ALL sources instead point at /terrain/sim, which renders the exact
+// coarse SDF grid SPLAT analyses (per high_resolution) as low-poly tiles — so the map shows what the
+// RF simulation sees rather than the smooth surface.
+function terrainDemSource(
+  terrainSource: string,
+  config: TerrainConfig,
+  simulationTerrain: boolean,
+  highResolution: boolean,
+): any {
+  if (simulationTerrain) {
+    const res = highResolution ? 'hd' : 'sd';
+    return {
+      type: 'raster-dem',
+      tiles: [`/terrain/sim/${terrainSource}/${res}/{z}/{x}/{y}.png`],
+      tileSize: 256,
+      encoding: 'terrarium',
+      minzoom: 0,
+      maxzoom: SIM_MAXZOOM[res],
+      attribution: 'Terrain: simulation grid (SPLAT SDF)',
+    };
+  }
   const isLinz = terrainSource === 'dem' || terrainSource === 'dsm';
   return {
     type: 'raster-dem',
@@ -176,6 +201,8 @@ function buildStyle(
   terrainExaggeration: number,
   terrainSource: string,
   terrainConfig: TerrainConfig,
+  simulationTerrain: boolean,
+  highResolution: boolean,
 ): any {
   const sources: Record<string, any> = {};
   const layers: any[] = [];
@@ -186,7 +213,7 @@ function buildStyle(
     sources[b.id] = { type: 'raster', tiles: b.tiles, tileSize: 256, attribution: b.attribution, maxzoom: b.maxzoom };
     layers.push({ id: `basemap-${b.id}`, type: 'raster', source: b.id, layout: { visibility: b.id === visibleId ? 'visible' : 'none' } });
   });
-  sources['terrain-dem'] = terrainDemSource(terrainSource, terrainConfig);
+  sources['terrain-dem'] = terrainDemSource(terrainSource, terrainConfig, simulationTerrain, highResolution);
   const style: any = { version: 8, sources, layers };
   // Top-level `terrain` drapes the map over the DEM; runtime toggles go through setTerrain.
   if (terrainEnabled) {
@@ -389,6 +416,10 @@ let rebuild3dTimer: ReturnType<typeof setTimeout> | null = null;
 let links3dPicks: LinkPick[] = [];
 // Whether the 3D-line hover handler currently owns the cursor, so it only clears a cursor it set.
 let cursor3dActive = false;
+// Keys of tiles currently loading across all sources, for the bottom loading bar. Module-scoped (not
+// in reactive state) so updating a hot Set per tile event doesn't churn Vue's proxy; its size is
+// mirrored into store.mapTiles.inFlight. Reset on map teardown.
+const mapTileInflight = new Set<string>();
 // The on-map popup offering to compute a shift-clicked node pair. Module-scoped (like the Map) so
 // Vue never proxies the GL popup; only one is ever open at a time.
 let pairPopup: maplibregl.Popup | null = null;
@@ -447,6 +478,10 @@ const useStore = defineStore('store', {
       // 3D terrain (draped from the terrain raster-dem). Persisted so the view survives a reload.
       terrainEnabled: useLocalStorage('terrainEnabled', false),
       terrainExaggeration: useLocalStorage('terrainExaggeration', 1),
+      // Re-render the terrain mesh + hillshade at the exact coarse SDF grid the RF simulation uses
+      // (low-poly, nearest-neighbour) instead of the smooth LINZ/AWS surface, so the map matches what
+      // SPLAT sees. Visualisation-only (not a backend param); resolution follows high_resolution.
+      simulationTerrain: useLocalStorage('simulationTerrain', false),
       // The 3D line-of-sight links (chords through the air + masts + drop-curtains). When off, the
       // flat 2D draped links show at full opacity instead. Only render with 3D terrain on. Persisted.
       links3dEnabled: useLocalStorage('links3dEnabled', true),
@@ -464,6 +499,10 @@ const useStore = defineStore('store', {
       terrainConfig: { ...DEFAULT_TERRAIN_CONFIG } as TerrainConfig,
       // Progress of a "download terrain for this view" prefetch (null when idle). In-memory only.
       terrainDownload: null as null | { running: boolean; done: number; total: number; cancelled: boolean; tooLarge: boolean },
+      // In-flight map tile tracker for the bottom loading bar (basemap + terrain + sim tiles). inFlight
+      // mirrors the size of a non-reactive key set; peak is the high-water mark since it last hit zero,
+      // so a fraction (peak-inFlight)/peak fills smoothly per burst. In-memory only.
+      mapTiles: { inFlight: 0, peak: 0 } as { inFlight: number; peak: number },
       // Relief shading: a MapLibre hillshade layer over the same raster-dem. Independent of 3D — it
       // reads relief on flat solid-colour basemaps too. hillshade-exaggeration is a 0..1 intensity.
       hillshadeEnabled: useLocalStorage('hillshadeEnabled', false),
@@ -671,8 +710,13 @@ const useStore = defineStore('store', {
     },
     redrawSites() {
       const map = this.map as maplibregl.Map | undefined;
-      if (!map || !map.isStyleLoaded()) {
-        return; // re-run from the 'load' handler once the style is ready
+      // Gate on an overlay layer existing (setupOverlays has run → the style is mutable), NOT
+      // isStyleLoaded(): the latter reads false while source tiles stream, and the slow simulation-
+      // terrain tiles can keep it false long after a coverage run finishes — which would drop the
+      // coverage overlay entirely and never re-add it. addSource/addLayer only need the style loaded,
+      // not its tiles. See [[maplibre-isstyleloaded]].
+      if (!map || !map.getLayer(COVERAGE_BEFORE)) {
+        return; // re-run from the 'load' handler once overlays exist
       }
       const opacity = 1 - (this.splatParams.display.overlay_transparency ?? 0) / 100;
       for (const site of this.localSites) {
@@ -698,7 +742,10 @@ const useStore = defineStore('store', {
     // Live-apply the global transparency slider to every coverage layer (watched in initMap).
     applyCoverageOpacity() {
       const map = this.map as maplibregl.Map | undefined;
-      if (!map || !map.isStyleLoaded()) {
+      // Per-layer getLayer() guards each setPaintProperty below, so only a null map needs gating here.
+      // NOT isStyleLoaded(): it reads false while the slow sim-terrain tiles stream, which would drop
+      // slider updates. See [[maplibre-isstyleloaded]].
+      if (!map) {
         return;
       }
       const opacity = 1 - (this.splatParams.display.overlay_transparency ?? 0) / 100;
@@ -728,6 +775,9 @@ const useStore = defineStore('store', {
       links3dLayer = null;
       links3dPicks = [];
       cursor3dActive = false;
+      // Drop any in-flight tile counts so an HMR remount starts the loading bar clean.
+      mapTileInflight.clear();
+      this.mapTiles = { inFlight: 0, peak: 0 };
       this.map.remove();
       this.map = undefined;
       this.nodeMarkers = {};
@@ -765,6 +815,8 @@ const useStore = defineStore('store', {
             this.terrainExaggeration,
             this.splatParams.simulation.terrain_source,
             this.terrainConfig,
+            this.simulationTerrain,
+            this.splatParams.simulation.high_resolution,
           ),
           center,
           zoom: 10,
@@ -830,6 +882,21 @@ const useStore = defineStore('store', {
         watch(
           () => this.splatParams.simulation.terrain_source,
           () => this.swapTerrainSource()
+        ),
+        // The "simulation terrain" toggle swaps to/from the low-poly SDF-grid tiles.
+        watch(
+          () => this.simulationTerrain,
+          () => this.swapTerrainSource()
+        ),
+        // High-Resolution changes the sim grid (30 m vs 90 m); only matters while sim terrain is on
+        // (the normal LINZ/Terrarium sources ignore it), so gate the swap on it to avoid churn.
+        watch(
+          () => this.splatParams.simulation.high_resolution,
+          () => {
+            if (this.simulationTerrain) {
+              this.swapTerrainSource();
+            }
+          }
         )
       );
     },
@@ -888,6 +955,59 @@ const useStore = defineStore('store', {
           this.rebuild3dLinks();
         }
       });
+
+      // Bottom loading bar: count in-flight tiles across ALL sources (basemap + terrain + sim) from
+      // the per-source tile events (MapLibre 5): sourcedataloading marks a tile starting, sourcedata
+      // /sourcedataabort/error mark one finishing. Only events carrying a tile count — source metadata
+      // changes (no e.tile) are ignored. MapLibre's areTilesLoaded() reconciles away any stale key
+      // (e.g. a tile aborted by the terrain source-swap), without relying on 'idle', which never fires
+      // while the 3D layers trigger continuous repaints.
+      //
+      // CRITICAL: these handlers fire SYNCHRONOUSLY inside MapLibre operations — including the cascade
+      // of aborts removeSource() emits when the swap tears down the slow sim-terrain tiles. So every
+      // handler is wrapped: a throw here (e.g. areTilesLoaded() touching a half-removed source) would
+      // propagate out of removeSource and abort the swap itself, leaving the terrain stuck.
+      const tileKey = (e: any): string | null =>
+        e.tile ? `${e.sourceId}:${e.tile.tileID?.canonical?.key ?? e.tile.tileID?.key ?? ''}` : null;
+      const refreshTiles = () => {
+        try {
+          if (map.areTilesLoaded()) {
+            mapTileInflight.clear(); // MapLibre says nothing is outstanding → drop any stragglers
+          }
+        } catch {
+          /* transient mid source-swap; the next event reconciles */
+        }
+        const n = mapTileInflight.size;
+        this.mapTiles.inFlight = n;
+        this.mapTiles.peak = n === 0 ? 0 : Math.max(this.mapTiles.peak, n);
+      };
+      const onTileStart = (e: any) => {
+        try {
+          const k = tileKey(e);
+          if (k) {
+            mapTileInflight.add(k);
+          }
+          refreshTiles();
+        } catch {
+          /* never let the loading-bar tracker break a MapLibre operation */
+        }
+      };
+      const onTileEnd = (e: any) => {
+        try {
+          const k = tileKey(e);
+          if (k) {
+            mapTileInflight.delete(k);
+          }
+          refreshTiles();
+        } catch {
+          /* never let the loading-bar tracker break a MapLibre operation */
+        }
+      };
+      map.on('sourcedataloading', onTileStart);
+      map.on('sourcedata', onTileEnd);
+      map.on('sourcedataabort', onTileEnd);
+      map.on('error', onTileEnd);
+      map.on('idle', onTileEnd);
       // Click + hover picking for the 3D lines: their 2D click target is offset from the visible line
       // once the camera tilts, so hit-test the elevated geometry directly. Only active with terrain on
       // (the 2D layer handlers in wireOverlayPopups bow out then); the general click also fires for the
@@ -1119,10 +1239,11 @@ const useStore = defineStore('store', {
         },
       } as any, beforeId);
     },
-    // Re-point the terrain raster-dem at the tile endpoint for the current terrain_source ('dem' vs
-    // 'dsm'). MapLibre can't mutate a source's url/maxzoom in place, so swap the source: detach
-    // terrain, drop the hillshade layer (it references the source), remove + re-add the source with
-    // the new url and per-source maxzoom, then restore hillshade and re-attach terrain.
+    // Re-point the terrain raster-dem at the tile endpoint for the current terrain_source ('dem'/'dsm'
+    // /'srtm'), the simulationTerrain toggle, and high_resolution. MapLibre can't mutate a source's
+    // url/maxzoom in place, so swap the source: detach terrain, drop the hillshade layer (it references
+    // the source), remove + re-add the source with the new url and maxzoom, then restore hillshade and
+    // re-attach terrain. Hillshade + 3D mesh both ride the single 'terrain-dem' source, so both follow.
     swapTerrainSource() {
       const map = this.map as maplibregl.Map | undefined;
       // Gate on an overlay layer existing, which means setupOverlays (on 'load') has run: removeSource
@@ -1132,14 +1253,36 @@ const useStore = defineStore('store', {
         return;
       }
       const source = this.splatParams.simulation.terrain_source;
-      map.setTerrain(null); // detach before removing — MapLibre errors on removing a live terrain source
-      if (map.getLayer('hillshade')) {
-        map.removeLayer('hillshade');
+      const spec = terrainDemSource(
+        source, this.terrainConfig, this.simulationTerrain, this.splatParams.simulation.high_resolution,
+      );
+      // Detach everything that references the source before removing it (MapLibre errors on removing a
+      // live terrain source). Wrapped defensively: tearing down the slow sim-terrain tiles can fail
+      // transiently, and that must never leave the map without a terrain source.
+      try {
+        map.setTerrain(null);
+        if (map.getLayer('hillshade')) {
+          map.removeLayer('hillshade');
+        }
+        if (map.getSource('terrain-dem')) {
+          map.removeSource('terrain-dem');
+        }
+      } catch (e) {
+        console.error('Terrain swap: detach failed; updating tiles in place', e);
       }
-      map.removeSource('terrain-dem');
-      map.addSource('terrain-dem', terrainDemSource(source, this.terrainConfig));
+      // Re-add the source, or — if it couldn't be removed — update its tile URLs in place so the
+      // terrain still swaps (only maxzoom stays, a cosmetic block-size difference). Either way the
+      // terrain-dem source ends up pointing at the right tiles.
+      const existing = map.getSource('terrain-dem') as any;
+      if (existing) {
+        existing.setTiles(spec.tiles);
+      } else {
+        map.addSource('terrain-dem', spec);
+      }
       // Re-add hillshade just below the data overlays (relay-zone-fill is the lowest) so it can't cover them.
-      this.addHillshadeLayer(map, 'relay-zone-fill');
+      if (!map.getLayer('hillshade')) {
+        this.addHillshadeLayer(map, 'relay-zone-fill');
+      }
       this.applyTerrain();
       this.rebuild3dLinks(); // terrain heights changed with the source
     },
@@ -1973,7 +2116,10 @@ const useStore = defineStore('store', {
     },
     redrawRelay() {
       const map = this.map as maplibregl.Map | undefined;
-      if (!map || !map.isStyleLoaded()) {
+      // NOT isStyleLoaded() (reads false while the slow sim-terrain tiles stream, which would drop the
+      // relay result); the source guards below suffice — setData only needs the GeoJSON source to
+      // exist. See [[maplibre-isstyleloaded]].
+      if (!map) {
         return;
       }
       const zoneSrc = map.getSource('relay-zone') as maplibregl.GeoJSONSource | undefined;
@@ -2030,7 +2176,9 @@ const useStore = defineStore('store', {
     },
     clearRelay() {
       const map = this.map as maplibregl.Map | undefined;
-      if (map && map.isStyleLoaded()) {
+      // setData only needs the source to exist (optional-chained), not isStyleLoaded() — which reads
+      // false while sim-terrain tiles stream. See [[maplibre-isstyleloaded]].
+      if (map) {
         (map.getSource('relay-zone') as maplibregl.GeoJSONSource | undefined)?.setData(EMPTY_FC as any);
         (map.getSource('relay-pts') as maplibregl.GeoJSONSource | undefined)?.setData(EMPTY_FC as any);
       }

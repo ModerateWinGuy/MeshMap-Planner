@@ -36,6 +36,7 @@
            instead of overlapping it; MapLibre's ResizeObserver re-fits the canvas automatically. -->
       <div class="map-col">
         <div id="map" ref="map"></div>
+        <MapLoadingBar />
         <ProfilePanel v-if="store.profileResult || store.profileState === 'running' || store.profileState === 'failed'" />
       </div>
       <!-- data-bs-theme="dark" puts every Bootstrap component in this dark sidebar onto its dark-mode
@@ -139,6 +140,7 @@ import Terrain from "./components/Terrain.vue"
 import BasemapControl from "./components/BasemapControl.vue"
 import BasemapButtons from "./components/BasemapButtons.vue"
 import ProfilePanel from "./components/ProfilePanel.vue"
+import MapLoadingBar from "./components/MapLoadingBar.vue"
 import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical } from "@lucide/vue"
 import type { Component } from "vue"
 
@@ -152,7 +154,7 @@ const MODES = [
   { id: 'nodes', label: 'Nodes', icon: RadioTower },
   { id: 'coverage', label: 'Coverage', icon: MapIcon },
   { id: 'linkfinder', label: 'Link Finder', icon: Link },
-  { id: 'radio', label: 'Radio Settings', icon: WifiCog },
+  { id: 'radio', label: 'Simulation Settings', icon: WifiCog },
   { id: 'settings', label: 'Settings', icon: SlidersVertical },
 ] as const satisfies ReadonlyArray<{ id: UiMode; label: string; icon: Component }>
 

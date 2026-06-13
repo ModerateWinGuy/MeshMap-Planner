@@ -58,10 +58,26 @@
                 </div>
             </div>
         </div>
+        <div class="row mt-3">
+            <div class="col-12">
+                <div class="form-check form-switch">
+                    <input v-model="store.simulationTerrain" type="checkbox" role="switch" class="form-check-input" id="simulation_terrain" />
+                    <label class="form-check-label" for="simulation_terrain">Show simulation terrain</label>
+                </div>
+                <div class="form-text">
+                    Re-render the map's 3D terrain at the exact coarse grid the simulation actually computes
+                    against — roughly 90 m cells, or 30 m with High-Resolution on — instead of the smooth map
+                    surface. Each grid cell becomes a flat quad, so you can see (and design around) the blocky
+                    terrain SPLAT uses for line-of-sight, which explains coverage shadows that look clear on the
+                    smooth map. Best viewed with 3D terrain or hillshade enabled.
+                </div>
+            </div>
+        </div>
     </form>
 </template>
 
 <script setup lang="ts">
 import { useStore } from '../store.ts'
-const simulation = useStore().splatParams.simulation
+const store = useStore()
+const simulation = store.splatParams.simulation
 </script>

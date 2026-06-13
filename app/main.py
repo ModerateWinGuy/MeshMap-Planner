@@ -21,6 +21,7 @@ from itertools import combinations
 from app.services.splat import Splat
 from app.services.dem_providers import build_providers
 from app.services.terrain_tiles_xyz import TerrainXyzService
+from app.services.terrain_sim_tiles import TerrainSimService
 from app.services.progress import set_progress_sink, clear_progress_sink, report as report_progress
 from app.services.link_budget import receiver_sensitivity_dbm
 from app.models.CoveragePredictionRequest import CoveragePredictionRequest
@@ -55,6 +56,11 @@ splat_service = Splat(splat_path=os.environ.get("SPLAT_PATH", "/app/splat"), dem
 # LINZ isn't in the chain it's None and the endpoint always redirects to Terrarium.
 _linz_provider = next((p for p in dem_providers if getattr(p, "name", "") == "linz"), None)
 terrain_tiles = TerrainXyzService.from_env(_linz_provider, os.environ)
+
+# "Simulation terrain" tiles: the exact coarse SDF grid SPLAT! analyses, rendered low-poly so users
+# can see (and resolve) the terrain that causes a coverage shadow. Reuses the SPLAT service's DEM
+# provider chain / SDF cache, so it routes identically to a prediction (srtm/dem/dsm).
+terrain_sim_tiles = TerrainSimService.from_env(splat_service, os.environ)
 
 # SRTM gives cheap global bare-earth point elevations for the radio-horizon link pre-filter. Using
 # bare earth everywhere (regardless of the run's terrain_source) is fine for a generous LOS bound.
@@ -550,6 +556,21 @@ async def terrain_config():
     fetches this once so the raster-dem source it builds matches the backend's served band; it falls
     back to its own defaults if this is unreachable."""
     return JSONResponse(terrain_tiles.config())
+
+@app.get("/terrain/sim/{source}/{res}/{z}/{x}/{y}.png")
+async def terrain_sim_tile(source: str, res: str, z: int, x: int, y: int):
+    """Terrarium tile of the exact SDF grid SPLAT! uses for ``source`` at ``res`` (sd/hd), rendered
+    nearest-neighbour (flat quads, sharp edges). Declared before the generic terrain route below.
+    Anything it can't serve (ocean cell, build failure, bad params) 307-redirects to AWS Terrarium so
+    the map source is never left with a hole."""
+    if source not in ("srtm", "dem", "dsm") or res not in ("sd", "hd"):
+        return JSONResponse({"error": "source must be srtm/dem/dsm and res sd/hd"}, status_code=400)
+    # render_tile may build/decode an SDF — run in the threadpool so a cold cell can't stall the loop.
+    png = await run_in_threadpool(terrain_sim_tiles.render_tile, source, res, z, x, y)
+    if png is None:
+        return RedirectResponse(_TERRARIUM_TILE_URL.format(z=z, x=x, y=y), status_code=307)
+    return Response(content=png, media_type="image/png",
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 @app.get("/terrain/{source}/{z}/{x}/{y}.png")
 async def terrain_tile(source: str, z: int, x: int, y: int):

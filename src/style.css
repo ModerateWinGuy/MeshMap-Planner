@@ -118,6 +118,8 @@ body {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* Anchor the absolutely-positioned MapLoadingBar to the map area (not the viewport). */
+  position: relative;
 }
 
 #map {
