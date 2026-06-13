@@ -6,7 +6,7 @@
 #   docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
 services:
   app:
-    image: moderatewinguy/meshmap-planner:latest
+    image: ghcr.io/moderatewinguy/meshmap-planner:latest
     environment:
       - HOME=/root
       - TERM=xterm
