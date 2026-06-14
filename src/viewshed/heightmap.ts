@@ -82,7 +82,7 @@ export interface HeightmapProgress {
 }
 
 export interface HeightmapRequest {
-  urlTemplate: string; // e.g. '/terrain/dsm/{z}/{x}/{y}.png' or the absolute AWS Terrarium url
+  urlTemplate: string; // a {z}/{x}/{y} tile template, e.g. the absolute AWS Terrarium url
   maxzoom: number; // served cap; never request finer (overzoom past it just 404s/redirects)
   lon: number;
   lat: number;
@@ -93,8 +93,8 @@ export interface HeightmapRequest {
   mapZoom: number;
 }
 
-// The slippy zoom the map is displaying for this source (clamped to its served band). Matches the
-// store's downloadVisibleTerrain prefetch, so a warmed view and the viewshed agree on tiles.
+// The slippy zoom the map is displaying for this source (clamped to its served band), so the
+// viewshed requests the same tiles the map already loaded (a warm cache hit).
 // coverTiles coarsens DOWN from here only if the radius needs more than the tile budget.
 function pickZoom(req: HeightmapRequest): number {
   return Math.max(0, Math.min(req.maxzoom, Math.round(req.mapZoom)));
@@ -133,7 +133,7 @@ function cachePut(key: string, hm: Heightmap): void {
   }
 }
 
-// Fill a {z}/{x}/{y} template; absolute (Terrarium) and relative (/terrain/..) both fetch fine.
+// Fill a {z}/{x}/{y} template (the absolute AWS Terrarium url).
 function tileUrl(tpl: string, z: number, x: number, y: number): string {
   return tpl.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y));
 }

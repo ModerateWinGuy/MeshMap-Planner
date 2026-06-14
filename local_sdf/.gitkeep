@@ -1,6 +1,0 @@
-# Drop hand-prepared SPLAT! .sdf tiles in this directory to override any DEM source.
-# Name them with SPLAT!'s SDF name, e.g. "-41:-40:185:186-hd.sdf" on Linux, or the Windows-safe
-# form with ':' replaced by '_'  ->  "-41_-40_185_186-hd.sdf"  (Windows forbids ':' in filenames).
-# The `local` DEM provider recognises both forms. utils/export_cached_sdf.py writes the '_' form.
-# This directory is mounted read-only into the container at /app/local_sdf (LOCAL_SDF_DIR) and is
-# also baked into the image, so its tiles are served first by the `local` provider.

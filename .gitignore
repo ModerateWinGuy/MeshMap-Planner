@@ -1,27 +1,3 @@
-.venv/
-.DS_Store
-__pycache__/
-.DS_Store
-.idea/
-*.tiff
-*.tif
-*.pyc
-log.txt
-*.log
-.tile_cache/
-splat/build/
-splat/utils/postdownload
-splat
-.splat_tiles/
-# Host-mounted terrain cache: keep the folder, ignore its (large, binary, generated) contents.
-splat_cache/*
-!splat_cache/.gitkeep
-# Baked-into-image SDF tiles: kept on disk + baked by the Docker build, but NOT committed.
-local_sdf/*
-!local_sdf/.gitkeep
-app/ui/node*
-app/ui/*.json
-
 # Logs
 logs
 *.log
@@ -47,5 +23,3 @@ dist-ssr
 *.sln
 *.sw?
 .vite
-app/ui/assets/*.css
-app/ui/assets/*.js

@@ -5,15 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:full": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build && vite",
-    "build": "vue-tsc -b && vite build && cp -r public/* app/ui",
-    "preview": "vite preview",
-    "docker:dev": "docker compose up --build",
-    "docker:reload": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build",
-    "docker:down": "docker compose down",
-    "docker:build": "docker compose build",
-    "docker:push": "docker compose push app",
-    "docker:release": "docker compose build && docker compose push app"
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@lucide/vue": "^1.17.0",

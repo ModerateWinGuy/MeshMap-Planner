@@ -21,10 +21,17 @@
         </div>
         <div class="row mt-3">
             <div class="col-12">
-                <label for="high_resolution" class="form-label">High-Resolution</label>
-                <div class="form-check">
-                    <input v-model="simulation.high_resolution" type="checkbox" class="form-check-input" id="high_resolution" />
-                    <label class="form-check-label" for="high_resolution">Use 30 meter resolution terrain data (default: 90 meter).</label>
+                <label for="sim_quality" class="form-label">Simulation Quality</label>
+                <select v-model="simulation.quality" class="form-select form-select-sm" id="sim_quality">
+                    <option value="draft">Draft — fastest, coarse terrain sampling</option>
+                    <option value="balanced">Balanced (default)</option>
+                    <option value="high">High — fine cells, follows the map's terrain resolution</option>
+                    <option value="max">Max — ~8 m cells (native terrain resolution; slow over large ranges)</option>
+                </select>
+                <div class="form-text">
+                    Trades accuracy for speed in the browser-side simulations: Draft samples the terrain
+                    profile coarsely for snappy results; High samples at the displayed terrain's full
+                    resolution. Applies to the link matrix, profile, coverage and relay.
                 </div>
             </div>
         </div>
@@ -38,38 +45,6 @@
                     When computing the link matrix, skip pairs beyond the radio horizon — the
                     line-of-sight distance set by the curve of the Earth and each node's height above
                     sea level (higher nodes reach further). Turn off for non-line-of-sight bands.
-                </div>
-            </div>
-        </div>
-        <div class="row mt-3">
-            <div class="col-12">
-                <label for="terrain_source" class="form-label">Terrain Model</label>
-                <select v-model="simulation.terrain_source" class="form-select form-select-sm" id="terrain_source">
-                    <option value="srtm">SRTM — global bare earth (default)</option>
-                    <option value="dem">LINZ DEM — bare earth (NZ LIDAR)</option>
-                    <option value="dsm">LINZ DSM — surface, buildings &amp; trees (NZ LIDAR)</option>
-                </select>
-                <div class="form-text">
-                    <strong>SRTM</strong> is the global bare-earth baseline (AWS Terrarium on the map). The
-                    <strong>LINZ</strong> options only differ where high-resolution LIDAR coverage exists
-                    (currently only New Zealand): <strong>DEM</strong> is bare earth, <strong>DSM</strong> bakes
-                    buildings/canopy into the terrain — set Clutter Height to 0 when using it to avoid counting
-                    obstructions twice. The map's 3D terrain and hillshade follow this choice too.
-                </div>
-            </div>
-        </div>
-        <div class="row mt-3">
-            <div class="col-12">
-                <div class="form-check form-switch">
-                    <input v-model="store.simulationTerrain" type="checkbox" role="switch" class="form-check-input" id="simulation_terrain" />
-                    <label class="form-check-label" for="simulation_terrain">Show simulation terrain</label>
-                </div>
-                <div class="form-text">
-                    Re-render the map's 3D terrain at the exact coarse grid the simulation actually computes
-                    against — roughly 90 m cells, or 30 m with High-Resolution on — instead of the smooth map
-                    surface. Each grid cell becomes a flat quad, so you can see (and design around) the blocky
-                    terrain SPLAT uses for line-of-sight, which explains coverage shadows that look clear on the
-                    smooth map. Best viewed with 3D terrain or hillshade enabled.
                 </div>
             </div>
         </div>

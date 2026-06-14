@@ -109,35 +109,6 @@
       </div>
     </div>
 
-    <div class="row mt-3" v-if="store.splatParams.simulation.terrain_source !== 'srtm'">
-      <div class="col-12">
-        <div class="form-text mb-2">
-          LINZ LIDAR terrain is fetched live and can be slow on first view. Pre-download the on-screen
-          area so the 3D terrain fills in now — it stays cached for next time.
-        </div>
-        <button
-          v-if="!dl || !dl.running"
-          type="button"
-          class="btn btn-outline-light btn-sm"
-          @click="store.downloadVisibleTerrain()"
-        >
-          Download terrain for this view
-        </button>
-        <div v-else class="d-flex align-items-center gap-2">
-          <div class="progress flex-grow-1" style="height: 8px;">
-            <div class="progress-bar" role="progressbar" :style="{ width: pct + '%' }"></div>
-          </div>
-          <button type="button" class="btn btn-outline-light btn-sm" @click="store.cancelTerrainDownload()">
-            Cancel
-          </button>
-        </div>
-        <div v-if="dl && dl.running" class="form-text">Downloading terrain… {{ dl.done }} / {{ dl.total }} tiles</div>
-        <div v-else-if="dl && dl.tooLarge" class="form-text text-warning">
-          This view is too large ({{ dl.total }} tiles). Zoom in and try again.
-        </div>
-      </div>
-    </div>
-
     <div class="row mt-3">
       <div class="col-12">
         <button type="button" class="btn btn-outline-light btn-sm" @click="store.resetView()">
@@ -149,9 +120,6 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useStore } from '../store.ts'
 const store = useStore()
-const dl = computed(() => store.terrainDownload)
-const pct = computed(() => (dl.value && dl.value.total ? Math.round((dl.value.done / dl.value.total) * 100) : 0))
 </script>

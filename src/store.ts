@@ -3,13 +3,19 @@ import { useLocalStorage } from '@vueuse/core';
 import { watch, markRaw } from 'vue';
 import { randanimalSync } from 'randanimal';
 import maplibregl from 'maplibre-gl';
-import parseGeoraster from 'georaster';
 import { type Site, type SplatParams, type Node, type MatrixResult, type LinkResult, type RelayResult, type ProfileResult, type UiMode } from './types.ts';
 import { cloneObject, escapeHtml } from './utils.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
 import { Links3DLayer, buildLinkGeometry, setLinkColorFn, type LinkPick } from './links3d.ts';
 import { getHeightmap, type Heightmap } from './viewshed/heightmap.ts';
 import { ViewshedEngine } from './viewshed/gpu.ts';
+import { runMatrix as runMatrixWorker, runProfile as runProfileWorker, runCoverage as runCoverageWorker, runRelay as runRelayWorker, type SimSource } from './sim/simClient.ts';
+import type { ProfileOptions } from './sim/profile.ts';
+import type { SimNode, SimShared } from './sim/links.ts';
+import type { CoverageNode, CoverageOptions } from './sim/coverageTypes.ts';
+import type { RelayParams } from './sim/relay.ts';
+import { colorizeGrid } from './sim/colormap.ts';
+import { receiverSensitivityDbm } from './sim/linkBudget.ts';
 
 const DEFAULT_LAT = -41.257053283864224;
 const DEFAULT_LON = 174.86568331718445;
@@ -108,93 +114,29 @@ function pairPopupHtml(aName: string, bName: string): string {
     + `<br><button type="button" class="pair-profile-btn btn btn-sm btn-primary mt-2 w-100">Calculate link &amp; show profile</button>`;
 }
 
-// Zoom band for the 3D terrain source, fetched from the backend (GET /terrain/config) so the
-// raster-dem source matches the band the backend actually serves. Defaults mirror the backend's so
-// the map works unchanged if the config fetch fails. Per-source: DEM is served finer (z15) than DSM
-// (z14) — see app/services/terrain_tiles_xyz.py.
-type TerrainConfig = { minzoom: number; maxzoom: { dem: number; dsm: number } };
-const DEFAULT_TERRAIN_CONFIG: TerrainConfig = { minzoom: 0, maxzoom: { dem: 15, dsm: 14 } };
-
-// AWS Terrarium tiles — the global baseline used for the 'srtm' option (and, server-side, as the
-// fallback the backend redirects to outside NZ). Already carry LINZ 8 m DEM over NZ + 30 m SRTM.
+// AWS Terrarium tiles — the global bare-earth baseline backing both the 3D terrain mesh and the
+// hillshade. Already carry LINZ 8 m DEM over NZ + 30 m SRTM elsewhere, with no backend dependency.
 const TERRARIUM_TILES = 'https://elevation-tiles-prod.s3.amazonaws.com/v2/terrarium/{z}/{x}/{y}.png';
 
-// Zoom at which one sim post (~30 m hd / ~90 m sd) is roughly a tile pixel; capping the source here
-// makes MapLibre overzoom (stretch) the coarse tiles into big flat quads instead of fetching finer
-// ones — the low-poly "what SPLAT sees" look. Purely visual; tune to taste.
-const SIM_MAXZOOM: Record<string, number> = { sd: 11, hd: 12 };
+// Zoom at which Terrarium stops serving finer tiles; MapLibre overzooms past this rather than
+// fetching tiles that don't exist. Shared by the map source and the client-side sim/viewshed fetch.
+const TERRARIUM_MAXZOOM = 15;
 
-// The raster-dem source backing both the 3D terrain mesh and the hillshade, chosen by terrain_source:
-//   'srtm' → AWS Terrarium directly (global bare-earth baseline, no backend dependency)
-//   'dem'/'dsm' → our backend tile endpoint, which serves LINZ LIDAR over NZ and redirects to
-//                 Terrarium elsewhere — so the rendered terrain matches the RF simulation's choice.
-// With simulationTerrain on, ALL sources instead point at /terrain/sim, which renders the exact
-// coarse SDF grid SPLAT analyses (per high_resolution) as low-poly tiles — so the map shows what the
-// RF simulation sees rather than the smooth surface.
-function terrainDemSource(
-  terrainSource: string,
-  config: TerrainConfig,
-  simulationTerrain: boolean,
-  highResolution: boolean,
-): any {
-  if (simulationTerrain) {
-    const res = highResolution ? 'hd' : 'sd';
-    return {
-      type: 'raster-dem',
-      tiles: [`/terrain/sim/${terrainSource}/${res}/{z}/{x}/{y}.png`],
-      tileSize: 256,
-      encoding: 'terrarium',
-      minzoom: 0,
-      maxzoom: SIM_MAXZOOM[res],
-      attribution: 'Terrain: simulation grid (SPLAT SDF)',
-    };
-  }
-  const isLinz = terrainSource === 'dem' || terrainSource === 'dsm';
+// The single raster-dem source backing the 3D terrain mesh, the hillshade, and the client-side sim
+// (matrix/profile/coverage/relay/viewshed). Always AWS Terrarium — global, fast, no backend.
+function terrainDemSource(): any {
   return {
     type: 'raster-dem',
-    tiles: isLinz ? [`/terrain/${terrainSource}/{z}/{x}/{y}.png`] : [TERRARIUM_TILES],
+    tiles: [TERRARIUM_TILES],
     tileSize: 256,
     // 'terrarium' is mandatory: these tiles decode to garbage under the default mapbox encoding.
     encoding: 'terrarium',
-    // minzoom 0, not the backend's LINZ threshold: MapLibre must request terrain at every zoom (the
-    // map opens at z10) — the backend redirects below LINZ_TILE_MINZOOM to AWS Terrarium itself, so a
-    // higher source minzoom would just leave the zoomed-out view with no terrain at all (flat).
+    // minzoom 0 so MapLibre requests terrain at every zoom (the map opens at z10); overzooms past
+    // maxzoom rather than fetching finer tiles that don't exist.
     minzoom: 0,
-    // Cap requests at the served band; MapLibre overzooms past this rather than fetching finer tiles.
-    maxzoom: isLinz ? ((config.maxzoom as any)[terrainSource] ?? 15) : 15,
-    attribution: isLinz ? 'Terrain: LINZ (NZ) / AWS Mapzen / SRTM' : 'Terrain: AWS / Mapzen / SRTM',
+    maxzoom: TERRARIUM_MAXZOOM,
+    attribution: 'Terrain: AWS / Mapzen / SRTM',
   };
-}
-
-// Live LINZ tiles are slow to render cold (the backend warps a COG window per tile), so the Terrain
-// panel offers a "download this view" prefetch that warms them with a progress bar. Concurrency is
-// capped to stay gentle on the backend/link; the tile count is capped so one click can't queue a
-// whole-country download (zoom in for a smaller, finer area instead).
-const PREFETCH_CONCURRENCY = 6;
-const MAX_PREFETCH_TILES = 600;
-
-// Slippy-map tile coords for a lon/lat at zoom z (web-mercator XYZ).
-function lonToTileX(lon: number, z: number): number {
-  return Math.floor(((lon + 180) / 360) * 2 ** z);
-}
-function latToTileY(lat: number, z: number): number {
-  const r = (Math.max(-85.05112878, Math.min(85.05112878, lat)) * Math.PI) / 180;
-  return Math.floor(((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * 2 ** z);
-}
-// XYZ tiles covering a lon/lat bbox at zoom z, padded by `pad` tiles so a little panning is covered too.
-function tilesForBounds(w: number, s: number, e: number, n: number, z: number, pad = 2): { z: number; x: number; y: number }[] {
-  const max = 2 ** z - 1;
-  const x0 = Math.max(0, lonToTileX(w, z) - pad);
-  const x1 = Math.min(max, lonToTileX(e, z) + pad);
-  const y0 = Math.max(0, latToTileY(n, z) - pad); // north edge -> smaller y
-  const y1 = Math.min(max, latToTileY(s, z) + pad);
-  const out: { z: number; x: number; y: number }[] = [];
-  for (let x = x0; x <= x1; x++) {
-    for (let y = y0; y <= y1; y++) {
-      out.push({ z, x, y });
-    }
-  }
-  return out;
 }
 
 // Build the initial MapLibre style: the four raster basemaps (the persisted one visible) plus the
@@ -204,10 +146,6 @@ function buildStyle(
   activeBasemap: string,
   terrainEnabled: boolean,
   terrainExaggeration: number,
-  terrainSource: string,
-  terrainConfig: TerrainConfig,
-  simulationTerrain: boolean,
-  highResolution: boolean,
 ): any {
   const sources: Record<string, any> = {};
   const layers: any[] = [];
@@ -218,80 +156,13 @@ function buildStyle(
     sources[b.id] = { type: 'raster', tiles: b.tiles, tileSize: 256, attribution: b.attribution, maxzoom: b.maxzoom };
     layers.push({ id: `basemap-${b.id}`, type: 'raster', source: b.id, layout: { visibility: b.id === visibleId ? 'visible' : 'none' } });
   });
-  sources['terrain-dem'] = terrainDemSource(terrainSource, terrainConfig, simulationTerrain, highResolution);
+  sources['terrain-dem'] = terrainDemSource();
   const style: any = { version: 8, sources, layers };
   // Top-level `terrain` drapes the map over the DEM; runtime toggles go through setTerrain.
   if (terrainEnabled) {
     style.terrain = { source: 'terrain-dem', exaggeration: terrainExaggeration };
   }
   return style;
-}
-
-// Decode a colormap PNG (public/colormaps/<scale>.png) into a 256-entry RGBA LUT. Only used as a
-// fallback when a coverage GeoTIFF arrives without its embedded palette (it normally has one).
-const lutCache: Record<string, Promise<number[][]>> = {};
-function colormapLut(scale: string): Promise<number[][]> {
-  if (!lutCache[scale]) {
-    lutCache[scale] = new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        const c = document.createElement('canvas');
-        c.width = 256;
-        c.height = 1;
-        const cx = c.getContext('2d')!;
-        cx.drawImage(img, 0, 0, 256, 1);
-        const d = cx.getImageData(0, 0, 256, 1).data;
-        const lut: number[][] = [];
-        for (let i = 0; i < 256; i++) {
-          lut.push([d[i * 4], d[i * 4 + 1], d[i * 4 + 2], 255]);
-        }
-        resolve(lut);
-      };
-      img.onerror = reject;
-      img.src = `/colormaps/${scale}.png`;
-    });
-  }
-  return lutCache[scale];
-}
-
-// The coverage GeoTIFF is a single-band palette image (colormap baked server-side, nodata at the
-// noDataValue index). Decode it to an RGBA canvas once, mapping each palette index to its colour
-// and the nodata index to a transparent pixel. Crisp dBm band edges are preserved (no smoothing).
-async function buildCoverageCanvas(raster: any, colorScale: string): Promise<HTMLCanvasElement> {
-  const width: number = raster.width;
-  const height: number = raster.height;
-  const band: number[][] = raster.values[0];
-  const nodata = raster.noDataValue;
-  let palette: number[][] | null = Array.isArray(raster.palette) ? raster.palette : null;
-  if (!palette) {
-    palette = await colormapLut(colorScale);
-  }
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d')!;
-  const img = ctx.createImageData(width, height);
-  const data = img.data;
-  for (let y = 0; y < height; y++) {
-    const row = band[y];
-    for (let x = 0; x < width; x++) {
-      const idx = row[x];
-      const o = (y * width + x) * 4;
-      const color = (idx === nodata || idx === undefined || idx === null || Number.isNaN(idx)) ? null : palette[idx];
-      if (!color) {
-        data[o + 3] = 0; // nodata / out-of-palette -> fully transparent
-        continue;
-      }
-      data[o] = color[0];
-      data[o + 1] = color[1];
-      data[o + 2] = color[2];
-      data[o + 3] = color[3] ?? 255;
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-  // Reproject into Web-Mercator row spacing before handing it to MapLibre's linear image stretch.
-  const warped = mercatorWarp(canvas, raster.ymax, raster.ymin);
-  return fitCoverageCanvas(warped);
 }
 
 const DEG2RAD = Math.PI / 180;
@@ -372,12 +243,6 @@ function fitCoverageCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
   return out;
 }
 
-// Four corner coordinates [lng,lat] for a north-up axis-aligned coverage raster: TL, TR, BR, BL.
-function coverageCoords(raster: any): Site['coords'] {
-  const { xmin, xmax, ymin, ymax } = raster;
-  return [[xmin, ymax], [xmax, ymax], [xmax, ymin], [xmin, ymin]];
-}
-
 function defaultTransmitter(): SplatParams['transmitter'] {
   return {
     name: randanimalSync(),
@@ -416,6 +281,9 @@ let watchStops: Array<() => void> = [];
 // and the markRaw note in initMap). map.remove() in destroyMap tears the layer's GL down with it.
 let links3dLayer: Links3DLayer | null = null;
 let rebuild3dTimer: ReturnType<typeof setTimeout> | null = null;
+// Debounce handle for re-running the link matrix when a link-affecting setting changes (radio params,
+// shared environment, lora preset, node coords). Coalesces keystroke/slider bursts into one ITM run.
+let matrixRecomputeTimer: ReturnType<typeof setTimeout> | null = null;
 // Elevated per-link polylines for click hit-testing the 3D lines (the 2D click target is offset
 // from the visible 3D line once the camera tilts). Rebuilt alongside the geometry.
 let links3dPicks: LinkPick[] = [];
@@ -446,6 +314,12 @@ let viewshedLastZoom = -1;
 // engine reuses one set of GPU buffers, so two compute()s must never overlap. Progressive frames are
 // dropped while a pass is in flight; the final pass waits for it. Null = idle.
 let viewshedPassPromise: Promise<void> | null = null;
+// Cancel handles for the in-flight client-side sim jobs, so a fresh run supersedes the previous one
+// (its stale worker results are dropped rather than overwriting the new run's).
+let matrixCancel: (() => void) | null = null;
+let profileCancel: (() => void) | null = null;
+let coverageCancel: (() => void) | null = null;
+let relayCancel: (() => void) | null = null;
 // Share the link palette with the 3D layer so its chords match the 2D links exactly.
 setLinkColorFn(linkColor);
 
@@ -501,10 +375,6 @@ const useStore = defineStore('store', {
       // 3D terrain (draped from the terrain raster-dem). Persisted so the view survives a reload.
       terrainEnabled: useLocalStorage('terrainEnabled', false),
       terrainExaggeration: useLocalStorage('terrainExaggeration', 1),
-      // Re-render the terrain mesh + hillshade at the exact coarse SDF grid the RF simulation uses
-      // (low-poly, nearest-neighbour) instead of the smooth LINZ/AWS surface, so the map matches what
-      // SPLAT sees. Visualisation-only (not a backend param); resolution follows high_resolution.
-      simulationTerrain: useLocalStorage('simulationTerrain', false),
       // The 3D line-of-sight links (chords through the air + masts + drop-curtains). When off, the
       // flat 2D draped links show at full opacity instead. Only render with 3D terrain on. Persisted.
       links3dEnabled: useLocalStorage('links3dEnabled', true),
@@ -516,12 +386,9 @@ const useStore = defineStore('store', {
       // hidden entirely. When false, the default applies: viable links always show, non-viable ones
       // only for the selected node. Both feed visibleLinks. Persisted.
       linksSelectedOnly: useLocalStorage('linksSelectedOnly', false),
-      // Zoom band for the terrain source, fetched from GET /terrain/config in initMap. In-memory only
-      // (it's a backend deployment fact, not a user setting); defaults match the backend so the map
-      // works before/without the fetch.
-      terrainConfig: { ...DEFAULT_TERRAIN_CONFIG } as TerrainConfig,
-      // Progress of a "download terrain for this view" prefetch (null when idle). In-memory only.
-      terrainDownload: null as null | { running: boolean; done: number; total: number; cancelled: boolean; tooLarge: boolean },
+      // When true, non-viable links are hidden everywhere — including those touching the selected node
+      // (which visibleLinks otherwise keeps). Default off to preserve the existing behaviour. Persisted.
+      hideInvalidLinks: useLocalStorage('hideInvalidLinks', false),
       // In-flight map tile tracker for the bottom loading bar (basemap + terrain + sim tiles). inFlight
       // mirrors the size of a non-reactive key set; peak is the high-water mark since it last hit zero,
       // so a fraction (peak-inFlight)/peak fills smoothly per burst. In-memory only.
@@ -565,9 +432,8 @@ const useStore = defineStore('store', {
           situation_fraction: 95.0,
           time_fraction: 95.0,
           simulation_extent: 30.0,
-          high_resolution: false,
-          terrain_source: 'srtm',
-          filter_radio_horizon: true
+          filter_radio_horizon: true,
+          quality: 'balanced'
         },
         display: {
           color_scale: 'plasma',
@@ -600,6 +466,14 @@ const useStore = defineStore('store', {
       }
       const sel = state.selectedNodeId;
       const touchesSelected = (l: LinkResult): boolean => l.a === sel || l.b === sel;
+      // "Hide invalid links" drops every non-viable link, overriding the selected-node exception that
+      // would otherwise still show them (both for selected-only and the default view).
+      if (state.hideInvalidLinks) {
+        if (state.linksSelectedOnly) {
+          return all.filter((l) => l.viable && touchesSelected(l));
+        }
+        return all.filter((l) => l.viable);
+      }
       if (state.linksSelectedOnly) {
         return all.filter(touchesSelected);
       }
@@ -1007,22 +881,16 @@ const useStore = defineStore('store', {
             return;
           }
         }
-        // Resolve the active terrain source exactly as the map does, so the heightmap matches the
-        // surface currently draped in the viewport (dem/dsm/srtm, incl. the simulation-grid toggle).
-        const spec = terrainDemSource(
-          this.splatParams.simulation.terrain_source,
-          this.terrainConfig,
-          this.simulationTerrain,
-          this.splatParams.simulation.high_resolution,
-        );
+        // Resolve the terrain source exactly as the map does, so the heightmap matches the AWS
+        // Terrarium surface currently draped in the viewport.
+        const spec = terrainDemSource();
         const radiusM = Math.max(1000, Math.min(30000, this.viewshedRadiusKm * 1000));
         // Output-grid long-edge cap, the knob that trades detail for GPU cost (cost ~ outPx² × steps):
         //  - live drag: small, for framerate.
-        //  - progressive (mid-fetch refinement): a cheap interim so a slow LINZ fetch shows something.
+        //  - progressive (mid-fetch refinement): a cheap interim so a slow fetch shows something.
         //  - final (settled) pass: MAX_TEXTURE, so the grid follows the heightmap's own resolution
-        //    (1:1 — the mosaic is ≤2048², well under the cap). This is what sharpens the blocky green
-        //    on a high-res surface like LINZ DSM, where the old fixed 1024 cap threw away most of the
-        //    detail the map was already showing.
+        //    (1:1 — the mosaic is ≤2048², well under the cap), sharpening the footprint against the
+        //    terrain detail the map already shows.
         const live = this.dragging && this.viewshedLive;
         const liveCap = 512;
         const progressiveCap = live ? liveCap : 1024;
@@ -1112,12 +980,7 @@ const useStore = defineStore('store', {
       this.map = undefined;
       this.nodeMarkers = {};
     },
-    async initMap() {
-      // Pull the terrain zoom band before building the style so the raster-dem source matches the
-      // band the backend serves. Best-effort with a short timeout: if it fails we keep the defaults
-      // and the map still works (tiles fall back to Terrarium via the backend redirect).
-      await this.fetchTerrainConfig();
-
+    initMap() {
       // Guard against re-initialising onto a live map: initMap runs from App's onMounted, which
       // fires again on a remount (Vite HMR). Tear the old map down first so its WebGL context and
       // watchers don't leak.
@@ -1143,10 +1006,6 @@ const useStore = defineStore('store', {
             this.activeBasemap,
             this.terrainEnabled,
             this.terrainExaggeration,
-            this.splatParams.simulation.terrain_source,
-            this.terrainConfig,
-            this.simulationTerrain,
-            this.splatParams.simulation.high_resolution,
           ),
           center,
           zoom: 10,
@@ -1227,25 +1086,42 @@ const useStore = defineStore('store', {
             }
           }
         ),
-        // Re-point the terrain raster-dem at the new DEM/DSM tile endpoint when the simulation's
-        // terrain model changes, so the 3D mesh + hillshade reflect the same surface the sim uses.
+        // Re-run the link matrix when anything that changes link viability is edited: the selected
+        // node's radio params + coordinates, the shared environment, and the lora preset. redrawLinks
+        // only re-draws stale margins from the existing matrixResult, so without this an edit (or even
+        // a move) would leave the displayed margins out of date. Mirrors the viewshed watcher: track a
+        // stringified tuple, debounce so a number-field keystroke burst is one run, and gate on
+        // matrixResult so it never auto-computes before the user has run a matrix, and on !dragging so
+        // it fires once on drop rather than per frame mid-drag.
         watch(
-          () => this.splatParams.simulation.terrain_source,
-          () => this.swapTerrainSource()
-        ),
-        // The "simulation terrain" toggle swaps to/from the low-poly SDF-grid tiles.
-        watch(
-          () => this.simulationTerrain,
-          () => this.swapTerrainSource()
-        ),
-        // High-Resolution changes the sim grid (30 m vs 90 m); only matters while sim terrain is on
-        // (the normal LINZ/Terrarium sources ignore it), so gate the swap on it to avoid churn.
-        watch(
-          () => this.splatParams.simulation.high_resolution,
           () => {
-            if (this.simulationTerrain) {
-              this.swapTerrainSource();
+            const n = this.selectedNode;
+            const t = n?.transmitter;
+            const r = n?.receiver;
+            const env = this.splatParams.environment;
+            return [
+              n?.id, t?.tx_lat, t?.tx_lon, t?.tx_power, t?.tx_gain, t?.tx_freq, t?.tx_height,
+              r?.rx_gain, r?.rx_loss,
+              this.splatParams.lora?.preset,
+              env.radio_climate, env.polarization, env.clutter_height,
+              env.ground_dielectric, env.ground_conductivity, env.atmosphere_bending,
+            ].join(':');
+          },
+          () => {
+            if (!this.matrixResult || this.dragging) {
+              return;
             }
+            if (matrixRecomputeTimer) {
+              clearTimeout(matrixRecomputeTimer);
+            }
+            matrixRecomputeTimer = setTimeout(() => {
+              matrixRecomputeTimer = null;
+              // Re-check the guards: the debounce window may have outlived the matrix being cleared or a
+              // drag starting.
+              if (this.matrixResult && !this.dragging) {
+                this.runMatrix();
+              }
+            }, 300);
           }
         )
       );
@@ -1545,6 +1421,12 @@ const useStore = defineStore('store', {
       this.linksSelectedOnly = !this.linksSelectedOnly;
       this.redrawLinks();
     },
+    // Toggle hiding non-viable links (see visibleLinks). redrawLinks re-filters the 2D + 3D links from
+    // the new visible set, so the dashed (non-viable) layer empties on its own when this turns on.
+    toggleHideInvalidLinks() {
+      this.hideInvalidLinks = !this.hideInvalidLinks;
+      this.redrawLinks();
+    },
     toggleLinkCurtain() {
       this.linkCurtainEnabled = !this.linkCurtainEnabled;
       if (links3dLayer) {
@@ -1576,9 +1458,8 @@ const useStore = defineStore('store', {
       }
       map.setTerrain(this.terrainEnabled ? { source: 'terrain-dem', exaggeration: this.terrainExaggeration } : null);
     },
-    // Add the relief-shading layer over the terrain raster-dem. Shared by setupOverlays (initial) and
-    // swapTerrainSource (after a source swap). beforeId keeps it below the data overlays on re-add;
-    // omit it on first setup, where the relay/coverage layers are added afterwards anyway.
+    // Add the relief-shading layer over the terrain raster-dem. beforeId keeps it below the data
+    // overlays; omit it on first setup, where the relay/coverage layers are added afterwards anyway.
     addHillshadeLayer(map: maplibregl.Map, beforeId?: string) {
       map.addLayer({
         id: 'hillshade',
@@ -1597,273 +1478,117 @@ const useStore = defineStore('store', {
         },
       } as any, beforeId);
     },
-    // Re-point the terrain raster-dem at the tile endpoint for the current terrain_source ('dem'/'dsm'
-    // /'srtm'), the simulationTerrain toggle, and high_resolution. MapLibre can't mutate a source's
-    // url/maxzoom in place, so swap the source: detach terrain, drop the hillshade layer (it references
-    // the source), remove + re-add the source with the new url and maxzoom, then restore hillshade and
-    // re-attach terrain. Hillshade + 3D mesh both ride the single 'terrain-dem' source, so both follow.
-    swapTerrainSource() {
-      const map = this.map as maplibregl.Map | undefined;
-      // Gate on an overlay layer existing, which means setupOverlays (on 'load') has run: removeSource
-      // /addSource need a loaded style, and we re-add the hillshade it created. Before load the source
-      // was just built by buildStyle with the current terrain_source, so there's nothing to swap yet.
-      if (!map || !map.getLayer('relay-zone-fill')) {
-        return;
-      }
-      const source = this.splatParams.simulation.terrain_source;
-      const spec = terrainDemSource(
-        source, this.terrainConfig, this.simulationTerrain, this.splatParams.simulation.high_resolution,
-      );
-      // Detach everything that references the source before removing it (MapLibre errors on removing a
-      // live terrain source). Wrapped defensively: tearing down the slow sim-terrain tiles can fail
-      // transiently, and that must never leave the map without a terrain source.
-      try {
-        map.setTerrain(null);
-        if (map.getLayer('hillshade')) {
-          map.removeLayer('hillshade');
-        }
-        if (map.getSource('terrain-dem')) {
-          map.removeSource('terrain-dem');
-        }
-      } catch (e) {
-        console.error('Terrain swap: detach failed; updating tiles in place', e);
-      }
-      // Re-add the source, or — if it couldn't be removed — update its tile URLs in place so the
-      // terrain still swaps (only maxzoom stays, a cosmetic block-size difference). Either way the
-      // terrain-dem source ends up pointing at the right tiles.
-      const existing = map.getSource('terrain-dem') as any;
-      if (existing) {
-        existing.setTiles(spec.tiles);
-      } else {
-        map.addSource('terrain-dem', spec);
-      }
-      // Re-add hillshade just below the data overlays (relay-zone-fill is the lowest) so it can't cover them.
-      if (!map.getLayer('hillshade')) {
-        this.addHillshadeLayer(map, 'relay-zone-fill');
-      }
-      this.applyTerrain();
-      this.rebuild3dLinks(); // terrain heights changed with the source
-      // The viewshed reads whatever surface the map shows, so a source change must refetch + recompute.
-      // The heightmap cache keys on the tile-URL template, so the new source naturally misses the cache.
-      if (this.viewshedEnabled) {
-        this.requestViewshed();
-      }
-    },
-    // Fetch the backend terrain zoom band (GET /terrain/config) into this.terrainConfig. Best-effort:
-    // a short abort timeout and a silent catch so a down/slow backend just leaves the defaults.
-    async fetchTerrainConfig() {
-      try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 3000);
-        const res = await fetch('/terrain/config', { signal: ctrl.signal });
-        clearTimeout(timer);
-        if (!res.ok) {
-          return;
-        }
-        const cfg = await res.json();
-        if (cfg && cfg.maxzoom) {
-          this.terrainConfig = {
-            minzoom: cfg.minzoom ?? DEFAULT_TERRAIN_CONFIG.minzoom,
-            maxzoom: {
-              dem: cfg.maxzoom.dem ?? DEFAULT_TERRAIN_CONFIG.maxzoom.dem,
-              dsm: cfg.maxzoom.dsm ?? DEFAULT_TERRAIN_CONFIG.maxzoom.dsm,
-            },
-          };
-        }
-      } catch {
-        // backend unreachable/slow: keep defaults; terrain still works via the backend's Terrarium fallback
-      }
-    },
-    // Warm the backend (and browser) cache for the LINZ tiles covering the current view, with a
-    // progress bar, so the 3D terrain fills in promptly instead of trickling in over a slow live
-    // fetch. Only meaningful for the LINZ sources ('srtm' uses fast AWS tiles directly).
-    async downloadVisibleTerrain() {
-      const map = this.map as maplibregl.Map | undefined;
-      const source = this.splatParams.simulation.terrain_source;
-      if (!map || (source !== 'dem' && source !== 'dsm') || this.terrainDownload?.running) {
-        return;
-      }
-      // Fetch at the zoom MapLibre actually requests for this view (capped to the served band), so the
-      // warmed tiles are exactly the ones the mesh needs.
-      const z = Math.min(Math.round(map.getZoom()), (this.terrainConfig.maxzoom as any)[source] ?? 15);
-      const b = map.getBounds();
-      const tiles = tilesForBounds(b.getWest(), b.getSouth(), b.getEast(), b.getNorth(), z);
-      if (tiles.length > MAX_PREFETCH_TILES) {
-        this.terrainDownload = { running: false, done: 0, total: tiles.length, cancelled: false, tooLarge: true };
-        return;
-      }
-      this.terrainDownload = { running: true, done: 0, total: tiles.length, cancelled: false, tooLarge: false };
-      const queue = tiles.slice();
-      const worker = async () => {
-        while (queue.length) {
-          if (this.terrainDownload?.cancelled) {
-            return;
-          }
-          const t = queue.pop()!;
-          try {
-            // Consume the body so the connection frees and the browser caches the (immutable) tile.
-            await (await fetch(`/terrain/${source}/${t.z}/${t.x}/${t.y}.png`)).blob();
-          } catch {
-            // a failed tile just stays cold; keep going
-          }
-          if (this.terrainDownload) {
-            this.terrainDownload.done++;
-          }
-        }
-      };
-      await Promise.all(Array.from({ length: PREFETCH_CONCURRENCY }, worker));
-      const cancelled = this.terrainDownload?.cancelled ?? false;
-      if (this.terrainDownload) {
-        this.terrainDownload.running = false;
-      }
-      // Re-request the now-cached tiles so the mesh renders immediately (MapLibre won't refetch tiles
-      // it already gave up on without a nudge).
-      if (!cancelled) {
-        this.swapTerrainSource();
-      }
-    },
-    cancelTerrainDownload() {
-      if (this.terrainDownload) {
-        this.terrainDownload.cancelled = true;
-        this.terrainDownload.running = false;
-      }
-    },
     resetView() {
       this.map?.easeTo({ pitch: 0, bearing: 0 });
     },
+    // Compute the coverage overlay entirely in the browser (WASM ITM, off-thread), replacing the old
+    // /predict round-trip. The result still flows through the existing Site/overlay model — a palette
+    // canvas draped as a MapLibre canvas source — so the visibility toggle, opacity slider and
+    // multi-site stacking all keep working unchanged; only the source of the canvas has moved client-side.
     async runSimulation() {
-      console.log('Simulation running...')
+      const node = this.selectedNode;
+      if (!node) {
+        console.warn('No node selected; cannot run simulation.');
+        return;
+      }
+
+      // Supersede any in-flight coverage run so its now-stale grid stops arriving.
+      coverageCancel?.();
+      coverageCancel = null;
+
+      const display = this.splatParams.display;
+      const tx: CoverageNode = {
+        lat: node.transmitter.tx_lat,
+        lon: node.transmitter.tx_lon,
+        height: node.transmitter.tx_height,
+        tx_power: 10 * Math.log10(node.transmitter.tx_power) + 30, // watts -> dBm
+        tx_gain: node.transmitter.tx_gain,
+        frequency_mhz: node.transmitter.tx_freq,
+        // Receiver params live per-node (splatParams holds only the shared blocks); matches the old
+        // /predict payload, which read system_loss/rx_height off the selected node's receiver.
+        system_loss: node.receiver.rx_loss,
+      };
+      // simulation_extent is a radius in km; clamp the half-extent so one run can't request a
+      // continent-sized terrain fetch.
+      const radiusM = Math.min(100000, this.splatParams.simulation.simulation_extent * 1000);
+
+      // Coverage is a RADIAL SWEEP from the TX (sharp near-site detail), not a uniform per-cell grid.
+      // The preset picks the ITM budget (az rays × rangeSteps samples/ray — cost ≈ az × rangeSteps²/2,
+      // since each ray reruns ITM over a growing prefix) and the OUTPUT raster size (renderGrid), which
+      // is now just a cheap rasterization target decoupled from the ITM cost. Presets are tuned to a
+      // sane budget per quality tier independent of the chosen range.
+      const COVERAGE = {
+        draft: { az: 360, rangeSteps: 160, renderGrid: 512 },
+        balanced: { az: 540, rangeSteps: 224, renderGrid: 768 },
+        high: { az: 720, rangeSteps: 320, renderGrid: 1024 },
+        max: { az: 1080, rangeSteps: 448, renderGrid: 1536 },
+      } as const;
+      const preset = this.splatParams.simulation.quality ?? 'balanced';
+      const { az, rangeSteps, renderGrid } = COVERAGE[preset];
+
+      // A stable id per run so the overlay layer/source naming and the visibility toggle keep working
+      // (the server used to supply a task_id; now we mint one locally).
+      const taskId = crypto.randomUUID();
+
+      this.simulationState = 'running';
+      this.progress = { message: 'Fetching terrain…', fraction: 0 };
+
+      const { promise, cancel } = runCoverageWorker({
+        source: this._simSource(),
+        tx,
+        shared: this._simShared(),
+        radiusM,
+        gridSize: renderGrid,
+        rxHeightM: node.receiver.rx_height,
+        azimuths: az,
+        rangeSteps,
+        // Terrain fetch fills 0->0.4, the radial sweep fills 0.4->1.0, mirroring runMatrix's split.
+        onHeightmapProgress: (loaded, total) => {
+          this.progress = { message: `Loading terrain ${loaded}/${total}…`, fraction: total ? 0.4 * (loaded / total) : 0 };
+        },
+        onProgress: (done, total) => {
+          this.progress = { message: `Computing coverage ${done}/${total}…`, fraction: 0.4 + (total ? 0.6 * (done / total) : 0) };
+        },
+      });
+      coverageCancel = cancel;
+
       try {
-        const node = this.selectedNode;
-        if (!node) {
-          console.warn('No node selected; cannot run simulation.');
+        const grid = await promise;
+        // Colorize the dBm grid into an RGBA canvas, then run it through the SAME draping the GeoTIFF
+        // path used: the grid is latitude-even (like the old raster), so mercatorWarp resamples its
+        // rows into web-mercator spacing and fitCoverageCanvas dodges the square-power-of-two black
+        // texture bug. markRaw keeps the canvas out of Vue's deep reactivity.
+        const colored = colorizeGrid(grid, display.min_dbm, display.max_dbm, display.color_scale);
+        const warped = mercatorWarp(colored, grid.north, grid.south);
+        const image = markRaw(fitCoverageCanvas(warped));
+        // Four corners [lng,lat] TL,TR,BR,BL — same north-up axis-aligned layout coverageCoords produced.
+        const coords: Site['coords'] = [
+          [grid.west, grid.north], [grid.east, grid.north],
+          [grid.east, grid.south], [grid.west, grid.south],
+        ];
+        const params: SplatParams = cloneObject({
+          transmitter: node.transmitter,
+          receiver: node.receiver,
+          environment: this.splatParams.environment,
+          simulation: this.splatParams.simulation,
+          display: this.splatParams.display,
+        });
+        this.localSites.push({ params, taskId, raster: null, visible: true, image, coords });
+        this.redrawSites();
+        this.simulationState = 'completed';
+        this.progress = null;
+      } catch (error) {
+        // A cancelled run was superseded by a newer one — let that newer run own the state.
+        if (error instanceof DOMException && error.name === 'AbortError') {
           return;
         }
-        // Collect input values
-        const payload = {
-          // Transmitter parameters (per-node)
-          lat: node.transmitter.tx_lat,
-          lon: node.transmitter.tx_lon,
-          tx_height: node.transmitter.tx_height,
-          tx_power: 10 * Math.log10(node.transmitter.tx_power) + 30,
-          tx_gain: node.transmitter.tx_gain,
-          frequency_mhz: node.transmitter.tx_freq,
-
-          // Receiver parameters (per-node)
-          rx_height: node.receiver.rx_height,
-          rx_gain: node.receiver.rx_gain,
-          signal_threshold: node.receiver.rx_sensitivity,
-          system_loss: node.receiver.rx_loss,
-
-          // Environment parameters (shared)
-          clutter_height: this.splatParams.environment.clutter_height,
-          ground_dielectric: this.splatParams.environment.ground_dielectric,
-          ground_conductivity: this.splatParams.environment.ground_conductivity,
-          atmosphere_bending: this.splatParams.environment.atmosphere_bending,
-          radio_climate: this.splatParams.environment.radio_climate,
-          polarization: this.splatParams.environment.polarization,
-
-          // Simulation parameters (shared)
-          radius: this.splatParams.simulation.simulation_extent * 1000,
-          situation_fraction: this.splatParams.simulation.situation_fraction,
-          time_fraction: this.splatParams.simulation.time_fraction,
-          high_resolution: this.splatParams.simulation.high_resolution,
-          terrain_source: this.splatParams.simulation.terrain_source,
-
-          // Display parameters (shared)
-          colormap: this.splatParams.display.color_scale,
-          min_dbm: this.splatParams.display.min_dbm,
-          max_dbm: this.splatParams.display.max_dbm,
-        };
-
-        console.log("Payload:", payload);
-        this.simulationState = 'running';
+        console.error('Coverage error:', error);
+        this.simulationState = 'failed';
         this.progress = null;
-
-        // Send the request to the backend's /predict endpoint
-        const predictResponse = await fetch("/predict", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        });
-
-        if (!predictResponse.ok) {
-          this.simulationState = 'failed';
-          const errorDetails = await predictResponse.text();
-          throw new Error(`Failed to start prediction: ${errorDetails}`);
+      } finally {
+        if (coverageCancel === cancel) {
+          coverageCancel = null;
         }
-
-        const predictData = await predictResponse.json();
-        const taskId = predictData.task_id;
-
-        console.log(`Prediction started with task ID: ${taskId}`);
-
-        // Poll for task status and result
-        const pollInterval = 1000; // 1 seconds
-        const pollStatus = async () => {
-          const statusResponse = await fetch(
-            `/status/${taskId}`,
-          );
-          if (!statusResponse.ok) {
-            throw new Error("Failed to fetch task status.");
-          }
-
-          const statusData = await statusResponse.json();
-          console.log("Task status:", statusData);
-          this.progress = statusData.progress ?? null;
-
-          if (statusData.status === "completed") {
-            this.simulationState = 'completed';
-            this.progress = null;
-            console.log("Simulation completed! Adding result to the map...");
-
-            // Fetch the GeoTIFF data
-            const resultResponse = await fetch(
-              `/result/${taskId}`,
-            );
-            if (!resultResponse.ok) {
-              throw new Error("Failed to fetch simulation result.");
-            }
-            else
-            {
-              const arrayBuffer = await resultResponse.arrayBuffer();
-              // markRaw: the parsed georaster is a large in-memory object; keep it raw so it isn't
-              // deeply proxied in state.
-              const geoRaster = markRaw(await parseGeoraster(arrayBuffer));
-              // Decode the palette image to an RGBA canvas once, at parse time (not per redraw).
-              const image = markRaw(await buildCoverageCanvas(geoRaster, this.splatParams.display.color_scale));
-              const coords = coverageCoords(geoRaster);
-              const params: SplatParams = cloneObject({
-                transmitter: node.transmitter,
-                receiver: node.receiver,
-                environment: this.splatParams.environment,
-                simulation: this.splatParams.simulation,
-                display: this.splatParams.display
-              });
-              this.localSites.push({
-                params,
-                taskId,
-                raster: geoRaster,
-                visible: true,
-                image,
-                coords
-              });
-              this.redrawSites();
-            }
-          }
-          else if (statusData.status === "failed") {
-            this.simulationState = 'failed';
-            this.progress = null;
-          } else {
-            setTimeout(pollStatus, pollInterval); // Retry after interval
-          }
-        };
-
-        pollStatus(); // Start polling
-      } catch (error) {
-        console.error("Error:", error);
       }
     },
     redrawLinks() {
@@ -2114,89 +1839,124 @@ const useStore = defineStore('store', {
       });
       pairPopup = popup;
     },
+    // Resolve the terrain tile source for the client-side sim exactly as the map/viewshed do, so
+    // simulations run against the AWS Terrarium surface currently drawn, at the zoom the map is
+    // showing — see computeViewshed for the same resolution.
+    _simSource(): SimSource {
+      const spec = terrainDemSource();
+      const mapZoom = this.map ? (this.map as maplibregl.Map).getZoom() : 10;
+      return { urlTemplate: spec.tiles[0], maxzoom: spec.maxzoom ?? TERRARIUM_MAXZOOM, mapZoom };
+    },
+    // Shared environment/model params for a client-side ITM run (matrix, profile, and later coverage).
+    _simShared(): SimShared {
+      return {
+        clutter_height: this.splatParams.environment.clutter_height,
+        ground_dielectric: this.splatParams.environment.ground_dielectric,
+        ground_conductivity: this.splatParams.environment.ground_conductivity,
+        atmosphere_bending: this.splatParams.environment.atmosphere_bending,
+        radio_climate: this.splatParams.environment.radio_climate,
+        polarization: this.splatParams.environment.polarization,
+        situation_fraction: this.splatParams.simulation.situation_fraction,
+        time_fraction: this.splatParams.simulation.time_fraction,
+      };
+    },
+    // Per-path terrain-profile fidelity for the client sims, from the Draft/Balanced/High preset.
+    // Draft samples coarsely for speed; High follows the displayed terrain's own pixel resolution
+    // (targetSpacingM omitted → one sample per heightmap pixel). Read defensively: the preset may be
+    // absent on params persisted before it existed (mergeDefaults is shallow).
+    _simQuality(): ProfileOptions {
+      switch (this.splatParams.simulation.quality ?? 'balanced') {
+        case 'draft':
+          return { targetSpacingM: 150, maxPoints: 256 };
+        case 'high':
+          return { maxPoints: 2048 };
+        case 'max':
+          return { maxPoints: 4096 };
+        default:
+          return { maxPoints: 1024 };
+      }
+    },
+    // Receiver sensitivity (dBm) from the shared LoRa preset; falls back to LongFast on a bad value.
+    _simSensitivity(): number {
+      const preset = this.splatParams.lora?.preset ?? 'LongFast';
+      try {
+        return receiverSensitivityDbm(preset);
+      } catch {
+        return receiverSensitivityDbm('LongFast');
+      }
+    },
+    // Compute the full link matrix entirely in the browser (WASM ITM), replacing the old /matrix
+    // round-trip. The worker streams results pair-by-pair, mirroring the old progressive render.
     async runMatrix() {
       if (this.nodes.length < 2) {
         console.warn('Need at least 2 nodes to compute a link matrix.');
         return;
       }
-      try {
-        this.matrixState = 'running';
-        // Clear the previous matrix so a new run starts from a blank map and fills in as links land,
-        // rather than briefly showing stale links until the first partial result arrives.
-        this.matrixResult = null;
+      // Supersede any in-flight matrix so its now-stale results stop arriving.
+      matrixCancel?.();
+      matrixCancel = null;
+
+      this.matrixState = 'running';
+      // Clear the previous matrix so a new run starts from a blank map and fills in as links land.
+      this.matrixResult = null;
+      this.redrawLinks();
+
+      const preset = this.splatParams.lora?.preset ?? 'LongFast';
+      const sensitivity = this._simSensitivity();
+      const sensitivityRounded = Math.round(sensitivity * 100) / 100;
+      const nodeIds = this.nodes.map((n) => n.id);
+      const nodes: SimNode[] = this.nodes.map((n) => ({
+        id: n.id,
+        lat: n.transmitter.tx_lat,
+        lon: n.transmitter.tx_lon,
+        height: n.transmitter.tx_height,
+        tx_power: 10 * Math.log10(n.transmitter.tx_power) + 30, // watts -> dBm
+        tx_gain: n.transmitter.tx_gain,
+        rx_gain: n.receiver.rx_gain,
+        frequency_mhz: n.transmitter.tx_freq,
+        system_loss: n.receiver.rx_loss,
+      }));
+
+      const applyLinks = (links: LinkResult[]) => {
+        this.matrixResult = { nodes: nodeIds, preset, sensitivity_dbm: sensitivityRounded, links };
         this.redrawLinks();
-        const preset = this.splatParams.lora?.preset ?? 'LongFast';
-        const payload = {
-          nodes: this.nodes.map((n) => ({
-            id: n.id,
-            name: n.transmitter.name,
-            lat: n.transmitter.tx_lat,
-            lon: n.transmitter.tx_lon,
-            height: n.transmitter.tx_height,
-            tx_power: 10 * Math.log10(n.transmitter.tx_power) + 30, // watts -> dBm
-            tx_gain: n.transmitter.tx_gain,
-            rx_gain: n.receiver.rx_gain,
-            frequency_mhz: n.transmitter.tx_freq,
-            system_loss: n.receiver.rx_loss
-          })),
-          lora_preset: preset,
-          // shared environment / simulation params
-          clutter_height: this.splatParams.environment.clutter_height,
-          ground_dielectric: this.splatParams.environment.ground_dielectric,
-          ground_conductivity: this.splatParams.environment.ground_conductivity,
-          atmosphere_bending: this.splatParams.environment.atmosphere_bending,
-          radio_climate: this.splatParams.environment.radio_climate,
-          polarization: this.splatParams.environment.polarization,
-          situation_fraction: this.splatParams.simulation.situation_fraction,
-          time_fraction: this.splatParams.simulation.time_fraction,
-          high_resolution: this.splatParams.simulation.high_resolution,
-          terrain_source: this.splatParams.simulation.terrain_source,
-          // ?? true: mergeDefaults is shallow, so params stored before this key existed lack it.
-          filter_radio_horizon: this.splatParams.simulation.filter_radio_horizon ?? true
-        };
+      };
 
-        const matrixResponse = await fetch('/matrix', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (!matrixResponse.ok) {
-          this.matrixState = 'failed';
-          throw new Error(`Failed to start matrix: ${await matrixResponse.text()}`);
-        }
-        const { task_id: taskId } = await matrixResponse.json();
-        console.log(`Link matrix started with task ID: ${taskId}`);
+      this.progress = { message: 'Fetching terrain…', fraction: 0 };
+      const { promise, cancel } = runMatrixWorker({
+        source: this._simSource(),
+        nodes,
+        shared: this._simShared(),
+        sensitivity,
+        quality: this._simQuality(),
+        // ?? true: mergeDefaults is shallow, so params stored before this key existed lack it.
+        filterHorizon: this.splatParams.simulation.filter_radio_horizon ?? true,
+        onHeightmapProgress: (loaded, total) => {
+          this.progress = { message: `Loading terrain ${loaded}/${total}…`, fraction: total ? 0.5 * (loaded / total) : 0 };
+        },
+        onProgress: (links, done, total) => {
+          applyLinks(links);
+          this.progress = { message: `Analysing link ${done}/${total}…`, fraction: 0.5 + (total ? 0.5 * (done / total) : 0) };
+        },
+      });
+      matrixCancel = cancel;
 
-        const pollInterval = 1000;
-        const pollStatus = async () => {
-          const statusResponse = await fetch(`/status/${taskId}`);
-          if (!statusResponse.ok) {
-            throw new Error('Failed to fetch matrix status.');
-          }
-          const statusData = await statusResponse.json();
-          // Pull whatever links have been computed so far and draw them now — the backend
-          // republishes the growing matrix after every pair, so this fills in progressively
-          // instead of only rendering once the whole job is done.
-          const resultResponse = await fetch(`/matrix/result/${taskId}`);
-          if (resultResponse.ok) {
-            const data = await resultResponse.json();
-            if (data && Array.isArray(data.links)) {
-              this.matrixResult = data;
-              this.redrawLinks();
-            }
-          }
-          if (statusData.status === 'completed') {
-            this.matrixState = 'completed';
-          } else if (statusData.status === 'failed') {
-            this.matrixState = 'failed';
-          } else {
-            setTimeout(pollStatus, pollInterval);
-          }
-        };
-        pollStatus();
+      try {
+        applyLinks(await promise);
+        this.matrixState = 'completed';
+        this.progress = null;
       } catch (error) {
+        // A cancelled run was superseded by a newer one — let that newer run own the state.
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return;
+        }
         console.error('Matrix error:', error);
         this.matrixState = 'failed';
+        this.progress = null;
+      } finally {
+        if (matrixCancel === cancel) {
+          matrixCancel = null;
+        }
       }
     },
     // Run a point-to-point terrain/LOS profile between two nodes and show it in the bottom strip.
@@ -2214,36 +1974,37 @@ const useStore = defineStore('store', {
       this.profileError = null;
       this.redrawProfilePath();
 
-      const preset = this.splatParams.lora?.preset ?? 'LongFast';
-      const payload = {
-        tx_lat: a.transmitter.tx_lat,
-        tx_lon: a.transmitter.tx_lon,
-        tx_height: a.transmitter.tx_height,
+      const sensitivity = this._simSensitivity();
+      // tx carries the radio params (power/gain/freq); matching the old /profile payload, it also
+      // takes the RX node's loss as system_loss. rx carries only position/height/rx_gain.
+      const tx: SimNode = {
+        id: a.id,
+        lat: a.transmitter.tx_lat,
+        lon: a.transmitter.tx_lon,
+        height: a.transmitter.tx_height,
         tx_power: 10 * Math.log10(a.transmitter.tx_power) + 30, // watts -> dBm
         tx_gain: a.transmitter.tx_gain,
-        rx_lat: b.transmitter.tx_lat,
-        rx_lon: b.transmitter.tx_lon,
-        rx_height: b.transmitter.tx_height,
-        rx_gain: b.receiver.rx_gain,
+        rx_gain: a.receiver.rx_gain,
         frequency_mhz: a.transmitter.tx_freq,
         system_loss: b.receiver.rx_loss,
-        lora_preset: preset,
-        // shared environment / simulation params (mirror runMatrix)
-        clutter_height: this.splatParams.environment.clutter_height,
-        ground_dielectric: this.splatParams.environment.ground_dielectric,
-        ground_conductivity: this.splatParams.environment.ground_conductivity,
-        atmosphere_bending: this.splatParams.environment.atmosphere_bending,
-        radio_climate: this.splatParams.environment.radio_climate,
-        polarization: this.splatParams.environment.polarization,
-        situation_fraction: this.splatParams.simulation.situation_fraction,
-        time_fraction: this.splatParams.simulation.time_fraction,
-        high_resolution: this.splatParams.simulation.high_resolution,
-        terrain_source: this.splatParams.simulation.terrain_source
       };
+      const rx: SimNode = {
+        id: b.id,
+        lat: b.transmitter.tx_lat,
+        lon: b.transmitter.tx_lon,
+        height: b.transmitter.tx_height,
+        tx_power: 0,
+        tx_gain: 0,
+        rx_gain: b.receiver.rx_gain,
+        frequency_mhz: b.transmitter.tx_freq,
+        system_loss: 0,
+      };
+      const shared = this._simShared();
 
-      // The payload fully determines the result, so it doubles as the cache key: editing a node or
-      // any radio param changes the key and forces a recompute; reopening an unchanged pair is instant.
-      const cacheKey = JSON.stringify(payload);
+      // The resolved inputs fully determine the result, so they double as the cache key: editing a
+      // node or any radio param changes the key and forces a recompute; reopening an unchanged pair
+      // is instant.
+      const cacheKey = JSON.stringify({ tx, rx, shared, sensitivity });
       const cached = this.profileCache[cacheKey];
       if (cached) {
         this.profileResult = cached;
@@ -2254,61 +2015,47 @@ const useStore = defineStore('store', {
         return;
       }
 
+      // Supersede any in-flight profile.
+      profileCancel?.();
+      profileCancel = null;
+      this.profileState = 'running';
+      this.progress = { message: 'Fetching terrain…', fraction: 0 };
+
+      const { promise, cancel } = runProfileWorker({
+        source: this._simSource(),
+        tx,
+        rx,
+        shared,
+        sensitivity,
+        quality: this._simQuality(),
+        onHeightmapProgress: (loaded, total) => {
+          this.progress = { message: `Loading terrain ${loaded}/${total}…`, fraction: total ? 0.8 * (loaded / total) : 0 };
+        },
+      });
+      profileCancel = cancel;
+
       try {
-        this.profileState = 'running';
+        // markRaw: the result holds a terrain array of many points and is cached; keep it out of Vue's
+        // deep reactivity (its contents never mutate). Reassigning profileResult still re-renders.
+        const result = markRaw(await promise);
+        this.profileResult = result;
+        this.profileCache[cacheKey] = result;
+        this.profileState = 'completed';
         this.progress = null;
-
-        const profileResponse = await fetch('/profile', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (!profileResponse.ok) {
-          this.profileState = 'failed';
-          this.profileError = await profileResponse.text();
-          throw new Error(`Failed to start profile: ${this.profileError}`);
-        }
-        const { task_id: taskId } = await profileResponse.json();
-        console.log(`Link profile started with task ID: ${taskId}`);
-
-        const pollInterval = 1000;
-        const pollStatus = async () => {
-          const statusResponse = await fetch(`/status/${taskId}`);
-          if (!statusResponse.ok) {
-            throw new Error('Failed to fetch profile status.');
-          }
-          const statusData = await statusResponse.json();
-          this.progress = statusData.progress ?? null;
-          if (statusData.status === 'completed') {
-            const resultResponse = await fetch(`/profile/result/${taskId}`);
-            if (!resultResponse.ok) {
-              throw new Error('Failed to fetch profile result.');
-            }
-            // markRaw: the result holds a terrain array of many points and is cached; keep it out of
-            // Vue's deep reactivity (its contents never mutate). Reassigning profileResult still
-            // triggers the chart to re-render.
-            const result = markRaw(await resultResponse.json() as ProfileResult);
-            this.profileResult = result;
-            this.profileCache[cacheKey] = result;
-            this.profileState = 'completed';
-            this.progress = null;
-            this.redrawProfilePath();
-            this.mergeProfileLink();
-          } else if (statusData.status === 'failed') {
-            // Pull the error text from the result endpoint so the strip can show why (e.g. >100 km).
-            const resultResponse = await fetch(`/profile/result/${taskId}`);
-            const data = resultResponse.ok ? await resultResponse.json() : null;
-            this.profileError = data?.error ?? 'Profile computation failed.';
-            this.profileState = 'failed';
-            this.progress = null;
-          } else {
-            setTimeout(pollStatus, pollInterval);
-          }
-        };
-        pollStatus();
+        this.redrawProfilePath();
+        this.mergeProfileLink();
       } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return;
+        }
         console.error('Profile error:', error);
+        this.profileError = error instanceof Error ? error.message : 'Profile computation failed.';
         this.profileState = 'failed';
+        this.progress = null;
+      } finally {
+        if (profileCancel === cancel) {
+          profileCancel = null;
+        }
       }
     },
     // Persist the just-computed profile pair as a normal link on the map. /profile and /matrix share
@@ -2396,6 +2143,10 @@ const useStore = defineStore('store', {
       this.profileToId = null;
       this.redrawProfilePath();
     },
+    // Find the candidate relay zone between two nodes entirely in the browser (WASM ITM), replacing
+    // the old /relay round-trip. Runs two coverage passes (one per endpoint) over a SHARED bbox so
+    // their grids align, then intersects them per-cell: every location that hears both A and B above
+    // sensitivity (plus the hypothetical relay's rx gain) is a candidate site.
     async runRelay(aId: string, bId: string) {
       const a = this.nodes.find((n) => n.id === aId);
       const b = this.nodes.find((n) => n.id === bId);
@@ -2403,78 +2154,117 @@ const useStore = defineStore('store', {
         console.warn('Relay finder needs two distinct nodes.');
         return;
       }
+
+      // Supersede any in-flight relay run so its now-stale result stops arriving.
+      relayCancel?.();
+      relayCancel = null;
+
+      // Each endpoint is a coverage TX: power watts->dBm, height from its mast, system_loss from its
+      // own receiver, freq from its transmitter — mirroring runSimulation's CoverageNode assembly.
+      const toCoverageNode = (n: Node): CoverageNode => ({
+        lat: n.transmitter.tx_lat,
+        lon: n.transmitter.tx_lon,
+        height: n.transmitter.tx_height,
+        tx_power: 10 * Math.log10(n.transmitter.tx_power) + 30, // watts -> dBm
+        tx_gain: n.transmitter.tx_gain,
+        frequency_mhz: n.transmitter.tx_freq,
+        system_loss: n.receiver.rx_loss,
+      });
+      const txA = toCoverageNode(a);
+      const txB = toCoverageNode(b);
+
+      // The hypothetical relay's receive antenna height (m AGL). The old /relay flow ran each
+      // endpoint's coverage pass at rx_height=2.0 (app/services/splat.py); mirror that here so the
+      // two grids predict the signal at the same relay antenna height the server assumed.
+      const RELAY_RX_HEIGHT_M = 2.0;
+
+      // Per-site search radius (m), the old RelayRequest.search_radius_m default basis: the simulation
+      // extent in km. Capped at 100 km like coverage so one search can't request a continent of terrain.
+      const searchRadiusM = Math.min(100000, this.splatParams.simulation.simulation_extent * 1000);
+
+      // Shared bbox covering BOTH endpoints, expanded by the search radius on each side. dLon widens
+      // with latitude (a degree of longitude shrinks toward the poles); the cos floor keeps the
+      // divisor finite near the poles. Both passes use these exact opts, so the grids align (required
+      // by relayOverlap).
+      const midLat = (a.transmitter.tx_lat + b.transmitter.tx_lat) / 2;
+      const padLat = searchRadiusM / 111320;
+      const padLon = searchRadiusM / (111320 * Math.max(0.01, Math.cos(midLat * Math.PI / 180)));
+      const west = Math.min(a.transmitter.tx_lon, b.transmitter.tx_lon) - padLon;
+      const east = Math.max(a.transmitter.tx_lon, b.transmitter.tx_lon) + padLon;
+      const south = Math.min(a.transmitter.tx_lat, b.transmitter.tx_lat) - padLat;
+      const north = Math.max(a.transmitter.tx_lat, b.transmitter.tx_lat) + padLat;
+
+      // Size the grid so cells are ~150–300 m on the longer bbox span. Per-cell cost is two ITM
+      // evaluations (one per pass), so total cost scales with gridSize²; clamp to a sane max and warn
+      // like the coverage guard rather than silently running an enormous grid.
+      const TARGET_CELL_M = 200;
+      const MAX_GRID = 384;
+      const spanLatM = (north - south) * 111320;
+      const spanLonM = (east - west) * 111320 * Math.max(0.01, Math.cos(midLat * Math.PI / 180));
+      const spanM = Math.max(spanLatM, spanLonM);
+      let gridSize = Math.max(64, Math.ceil(spanM / TARGET_CELL_M));
+      if (gridSize > MAX_GRID) {
+        console.warn(`Relay grid ${gridSize}² exceeds the ${MAX_GRID}² cap; clamping (cells will be coarser than ${TARGET_CELL_M} m).`);
+        gridSize = MAX_GRID;
+      }
+
+      const opts: CoverageOptions = {
+        west, south, east, north,
+        width: gridSize, height: gridSize,
+        rxHeightM: RELAY_RX_HEIGHT_M,
+        quality: this._simQuality(),
+      };
+
+      const params: RelayParams = {
+        sensitivity_dbm: this._simSensitivity(),
+        // The old RelayRequest used node A's receiver gain as the hypothetical relay rx gain.
+        relay_rx_gain: a.receiver.rx_gain,
+        band_edges_db: [0.0, 10.0, 20.0], // RelayRequest.band_edges_db default
+        top_n: 5, // RelayRequest.top_n default
+        node_a_id: a.id,
+        node_b_id: b.id,
+      };
+
+      this.relayState = 'running';
+      this.progress = { message: 'Fetching terrain…', fraction: 0 };
+
+      const { promise, cancel } = runRelayWorker({
+        source: this._simSource(),
+        txA,
+        txB,
+        shared: this._simShared(),
+        opts,
+        params,
+        // Terrain fetch fills 0->0.3, the two-pass compute fills 0.3->1.0.
+        onHeightmapProgress: (loaded, total) => {
+          this.progress = { message: `Loading terrain ${loaded}/${total}…`, fraction: total ? 0.3 * (loaded / total) : 0 };
+        },
+        onProgress: (done, total) => {
+          this.progress = { message: `Searching for relay sites ${done}/${total}…`, fraction: 0.3 + (total ? 0.7 * (done / total) : 0) };
+        },
+      });
+      relayCancel = cancel;
+
       try {
-        this.relayState = 'running';
-        const preset = this.splatParams.lora?.preset ?? 'LongFast';
-        const toNode = (n: Node) => ({
-          id: n.id,
-          name: n.transmitter.name,
-          lat: n.transmitter.tx_lat,
-          lon: n.transmitter.tx_lon,
-          height: n.transmitter.tx_height,
-          tx_power: 10 * Math.log10(n.transmitter.tx_power) + 30, // watts -> dBm
-          tx_gain: n.transmitter.tx_gain,
-          rx_gain: n.receiver.rx_gain,
-          frequency_mhz: n.transmitter.tx_freq,
-          system_loss: n.receiver.rx_loss
-        });
-        const payload = {
-          node_a: toNode(a),
-          node_b: toNode(b),
-          lora_preset: preset,
-          relay_rx_gain: a.receiver.rx_gain,
-          search_radius_m: this.splatParams.simulation.simulation_extent * 1000,
-          top_n: 5,
-          // shared environment / simulation params
-          clutter_height: this.splatParams.environment.clutter_height,
-          ground_dielectric: this.splatParams.environment.ground_dielectric,
-          ground_conductivity: this.splatParams.environment.ground_conductivity,
-          atmosphere_bending: this.splatParams.environment.atmosphere_bending,
-          radio_climate: this.splatParams.environment.radio_climate,
-          polarization: this.splatParams.environment.polarization,
-          situation_fraction: this.splatParams.simulation.situation_fraction,
-          time_fraction: this.splatParams.simulation.time_fraction,
-          high_resolution: this.splatParams.simulation.high_resolution,
-          terrain_source: this.splatParams.simulation.terrain_source
-        };
-
-        const relayResponse = await fetch('/relay', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (!relayResponse.ok) {
-          this.relayState = 'failed';
-          throw new Error(`Failed to start relay: ${await relayResponse.text()}`);
-        }
-        const { task_id: taskId } = await relayResponse.json();
-        console.log(`Relay finder started with task ID: ${taskId}`);
-
-        const pollInterval = 1000;
-        const pollStatus = async () => {
-          const statusResponse = await fetch(`/status/${taskId}`);
-          if (!statusResponse.ok) {
-            throw new Error('Failed to fetch relay status.');
-          }
-          const statusData = await statusResponse.json();
-          if (statusData.status === 'completed') {
-            const resultResponse = await fetch(`/relay/result/${taskId}`);
-            if (!resultResponse.ok) {
-              throw new Error('Failed to fetch relay result.');
-            }
-            this.relayResult = await resultResponse.json();
-            this.relayState = 'completed';
-            this.redrawRelay();
-          } else if (statusData.status === 'failed') {
-            this.relayState = 'failed';
-          } else {
-            setTimeout(pollStatus, pollInterval);
-          }
-        };
-        pollStatus();
+        // markRaw: the result holds GeoJSON FeatureCollections that never mutate; keep them out of
+        // Vue's deep reactivity (reassigning relayResult still re-renders).
+        const result = markRaw(await promise);
+        this.relayResult = result;
+        this.relayState = 'completed';
+        this.progress = null;
+        this.redrawRelay();
       } catch (error) {
+        // A cancelled run was superseded by a newer one — let that newer run own the state.
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return;
+        }
         console.error('Relay error:', error);
         this.relayState = 'failed';
+        this.progress = null;
+      } finally {
+        if (relayCancel === cancel) {
+          relayCancel = null;
+        }
       }
     },
     redrawRelay() {
