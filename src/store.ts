@@ -8,6 +8,8 @@ import { type Site, type SplatParams, type Node, type MatrixResult, type LinkRes
 import { cloneObject, escapeHtml } from './utils.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
 import { Links3DLayer, buildLinkGeometry, setLinkColorFn, type LinkPick } from './links3d.ts';
+import { getHeightmap, type Heightmap } from './viewshed/heightmap.ts';
+import { ViewshedEngine } from './viewshed/gpu.ts';
 
 const DEFAULT_LAT = -41.257053283864224;
 const DEFAULT_LON = 174.86568331718445;
@@ -65,6 +67,9 @@ export const BASEMAPS = [
 // Coverage rasters insert directly below the vector overlays (relay zone / links / points), so they
 // sit above the basemap but under everything else. See setupOverlays for the full z-order.
 const COVERAGE_BEFORE = 'relay-zone-fill';
+// The single browser-computed viewshed overlay (WebGPU LOS footprint). Shares the coverage z-slot:
+// inserted before COVERAGE_BEFORE so it sits above the basemap/hillshade but under the vector overlays.
+const VIEWSHED_ID = 'viewshed';
 const EMPTY_FC = { type: 'FeatureCollection', features: [] };
 
 // Conservative floor for gl.MAX_TEXTURE_SIZE across GPUs; a coverage canvas larger than this on
@@ -423,6 +428,24 @@ const mapTileInflight = new Set<string>();
 // The on-map popup offering to compute a shift-clicked node pair. Module-scoped (like the Map) so
 // Vue never proxies the GL popup; only one is ever open at a time.
 let pairPopup: maplibregl.Popup | null = null;
+// The WebGPU viewshed engine + its scheduling/result handles. Module-scoped (not Pinia state) for
+// the same reason as the Map and the 3D layer: the GPUDevice and the result canvas must never be
+// deep-proxied by Vue. The engine survives mode switches; destroyMap disposes it. viewshedComputing
+// /viewshedDirty coalesce overlapping recomputes (a drag can outrun a single async compute).
+let viewshedEngine: ViewshedEngine | null = null;
+let viewshedRaf = 0; // rAF handle for live (per-frame) recompute throttling; 0 = none pending
+let viewshedTimer: ReturnType<typeof setTimeout> | null = null; // debounce handle for move-end/param recompute
+let viewshedResultCanvas: HTMLCanvasElement | null = null;
+let viewshedCoords: Site['coords'] | null = null;
+let viewshedComputing = false;
+let viewshedDirty = false;
+// The (rounded) map zoom the current viewshed was fetched at, so a moveend only re-fetches when the
+// zoom level actually changes (panning hits the same tiles). -1 = none computed yet.
+let viewshedLastZoom = -1;
+// Serialises GPU passes: the viewshed re-renders progressively as terrain tiles stream in, but the
+// engine reuses one set of GPU buffers, so two compute()s must never overlap. Progressive frames are
+// dropped while a pass is in flight; the final pass waits for it. Null = idle.
+let viewshedPassPromise: Promise<void> | null = null;
 // Share the link palette with the 3D layer so its chords match the 2D links exactly.
 setLinkColorFn(linkColor);
 
@@ -507,6 +530,19 @@ const useStore = defineStore('store', {
       // reads relief on flat solid-colour basemaps too. hillshade-exaggeration is a 0..1 intensity.
       hillshadeEnabled: useLocalStorage('hillshadeEnabled', false),
       hillshadeExaggeration: useLocalStorage('hillshadeExaggeration', 0.3),
+      // Browser-computed line-of-sight viewshed (WebGPU). A fast, visible-only green footprint of what
+      // the selected node can see — an alternative to the slow backend SPLAT run for nearby checks.
+      // Reads whatever surface the map's terrain-dem source is currently using. Persisted prefs;
+      // viewshedState is in-memory (it's runtime status, incl. 'unsupported' on non-WebGPU browsers).
+      viewshedEnabled: useLocalStorage('viewshedEnabled', false),
+      viewshedLive: useLocalStorage('viewshedLive', false), // recompute continuously while dragging vs on drop
+      viewshedRadiusKm: useLocalStorage('viewshedRadiusKm', 10),
+      viewshedOpacity: useLocalStorage('viewshedOpacity', 0.5),
+      viewshedTargetHeight: useLocalStorage('viewshedTargetHeight', 0), // receiver AGL at tested cells (m)
+      viewshedState: 'idle' as 'idle' | 'computing' | 'ready' | 'error' | 'unsupported',
+      // Tile-fetch progress while terrain streams in (null when not loading). In-memory only; drives
+      // the panel's "Loading terrain… N/M tiles" indicator so a slow LINZ fetch never looks frozen.
+      viewshedProgress: null as { loaded: number; total: number } | null,
       nodes: useLocalStorage<Node[]>('nodes', [seedNode()]),
       selectedNodeId: useLocalStorage<string | null>('selectedNodeId', null),
       // When set, node markers are non-draggable so they can't be moved by accident. Persisted so
@@ -594,6 +630,9 @@ const useStore = defineStore('store', {
       this.selectedNodeId = id;
       this.renderNodeMarkers();
       this.redrawLinks(); // selection drives which non-viable links are visible (see visibleLinks)
+      if (this.viewshedEnabled) {
+        this.requestViewshed(); // the viewshed is for the selected node — recompute for the new one
+      }
     },
     toggleNodesLock() {
       this.nodesLocked = !this.nodesLocked;
@@ -667,11 +706,29 @@ const useStore = defineStore('store', {
           marker.on('dragstart', () => {
             this.dragging = true;
           });
+          marker.on('drag', () => {
+            // Live viewshed: track the selected node continuously while it's dragged (throttled to one
+            // recompute per frame). Other modes ignore mid-drag movement; dragend handles the rest.
+            if (this.viewshedEnabled && this.viewshedLive && node.id === this.selectedNodeId) {
+              const { lng, lat } = marker.getLngLat();
+              this.updateNodeCoords(node.id, lat, lng);
+              this.requestViewshedLive();
+            }
+          });
           marker.on('dragend', () => {
             const { lng, lat } = marker.getLngLat();
             this.updateNodeCoords(node.id, lat, lng);
             this.dragging = false;
             this.redrawPairLink(); // keep the preview attached if this node is in the pending pair
+            // Recompute the viewshed at full detail for the final position (covers both live — which
+            // ran coarse mid-drag — and move-end mode). dragging is now false, so this is full quality.
+            if (this.viewshedEnabled && node.id === this.selectedNodeId) {
+              if (viewshedRaf) {
+                cancelAnimationFrame(viewshedRaf);
+                viewshedRaf = 0;
+              }
+              this.computeViewshed();
+            }
           });
           this.nodeMarkers[node.id] = marker;
         } else {
@@ -756,6 +813,260 @@ const useStore = defineStore('store', {
         }
       }
     },
+    // ---- Viewshed (browser-computed WebGPU line-of-sight) ----------------------------------------
+    toggleViewshed() {
+      this.viewshedEnabled = !this.viewshedEnabled;
+      if (this.viewshedEnabled) {
+        if (!ViewshedEngine.isSupported()) {
+          this.viewshedState = 'unsupported'; // panel shows the WebGPU notice; nothing else to do
+          return;
+        }
+        this.computeViewshed();
+      } else {
+        this.clearViewshed();
+      }
+    },
+    // Toggle live (recompute every frame while dragging) vs on-move-end. The drag handler reads the
+    // flag live, so no recompute is needed here — only the next drag changes behaviour.
+    toggleViewshedLive() {
+      this.viewshedLive = !this.viewshedLive;
+    },
+    setViewshedRadiusKm(km: number) {
+      this.viewshedRadiusKm = Math.max(1, Math.min(30, km));
+      this.requestViewshed();
+    },
+    setViewshedTargetHeight(m: number) {
+      this.viewshedTargetHeight = Math.max(0, Math.min(100, m));
+      this.requestViewshed();
+    },
+    // Live-apply the opacity slider to the existing layer; no recompute (it's a paint property).
+    setViewshedOpacity(v: number) {
+      this.viewshedOpacity = Math.max(0, Math.min(1, v));
+      const map = this.map as maplibregl.Map | undefined;
+      if (map && map.getLayer(VIEWSHED_ID)) {
+        map.setPaintProperty(VIEWSHED_ID, 'raster-opacity', this.viewshedOpacity);
+      }
+    },
+    // Debounced recompute for parameter changes / manual node edits (rapid slider/keystroke bursts).
+    requestViewshed() {
+      if (!this.viewshedEnabled || this.viewshedState === 'unsupported') {
+        return;
+      }
+      if (viewshedTimer) {
+        clearTimeout(viewshedTimer);
+      }
+      viewshedTimer = setTimeout(() => {
+        viewshedTimer = null;
+        this.computeViewshed();
+      }, 120);
+    },
+    // Throttled recompute for live dragging: at most one in flight per animation frame.
+    requestViewshedLive() {
+      if (!this.viewshedEnabled || !this.viewshedLive || this.viewshedState === 'unsupported') {
+        return;
+      }
+      if (viewshedRaf) {
+        return;
+      }
+      viewshedRaf = requestAnimationFrame(() => {
+        viewshedRaf = 0;
+        this.computeViewshed();
+      });
+    },
+    clearViewshed() {
+      if (viewshedRaf) {
+        cancelAnimationFrame(viewshedRaf);
+        viewshedRaf = 0;
+      }
+      if (viewshedTimer) {
+        clearTimeout(viewshedTimer);
+        viewshedTimer = null;
+      }
+      viewshedResultCanvas = null;
+      viewshedCoords = null;
+      this.viewshedProgress = null;
+      const map = this.map as maplibregl.Map | undefined;
+      if (map) {
+        if (map.getLayer(VIEWSHED_ID)) {
+          map.removeLayer(VIEWSHED_ID);
+        }
+        if (map.getSource(VIEWSHED_ID)) {
+          map.removeSource(VIEWSHED_ID);
+        }
+      }
+      if (this.viewshedState !== 'unsupported') {
+        this.viewshedState = 'idle';
+      }
+    },
+    // Drape the latest computed footprint as a canvas source + raster layer. Mirrors redrawSites: the
+    // result canvas is already web-mercator tile-aligned (no mercatorWarp needed, unlike the lat-spaced
+    // SPLAT GeoTIFF), but still needs fitCoverageCanvas to dodge the square-power-of-two black-texture
+    // bug. Gate on the overlay slot existing (NOT isStyleLoaded — it reads false while tiles stream).
+    renderViewshed() {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map || !map.getLayer(COVERAGE_BEFORE)) {
+        return; // overlays not built yet; the 'load' handler re-runs compute/render
+      }
+      if (map.getLayer(VIEWSHED_ID)) {
+        map.removeLayer(VIEWSHED_ID);
+      }
+      if (map.getSource(VIEWSHED_ID)) {
+        map.removeSource(VIEWSHED_ID);
+      }
+      if (!this.viewshedEnabled || !viewshedResultCanvas || !viewshedCoords) {
+        return;
+      }
+      const canvas = fitCoverageCanvas(viewshedResultCanvas);
+      map.addSource(VIEWSHED_ID, { type: 'canvas', canvas, coordinates: viewshedCoords, animate: false } as any);
+      map.addLayer(
+        {
+          id: VIEWSHED_ID,
+          type: 'raster',
+          source: VIEWSHED_ID,
+          paint: { 'raster-opacity': this.viewshedOpacity, 'raster-resampling': 'nearest' },
+        } as any,
+        map.getLayer(COVERAGE_BEFORE) ? COVERAGE_BEFORE : undefined,
+      );
+    },
+    // Run one GPU LOS pass over `hm` and drape it. Serialised through viewshedPassPromise so the
+    // progressive (mid-fetch) passes and the final pass never overlap on the engine's shared GPU
+    // buffers: skipIfBusy drops a progressive frame when a pass is already running, while the final
+    // pass (skipIfBusy=false) waits for the in-flight one and then runs, so the complete result lands.
+    async _viewshedRenderPass(hm: Heightmap, node: Node, cap: number, skipIfBusy: boolean) {
+      if (!viewshedEngine) {
+        return;
+      }
+      if (viewshedPassPromise) {
+        if (skipIfBusy) {
+          return; // a pass is in flight; drop this intermediate frame
+        }
+        await viewshedPassPromise.catch(() => {});
+      }
+      // Output grid = mosaic, capped on the long edge (keep aspect so pixels stay ~square). The cap is
+      // what controls how detailed the result is: at the full mosaic resolution (the move-end pass) one
+      // output cell == one terrain post, so a high-res surface like LINZ DSM paints crisp, not blocky.
+      const scale = Math.min(1, cap / Math.max(hm.width, hm.height));
+      const outW = Math.max(1, Math.round(hm.width * scale));
+      const outH = Math.max(1, Math.round(hm.height * scale));
+      // One ray-march step per output pixel (stride ≈ 1 px) so the LOS sampling density tracks the
+      // output resolution: a finer grid is also marched more finely, rather than a fixed step budget
+      // that would under-sample (skip thin ridges) once the grid outgrows it.
+      const maxSteps = Math.max(outW, outH);
+      const run = (async () => {
+        const result = await viewshedEngine!.compute({
+          heightmap: hm,
+          obsLon: node.transmitter.tx_lon,
+          obsLat: node.transmitter.tx_lat,
+          txHeight: node.transmitter.tx_height,
+          targetHeight: Math.max(0, this.viewshedTargetHeight),
+          outW,
+          outH,
+          maxSteps,
+        });
+        viewshedResultCanvas = markRaw(result.canvas);
+        viewshedCoords = result.coords;
+        this.renderViewshed();
+      })();
+      const chained: Promise<void> = run.finally(() => {
+        if (viewshedPassPromise === chained) {
+          viewshedPassPromise = null;
+        }
+      });
+      viewshedPassPromise = chained;
+      await chained;
+    },
+    // Fetch the heightmap (from the map's active terrain source) and run the WebGPU LOS pass, then
+    // drape the result. Never throws out — a failure leaves the map untouched and flags the error.
+    // Coalesces overlapping runs (a drag can fire faster than a compute finishes): the latest request
+    // wins via the dirty flag.
+    async computeViewshed() {
+      if (!this.viewshedEnabled || !this.map || this.viewshedState === 'unsupported') {
+        return;
+      }
+      const node = this.selectedNode;
+      if (!node) {
+        this.clearViewshed();
+        return;
+      }
+      if (viewshedComputing) {
+        viewshedDirty = true; // a run is in flight; re-run once with the latest position when it ends
+        return;
+      }
+      viewshedComputing = true;
+      this.viewshedState = 'computing';
+      try {
+        if (!viewshedEngine) {
+          if (!ViewshedEngine.isSupported()) {
+            this.viewshedState = 'unsupported';
+            return;
+          }
+          viewshedEngine = new ViewshedEngine();
+          if (!(await viewshedEngine.init())) {
+            viewshedEngine = null;
+            this.viewshedState = 'unsupported';
+            return;
+          }
+        }
+        // Resolve the active terrain source exactly as the map does, so the heightmap matches the
+        // surface currently draped in the viewport (dem/dsm/srtm, incl. the simulation-grid toggle).
+        const spec = terrainDemSource(
+          this.splatParams.simulation.terrain_source,
+          this.terrainConfig,
+          this.simulationTerrain,
+          this.splatParams.simulation.high_resolution,
+        );
+        const radiusM = Math.max(1000, Math.min(30000, this.viewshedRadiusKm * 1000));
+        // Output-grid long-edge cap, the knob that trades detail for GPU cost (cost ~ outPx² × steps):
+        //  - live drag: small, for framerate.
+        //  - progressive (mid-fetch refinement): a cheap interim so a slow LINZ fetch shows something.
+        //  - final (settled) pass: MAX_TEXTURE, so the grid follows the heightmap's own resolution
+        //    (1:1 — the mosaic is ≤2048², well under the cap). This is what sharpens the blocky green
+        //    on a high-res surface like LINZ DSM, where the old fixed 1024 cap threw away most of the
+        //    detail the map was already showing.
+        const live = this.dragging && this.viewshedLive;
+        const liveCap = 512;
+        const progressiveCap = live ? liveCap : 1024;
+        const finalCap = live ? liveCap : MAX_TEXTURE;
+        // Fetch at the zoom the map is showing so we reuse its warm tiles (see heightmap.ts); remember
+        // it so a moveend only re-fetches when the zoom level actually changes.
+        const mapZoom = (this.map as maplibregl.Map).getZoom();
+        viewshedLastZoom = Math.round(mapZoom);
+        // Fetch the heightmap, rendering progressively as tiles stream in so a slow LINZ fetch fills
+        // the view in instead of looking frozen. Each emit re-runs the GPU pass over the mosaic so far;
+        // gate until a third of the tiles are in (avoids a misleading all-sea/all-visible flash) and
+        // drop frames while a pass is busy. The panel shows the live N/M tile count via viewshedProgress.
+        const hm = await getHeightmap(
+          {
+            urlTemplate: spec.tiles[0],
+            maxzoom: spec.maxzoom ?? 15,
+            lon: node.transmitter.tx_lon,
+            lat: node.transmitter.tx_lat,
+            radiusM,
+            mapZoom,
+          },
+          (p) => {
+            this.viewshedProgress = { loaded: p.loaded, total: p.total };
+            if (p.loaded / p.total >= 0.33) {
+              // Fire-and-forget; swallow errors here (the final pass below surfaces any real failure).
+              void this._viewshedRenderPass(p.hm, node, progressiveCap, true).catch(() => {});
+            }
+          },
+        );
+        this.viewshedProgress = null;
+        await this._viewshedRenderPass(hm, node, finalCap, false); // final pass over the complete mosaic
+        this.viewshedState = 'ready';
+      } catch (e) {
+        console.error('viewshed compute failed', e);
+        this.viewshedState = 'error';
+      } finally {
+        viewshedComputing = false;
+        this.viewshedProgress = null;
+        if (viewshedDirty && this.viewshedEnabled) {
+          viewshedDirty = false;
+          this.computeViewshed(); // run once more for the position that arrived mid-compute
+        }
+      }
+    },
     destroyMap() {
       for (const stop of watchStops) {
         stop();
@@ -775,6 +1086,25 @@ const useStore = defineStore('store', {
       links3dLayer = null;
       links3dPicks = [];
       cursor3dActive = false;
+      // Tear down the viewshed engine (releases the GPUDevice) and cancel any pending recompute so a
+      // remount (Vite HMR) re-inits a fresh device lazily instead of leaking the old one.
+      if (viewshedRaf) {
+        cancelAnimationFrame(viewshedRaf);
+        viewshedRaf = 0;
+      }
+      if (viewshedTimer) {
+        clearTimeout(viewshedTimer);
+        viewshedTimer = null;
+      }
+      viewshedEngine?.destroy();
+      viewshedEngine = null;
+      viewshedResultCanvas = null;
+      viewshedCoords = null;
+      viewshedComputing = false;
+      viewshedDirty = false;
+      viewshedPassPromise = null;
+      viewshedLastZoom = -1;
+      this.viewshedProgress = null;
       // Drop any in-flight tile counts so an HMR remount starts the loading bar clean.
       mapTileInflight.clear();
       this.mapTiles = { inFlight: 0, peak: 0 };
@@ -849,6 +1179,9 @@ const useStore = defineStore('store', {
         this.redrawSites();
         this.redrawLinks();
         this.redrawRelay();
+        if (this.viewshedEnabled) {
+          this.computeViewshed(); // restore the LOS overlay after a (re)mount when it was left on
+        }
         // The map shares the row with the docked sidebar, so its container is narrower than the
         // viewport. Init usually reads the right size, but resize once here in case the flex layout
         // settled a frame after the canvas was created.
@@ -870,12 +1203,29 @@ const useStore = defineStore('store', {
             if (!this.dragging) {
               this.renderNodeMarkers();
               this.redrawLinks();
+              if (this.viewshedEnabled) {
+                this.requestViewshed(); // manual lat/lon edits (not a drag) move the observer too
+              }
             }
           }
         ),
         watch(
           () => this.splatParams.display.overlay_transparency,
           () => this.applyCoverageOpacity()
+        ),
+        // Recompute the viewshed when its inputs change: radius, target height, or the selected node's
+        // antenna height (the observer eye). Coordinate moves are covered by the drag handler and the
+        // node watch above. Debounced so slider/keystroke bursts don't stack GPU passes.
+        watch(
+          () => {
+            const n = this.selectedNode;
+            return `${this.viewshedRadiusKm}:${this.viewshedTargetHeight}:${n?.id}:${n?.transmitter.tx_height}`;
+          },
+          () => {
+            if (this.viewshedEnabled) {
+              this.requestViewshed();
+            }
+          }
         ),
         // Re-point the terrain raster-dem at the new DEM/DSM tile endpoint when the simulation's
         // terrain model changes, so the 3D mesh + hillshade reflect the same surface the sim uses.
@@ -950,6 +1300,14 @@ const useStore = defineStore('store', {
       links3dLayer.setCurtainOpacity(this.linkCurtainOpacity);
       links3dLayer.setCurtainVisible(this.linkCurtainEnabled);
       map.on('moveend', () => this.rebuild3dLinks());
+      map.on('moveend', () => {
+        // The viewshed fetches at the map's zoom (to reuse its warm tiles), so follow a zoom change —
+        // zooming in sharpens it against the map's now-finer tiles. Gate on the integer zoom changing
+        // so plain panning (same node-centred bbox, same tiles → a cache hit) doesn't re-run.
+        if (this.viewshedEnabled && Math.round(map.getZoom()) !== viewshedLastZoom) {
+          this.requestViewshed();
+        }
+      });
       map.on('data', (e: any) => {
         if (e.dataType === 'source' && e.sourceId === 'terrain-dem' && e.tile) {
           this.rebuild3dLinks();
@@ -1285,6 +1643,11 @@ const useStore = defineStore('store', {
       }
       this.applyTerrain();
       this.rebuild3dLinks(); // terrain heights changed with the source
+      // The viewshed reads whatever surface the map shows, so a source change must refetch + recompute.
+      // The heightmap cache keys on the tile-URL template, so the new source naturally misses the cache.
+      if (this.viewshedEnabled) {
+        this.requestViewshed();
+      }
     },
     // Fetch the backend terrain zoom band (GET /terrain/config) into this.terrainConfig. Best-effort:
     // a short abort timeout and a silent catch so a down/slow backend just leaves the defaults.

@@ -86,6 +86,10 @@
             </div>
           </div>
 
+          <div v-show="store.activeMode === 'viewshed'">
+            <Viewshed />
+          </div>
+
           <div v-show="store.activeMode === 'linkfinder'">
             <LinkMatrix />
             <hr />
@@ -136,12 +140,13 @@ import Environment from "./components/Environment.vue"
 import LoRaPreset from "./components/LoRaPreset.vue"
 import Simulation from "./components/Simulation.vue"
 import Display from "./components/Display.vue"
+import Viewshed from "./components/Viewshed.vue"
 import Terrain from "./components/Terrain.vue"
 import BasemapControl from "./components/BasemapControl.vue"
 import BasemapButtons from "./components/BasemapButtons.vue"
 import ProfilePanel from "./components/ProfilePanel.vue"
 import MapLoadingBar from "./components/MapLoadingBar.vue"
-import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical } from "@lucide/vue"
+import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical, ScanEye } from "@lucide/vue"
 import type { Component } from "vue"
 
 import { useStore } from './store.ts'
@@ -153,6 +158,7 @@ const store = useStore()
 const MODES = [
   { id: 'nodes', label: 'Nodes', icon: RadioTower },
   { id: 'coverage', label: 'Coverage', icon: MapIcon },
+  { id: 'viewshed', label: 'Viewshed', icon: ScanEye },
   { id: 'linkfinder', label: 'Link Finder', icon: Link },
   { id: 'radio', label: 'Simulation Settings', icon: WifiCog },
   { id: 'settings', label: 'Settings', icon: SlidersVertical },

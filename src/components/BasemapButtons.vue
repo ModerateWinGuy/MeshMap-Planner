@@ -47,6 +47,23 @@
     <Waypoints :size="16" />
     Links
   </button>
+  <!-- Browser-computed line-of-sight viewshed for the selected node. Hidden where WebGPU is missing
+       (the mode is inert there); disabled until a node is selected, mirroring the panel's switch. -->
+  <button
+    v-if="store.viewshedState !== 'unsupported'"
+    type="button"
+    class="btn btn-sm shadow w-100 mt-2 d-flex align-items-center justify-content-center gap-1"
+    :class="store.viewshedEnabled ? 'btn-primary' : 'btn-light'"
+    :aria-pressed="store.viewshedEnabled"
+    :disabled="!store.selectedNode"
+    :title="store.selectedNode
+      ? 'Toggle the line-of-sight viewshed — green where the selected node has clear LOS'
+      : 'Select a node to show its viewshed'"
+    @click="store.toggleViewshed()"
+  >
+    <ScanEye :size="16" />
+    Viewshed
+  </button>
   <button
     type="button"
     class="btn btn-sm shadow w-100 mt-2 d-flex align-items-center justify-content-center gap-1"
@@ -64,6 +81,6 @@
 
 <script setup lang="ts">
 import { useStore, BASEMAPS } from '../store.ts'
-import { Lock, LockOpen, Waypoints } from '@lucide/vue'
+import { Lock, LockOpen, Waypoints, ScanEye } from '@lucide/vue'
 const store = useStore()
 </script>
