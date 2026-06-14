@@ -70,9 +70,13 @@ export const BASEMAPS = [
   },
 ];
 
-// Coverage rasters insert directly below the vector overlays (relay zone / links / points), so they
-// sit above the basemap but under everything else. See setupOverlays for the full z-order.
-const COVERAGE_BEFORE = 'relay-zone-fill';
+// Coverage rasters insert directly below the relay heatmap (which sits below links / points), so they
+// sit above the basemap but under everything else. 'coverage-top' / 'relay-top' are empty, invisible
+// anchor layers (see setupOverlays) that pin the z-slots for the two draped raster overlays — coverage
+// rasters go before 'coverage-top', the relay heatmap before 'relay-top'. See setupOverlays for the
+// full z-order.
+const COVERAGE_BEFORE = 'coverage-top';
+const RELAY_BEFORE = 'relay-top';
 // The single browser-computed viewshed overlay (WebGPU LOS footprint). Shares the coverage z-slot:
 // inserted before COVERAGE_BEFORE so it sits above the basemap/hillshade but under the vector overlays.
 const VIEWSHED_ID = 'viewshed';
@@ -355,6 +359,11 @@ const useStore = defineStore('store', {
       matrixResult: null as MatrixResult | null, // in-memory only
       relayState: 'idle',
       relayResult: null as RelayResult | null, // in-memory only
+      // The relay zone draped as a smooth heatmap (same canvas-source path coverage uses): the
+      // colorized margin canvas (markRaw'd, non-reactive) and its four corner coords [lng,lat]
+      // (TL,TR,BR,BL). Built in runRelay, drawn by redrawRelay. In-memory only.
+      relayImage: null as HTMLCanvasElement | null,
+      relayCoords: null as Site['coords'] | null,
       relayA: null as string | null, // selected endpoint node ids
       relayB: null as string | null,
       // Point-to-point terrain/LOS profile (bottom strip). In-memory only; the two endpoint ids
@@ -685,6 +694,10 @@ const useStore = defineStore('store', {
         if (map.getLayer(id)) {
           map.setPaintProperty(id, 'raster-opacity', opacity);
         }
+      }
+      // The relay heatmap shares the same draped-raster treatment, so the slider drives it too.
+      if (map.getLayer('relay-cov')) {
+        map.setPaintProperty('relay-cov', 'raster-opacity', opacity);
       }
     },
     // ---- Viewshed (browser-computed WebGPU line-of-sight) ----------------------------------------
@@ -1127,7 +1140,7 @@ const useStore = defineStore('store', {
       );
     },
     // Add the empty overlay sources and their style layers once, bottom-to-top among overlays:
-    //   basemaps < coverage rasters < relay zone (fill, line) < links < relay points < DOM markers.
+    //   basemaps < coverage rasters < relay heatmap < links < relay points < DOM markers.
     // Also wire the map-level popups (GeoJSON layers have no per-feature popup).
     setupOverlays() {
       const map = this.map as maplibregl.Map | undefined;
@@ -1135,25 +1148,23 @@ const useStore = defineStore('store', {
         return;
       }
       map.addSource('links', { type: 'geojson', data: EMPTY_FC as any });
-      map.addSource('relay-zone', { type: 'geojson', data: EMPTY_FC as any });
+      // 'anchor' carries no features; it backs the two empty z-order anchor layers below (a line layer
+      // on an empty source renders nothing). The relay zone is now a draped raster, not GeoJSON.
+      map.addSource('anchor', { type: 'geojson', data: EMPTY_FC as any });
       map.addSource('relay-pts', { type: 'geojson', data: EMPTY_FC as any });
       map.addSource('profile-path', { type: 'geojson', data: EMPTY_FC as any });
       map.addSource('pair-link', { type: 'geojson', data: EMPTY_FC as any });
 
       // Relief shading over the existing raster-dem. Added first so it sits directly above the
-      // basemaps and below every data overlay (coverage inserts before relay-zone-fill, so it lands
+      // basemaps and below every data overlay (coverage inserts before 'coverage-top', so it lands
       // on top of this) — the heatmap stays vibrant while only the basemap gets shaded.
       this.addHillshadeLayer(map);
 
-      const bandColor = ['match', ['get', 'band'], 0, '#e08326', 1, '#d9c021', '#2e9e3f'];
-      map.addLayer({
-        id: 'relay-zone-fill', type: 'fill', source: 'relay-zone',
-        paint: { 'fill-color': bandColor, 'fill-opacity': 0.35 },
-      } as any);
-      map.addLayer({
-        id: 'relay-zone-line', type: 'line', source: 'relay-zone',
-        paint: { 'line-color': bandColor, 'line-width': 1 },
-      } as any);
+      // Invisible ordering anchors: coverage rasters insert before 'coverage-top', the relay heatmap
+      // before 'relay-top'. Added in this order so relay drapes above coverage (matching the old
+      // relay-zone-over-coverage z-order), both below the link/point vector overlays added next.
+      map.addLayer({ id: 'coverage-top', type: 'line', source: 'anchor' } as any);
+      map.addLayer({ id: 'relay-top', type: 'line', source: 'anchor' } as any);
       // Dashed (non-viable) vs solid (viable) links: line-dasharray isn't data-drivable, so two
       // layers share the source, split by a filter on the `viable` property.
       map.addLayer({
@@ -1307,18 +1318,8 @@ const useStore = defineStore('store', {
       if (!map) {
         return;
       }
-      // Read-only info popup for the relay zone.
-      for (const layer of ['relay-zone-fill']) {
-        map.on('click', layer, (e: any) => {
-          const f = e.features?.[0];
-          if (!f) {
-            return;
-          }
-          new maplibregl.Popup({ offset: 8 }).setLngLat(e.lngLat).setHTML(String(f.properties?.popupHtml ?? '')).addTo(map);
-        });
-        map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
-        map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
-      }
+      // The relay zone is a draped raster (no per-feature popups); its candidate points (relay-pts,
+      // wired below) carry the interactive info and the Promote button.
       // Link popups carry a "Show line profile" button (relay-pts pattern below): clicking it draws
       // the terrain profile for that pair into the bottom strip.
       for (const layer of ['links-solid', 'links-dashed']) {
@@ -2194,17 +2195,19 @@ const useStore = defineStore('store', {
       const south = Math.min(a.transmitter.tx_lat, b.transmitter.tx_lat) - padLat;
       const north = Math.max(a.transmitter.tx_lat, b.transmitter.tx_lat) + padLat;
 
-      // Size the grid so cells are ~150–300 m on the longer bbox span. Per-cell cost is two ITM
-      // evaluations (one per pass), so total cost scales with gridSize²; clamp to a sane max and warn
-      // like the coverage guard rather than silently running an enormous grid.
-      const TARGET_CELL_M = 200;
-      const MAX_GRID = 384;
+      // Size the OUTPUT grid (the rasterization target for the draped heatmap). Each coverage pass is a
+      // radial sweep whose ITM cost is fixed by its az/rangeSteps, NOT by this grid — so a finer grid
+      // only costs a little rasterization + memory and buys a smoother, more detailed overlay. Aim for
+      // ~120 m cells, capped near the coverage 'balanced' raster (768²) so the heatmap matches it.
+      const TARGET_CELL_M = 120;
+      const MAX_GRID = 768;
       const spanLatM = (north - south) * 111320;
       const spanLonM = (east - west) * 111320 * Math.max(0.01, Math.cos(midLat * Math.PI / 180));
       const spanM = Math.max(spanLatM, spanLonM);
       let gridSize = Math.max(64, Math.ceil(spanM / TARGET_CELL_M));
       if (gridSize > MAX_GRID) {
-        console.warn(`Relay grid ${gridSize}² exceeds the ${MAX_GRID}² cap; clamping (cells will be coarser than ${TARGET_CELL_M} m).`);
+        // Only the overlay resolution is capped here (ITM cost is fixed by the radial sweep), so this
+        // just means slightly coarser pixels, not a coarser computation.
         gridSize = MAX_GRID;
       }
 
@@ -2246,10 +2249,35 @@ const useStore = defineStore('store', {
       relayCancel = cancel;
 
       try {
-        // markRaw: the result holds GeoJSON FeatureCollections that never mutate; keep them out of
-        // Vue's deep reactivity (reassigning relayResult still re-renders).
+        // markRaw: the result holds GeoJSON FeatureCollections + a typed-array margin grid that never
+        // mutate; keep them out of Vue's deep reactivity (reassigning relayResult still re-renders).
         const result = markRaw(await promise);
         this.relayResult = result;
+
+        // Drape the margin grid as a smooth heatmap through the SAME pipeline coverage uses, so the
+        // relay zone reads like a coverage overlay (continuous colour + soft FADE_BAND edge) instead
+        // of the old blocky banded polygons. The grid carries margin (dB), not dBm, but colorizeGrid
+        // is value-agnostic. Range 0..peak uses the full colour ramp; floor the peak so a low-margin
+        // zone isn't washed out by a degenerate span.
+        if (!result.empty && result.marginGrid) {
+          const grid = result.marginGrid;
+          let peak = 0;
+          for (let i = 0; i < grid.dbm.length; i++) {
+            const v = grid.dbm[i];
+            if (!Number.isNaN(v) && v > peak) peak = v;
+          }
+          const colored = colorizeGrid(grid, 0, Math.max(peak, 10), this.splatParams.display.color_scale);
+          const warped = mercatorWarp(colored, grid.north, grid.south);
+          this.relayImage = markRaw(fitCoverageCanvas(warped));
+          this.relayCoords = [
+            [grid.west, grid.north], [grid.east, grid.north],
+            [grid.east, grid.south], [grid.west, grid.south],
+          ];
+        } else {
+          this.relayImage = null;
+          this.relayCoords = null;
+        }
+
         this.relayState = 'completed';
         this.progress = null;
         this.redrawRelay();
@@ -2270,41 +2298,35 @@ const useStore = defineStore('store', {
     redrawRelay() {
       const map = this.map as maplibregl.Map | undefined;
       // NOT isStyleLoaded() (reads false while the slow sim-terrain tiles stream, which would drop the
-      // relay result); the source guards below suffice — setData only needs the GeoJSON source to
-      // exist. See [[maplibre-isstyleloaded]].
+      // relay result); the guards below suffice — adding the source/layer only needs the anchor layer
+      // to exist (style mutable), and setData only needs the points source. See [[maplibre-isstyleloaded]].
       if (!map) {
         return;
       }
-      const zoneSrc = map.getSource('relay-zone') as maplibregl.GeoJSONSource | undefined;
       const ptsSrc = map.getSource('relay-pts') as maplibregl.GeoJSONSource | undefined;
-      if (!zoneSrc || !ptsSrc) {
-        return;
-      }
-      const result = this.relayResult;
-      if (!result || result.empty) {
-        zoneSrc.setData(EMPTY_FC as any);
-        ptsSrc.setData(EMPTY_FC as any);
+      if (!ptsSrc) {
         return;
       }
 
-      // Zone + points come from the backend as FeatureCollections; the zone fill/line colour by
-      // `band` via a paint expression, so here we only attach the per-feature popup HTML.
-      const zone = {
-        type: 'FeatureCollection',
-        features: result.zone.features.map((f) => ({
-          type: 'Feature',
-          geometry: f.geometry,
-          properties: {
-            ...f.properties,
-            popupHtml:
-              `<strong>Relay zone</strong><br>` +
-              `Band: ${escapeHtml(f.properties.label)}<br>` +
-              `Peak margin: ${f.properties.peak_margin} dB<br>` +
-              `Area: ${f.properties.area_km2} km²`,
-          },
-        })),
-      };
-      zoneSrc.setData(zone as any);
+      // Relay heatmap: drape the colorized margin canvas the same way redrawSites drapes coverage. A
+      // fresh canvas comes from each run, so tear down any previous layer/source and re-add (canvas
+      // sources don't expose an in-place image swap). RELAY_BEFORE keeps it above coverage, under links.
+      if (map.getLayer('relay-cov')) map.removeLayer('relay-cov');
+      if (map.getSource('relay-cov')) map.removeSource('relay-cov');
+      if (this.relayImage && this.relayCoords && map.getLayer(RELAY_BEFORE)) {
+        const opacity = 1 - (this.splatParams.display.overlay_transparency ?? 0) / 100;
+        map.addSource('relay-cov', { type: 'canvas', canvas: this.relayImage, coordinates: this.relayCoords, animate: false } as any);
+        map.addLayer(
+          { id: 'relay-cov', type: 'raster', source: 'relay-cov', paint: { 'raster-opacity': opacity, 'raster-resampling': 'nearest' } } as any,
+          RELAY_BEFORE,
+        );
+      }
+
+      const result = this.relayResult;
+      if (!result || result.empty) {
+        ptsSrc.setData(EMPTY_FC as any);
+        return;
+      }
 
       const pts = {
         type: 'FeatureCollection',
@@ -2329,13 +2351,17 @@ const useStore = defineStore('store', {
     },
     clearRelay() {
       const map = this.map as maplibregl.Map | undefined;
-      // setData only needs the source to exist (optional-chained), not isStyleLoaded() — which reads
-      // false while sim-terrain tiles stream. See [[maplibre-isstyleloaded]].
+      // Tear down the draped heatmap layer/source and empty the points. setData/removeLayer only need
+      // the layer/source to exist (guarded), not isStyleLoaded() — which reads false while sim-terrain
+      // tiles stream. See [[maplibre-isstyleloaded]].
       if (map) {
-        (map.getSource('relay-zone') as maplibregl.GeoJSONSource | undefined)?.setData(EMPTY_FC as any);
+        if (map.getLayer('relay-cov')) map.removeLayer('relay-cov');
+        if (map.getSource('relay-cov')) map.removeSource('relay-cov');
         (map.getSource('relay-pts') as maplibregl.GeoJSONSource | undefined)?.setData(EMPTY_FC as any);
       }
       this.relayResult = null;
+      this.relayImage = null;
+      this.relayCoords = null;
       this.relayState = 'idle';
     },
     promoteRelayPoint(lat: number, lon: number, name?: string) {
