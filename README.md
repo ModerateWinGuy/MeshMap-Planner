@@ -1,12 +1,16 @@
 # MeshMap Planner
 
+**▶ Live site: https://moderatewinguy.github.io/MeshMap-Planner/**
+
+Runs entirely in your browser — nothing to install, no account, no server.
+
 ## About
 
 MeshMap Planner is an online utility for predicting the range of mesh radios. It is agnostic between **Meshcore** and **Meshtastic** and works with any LoRa-based mesh network. It creates radio coverage maps using the ITM/Longley-Rice model — the classic propagation core from SPLAT! by John A. Magliacane, KD2BD (https://www.qsl.net/kd2bd/splat.html), compiled to WebAssembly and run **entirely in your browser**. The maps are used for planning repeater deployments and for estimating the coverage provided by an existing mesh network. The default parameters are derived from experimental data and practical experience with Meshtastic devices, and serve as sensible starting points for Meshcore and amateur radio projects too. Model parameters are adjustable, so this tool can also be used for amateur radio projects using different frequencies and higher transmit powers.
 
 MeshMap Planner is a **static, browser-only single-page app** — there is no backend or server-side computation. The coverage map, link matrix, point-to-point profiles, relay siting, and viewshed all run client-side in a Web Worker.
 
-There is currently no hosted instance — see [Building](#building) below to run your own copy.
+A hosted instance is published from `main` to GitHub Pages at **https://moderatewinguy.github.io/MeshMap-Planner/**. To run or modify your own copy, see [Building](#building) below.
 
 The terrain elevation tiles are streamed directly from AWS Open Data (https://registry.opendata.aws/terrain-tiles/), based on the NASA SRTM (Shuttle Radar Topography) dataset (https://www.earthdata.nasa.gov/data/instruments/srtm), with LINZ 8 m LiDAR baked in over New Zealand.
 
@@ -14,7 +18,7 @@ The terrain elevation tiles are streamed directly from AWS Open Data (https://re
 
 The minimal steps for creating a mesh coverage prediction are:
 
-1. Run a copy of the tool (see [Building](#building)) and open it in a web browser.
+1. Open the [hosted site](https://moderatewinguy.github.io/MeshMap-Planner/) in a web browser (or run your own copy — see [Building](#building)).
 2. In `Site Parameters > Site / Transmitter`, enter a name for the site, the geographic coordinates, and the antenna height above ground. Input the transmit power, frequency, and antenna gain for your device — for Meshtastic devices you can refer to the regional parameters (https://meshtastic.org/docs/configuration/region-by-country/).
 3. In `Site Parameters > Receiver`, enter the receiver sensitivity (`-130 dBm` for the default `LongFast` channel), the receiver height, and the receiver antenna gain.
 4. In `Site Parameters > Receiver`, enter the maximum range for the simulation in kilometers. Selecting long ranges (> 50 kilometers) will result in longer computation times.
