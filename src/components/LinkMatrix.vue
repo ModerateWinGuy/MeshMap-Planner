@@ -137,11 +137,13 @@ const buttonText = computed(() => {
 })
 
 // Every node except the currently selected one — the rows/options of the "from selected node" view.
-// When "hide invalid links" is on, also drop rows whose link to the selected node isn't viable, so the
-// table matches what's drawn on the map. A pair with no computed link yet still shows (nothing to hide).
+// Hidden nodes are dropped so the table matches the map (their links aren't drawn). When "hide invalid
+// links" is on, also drop rows whose link to the selected node isn't viable. A pair with no computed
+// link yet still shows (nothing to hide).
 const otherNodes = computed<Node[]>(() =>
     store.nodes.filter((n) => {
         if (n.id === store.selectedNodeId) return false
+        if (n.hidden) return false
         if (!store.hideInvalidLinks) return true
         const link = linkFor(n.id)
         return !link || link.viable

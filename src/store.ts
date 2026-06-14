@@ -475,18 +475,24 @@ const useStore = defineStore('store', {
       }
       const sel = state.selectedNodeId;
       const touchesSelected = (l: LinkResult): boolean => l.a === sel || l.b === sel;
+      // Hidden nodes drop off the map entirely — including every link that touches one — so a user can
+      // focus on a subset without deleting the rest. Layered on top of the selected/viable filters
+      // below, so it applies in every mode. The matrix itself still spans all nodes, so toggling
+      // visibility re-filters instantly without recomputing.
+      const hidden = new Set(state.nodes.filter((n) => n.hidden).map((n) => n.id));
+      const shown = (l: LinkResult): boolean => !hidden.has(l.a) && !hidden.has(l.b);
       // "Hide invalid links" drops every non-viable link, overriding the selected-node exception that
       // would otherwise still show them (both for selected-only and the default view).
       if (state.hideInvalidLinks) {
         if (state.linksSelectedOnly) {
-          return all.filter((l) => l.viable && touchesSelected(l));
+          return all.filter((l) => l.viable && touchesSelected(l) && shown(l));
         }
-        return all.filter((l) => l.viable);
+        return all.filter((l) => l.viable && shown(l));
       }
       if (state.linksSelectedOnly) {
-        return all.filter(touchesSelected);
+        return all.filter((l) => touchesSelected(l) && shown(l));
       }
-      return all.filter((l) => l.viable || touchesSelected(l));
+      return all.filter((l) => (l.viable || touchesSelected(l)) && shown(l));
     },
   },
   actions: {
@@ -521,6 +527,33 @@ const useStore = defineStore('store', {
       this.nodesLocked = !this.nodesLocked;
       this.renderNodeMarkers(); // re-render flips setDraggable on every existing marker
     },
+    // Hide/show a single node from the map. The node stays in the list (and editable / selectable),
+    // but its marker and every link touching it disappear — see renderNodeMarkers + visibleLinks.
+    toggleNodeVisibility(id: string) {
+      const node = this.nodes.find((n) => n.id === id);
+      if (!node) {
+        return;
+      }
+      node.hidden = !node.hidden;
+      this.renderNodeMarkers(); // drop or restore this node's marker
+      this.redrawLinks();       // re-filter the links touching it (2D + 3D)
+    },
+    // Bulk hide/show, behind the node list's "Hide all" / "Show all" buttons. No-op (no redraw) when
+    // nothing actually changes, so a redundant click doesn't churn the markers/links.
+    setAllNodesHidden(hidden: boolean) {
+      let changed = false;
+      for (const node of this.nodes) {
+        if (Boolean(node.hidden) !== hidden) {
+          node.hidden = hidden;
+          changed = true;
+        }
+      }
+      if (!changed) {
+        return;
+      }
+      this.renderNodeMarkers();
+      this.redrawLinks();
+    },
     deleteNode(id: string) {
       const idx = this.nodes.findIndex((n) => n.id === id);
       if (idx === -1) {
@@ -551,15 +584,19 @@ const useStore = defineStore('store', {
       if (!map) {
         return;
       }
-      // Remove markers for nodes that no longer exist.
+      // Remove markers for nodes that no longer exist or have been hidden.
       for (const id of Object.keys(this.nodeMarkers)) {
-        if (!this.nodes.find((n) => n.id === id)) {
+        const node = this.nodes.find((n) => n.id === id);
+        if (!node || node.hidden) {
           this.nodeMarkers[id].remove();
           delete this.nodeMarkers[id];
         }
       }
       const selectedId = this.selectedNode?.id;
       for (const node of this.nodes) {
+        if (node.hidden) {
+          continue; // hidden nodes have no marker — they're excluded from the map and all links
+        }
         const lngLat: [number, number] = [node.transmitter.tx_lon, node.transmitter.tx_lat];
         const selected = node.id === selectedId;
         let marker = this.nodeMarkers[node.id];

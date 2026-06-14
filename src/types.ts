@@ -17,6 +17,10 @@ export interface Node {
     id: string;
     transmitter: SplatParams['transmitter'];
     receiver: SplatParams['receiver'];
+    // When true the node is hidden from the map: no marker, and every link touching it drops out of
+    // visibleLinks (2D + 3D). Lets a user focus on a subset without deleting the rest. Absent on
+    // nodes persisted before this existed → treated as visible.
+    hidden?: boolean;
 }
 export interface SplatParams {
     transmitter: {

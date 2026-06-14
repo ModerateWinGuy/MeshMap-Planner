@@ -26,9 +26,11 @@
                 <div class="invalid-feedback">Please select a color scale.</div>
             </div>
             <div class="col-6">
-                <label for="overlay_transparency" class="form-label">Transparency (%)</label>
-                <input v-model="display.overlay_transparency" type="number" class="form-control form-control-sm" id="overlay_transparency" required min="0" max="100" step="1" />
-                <div class="invalid-feedback">Transparency must be between 0 and 100 (default: 50).</div>
+                <label for="overlay_transparency" class="form-label d-flex justify-content-between">
+                    <span>Transparency</span>
+                    <span class="text-body-secondary">{{ display.overlay_transparency }}%</span>
+                </label>
+                <input v-model.number="display.overlay_transparency" type="range" class="form-range" id="overlay_transparency" min="0" max="100" step="1" />
             </div>
         </div>
     <div class="mt-3 text-center">
