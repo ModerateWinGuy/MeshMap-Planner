@@ -1,4 +1,6 @@
 // Which task-focused panel the sidebar shows; persisted to localStorage as the active UI mode.
+import type { CoverageGrid } from './sim/coverageTypes.ts'; // type-only: erased at compile, no runtime cycle
+
 export type UiMode = 'nodes' | 'radio' | 'coverage' | 'linkfinder' | 'viewshed' | 'settings';
 
 export interface Site {
@@ -135,6 +137,11 @@ export interface RelayResult {
     relay_rx_gain: number;
     zone: FeatureCollection<RelayZoneProps>;
     points: FeatureCollection<RelayPointProps>;
+    // Per-cell min-margin field (dB) over the shared bbox, rendered as a smooth heatmap the way the
+    // coverage overlay renders dBm — replaces the old blocky banded polygons. NaN marks a non-zone
+    // cell; null on the empty result. dbm here carries margin, not received power, so colorizeGrid
+    // (which is value-agnostic) drapes it identically. See [[client-side-splat-port]].
+    marginGrid: CoverageGrid | null;
     empty: boolean;
     warning: string | null;
 }

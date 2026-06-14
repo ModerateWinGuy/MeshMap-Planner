@@ -201,8 +201,11 @@ async function handleRelay(msg: RelayMsg): Promise<void> {
       emit(0.5 + 0.5 * (total ? done / total : 0));
     });
     const result = relayOverlap(gridA, gridB, msg.params);
-    // RelayResult is plain JSON (GeoJSON FeatureCollections); no transferable buffers to hand back.
-    ctx.postMessage({ type: 'relay-done', reqId, result });
+    // Beyond the plain-JSON FeatureCollections the result now carries a marginGrid (a Float32 field).
+    // Structured clone preserves the typed-array view; transfer its backing buffer (it can be several
+    // MB) so it moves rather than copies. The worker is done with it once posted.
+    const transfer = result.marginGrid ? [result.marginGrid.dbm.buffer] : [];
+    ctx.postMessage({ type: 'relay-done', reqId, result }, transfer);
   } catch (err) {
     ctx.postMessage({ type: 'relay-error', reqId, error: err instanceof Error ? err.message : String(err) });
   }

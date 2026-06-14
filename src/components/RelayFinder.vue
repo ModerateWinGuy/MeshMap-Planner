@@ -51,10 +51,13 @@
                         Sensitivity <strong>{{ store.relayResult.sensitivity_dbm }} dBm</strong>.
                         Each suggested point can be promoted into a real node.
                     </p>
-                    <div class="d-flex gap-2 mb-2 small">
-                        <span><span class="legend-swatch" style="background:#2e9e3f"></span> &gt;20 dB</span>
-                        <span><span class="legend-swatch" style="background:#d9c021"></span> 10–20</span>
-                        <span><span class="legend-swatch" style="background:#e08326"></span> 0–10</span>
+                    <div class="mb-2 small">
+                        <div class="legend-bar mb-1" :style="{ background: gradientCss }"></div>
+                        <div class="d-flex justify-content-between text-muted">
+                            <span>0 dB</span>
+                            <span>link margin</span>
+                            <span>{{ peakMargin != null ? peakMargin + ' dB' : 'higher' }}</span>
+                        </div>
                     </div>
                     <ul class="list-group list-group-flush small">
                         <li
@@ -79,8 +82,30 @@
 <script setup lang="ts">
 import { computed, watchEffect } from 'vue'
 import { useStore } from '../store.ts'
+import { colormap } from '../sim/colormap.ts'
 
 const store = useStore()
+
+// Legend gradient mirrors the draped heatmap: the active colormap sampled left (0 dB margin, the zone
+// edge) to right (peak margin). Kept in sync with display.color_scale so it matches what's on the map.
+const gradientCss = computed(() => {
+    const fn = colormap(store.splatParams.display.color_scale)
+    const stops: string[] = []
+    const N = 8
+    for (let i = 0; i <= N; i++) {
+        const [r, g, b] = fn(i / N)
+        stops.push(`rgb(${r},${g},${b}) ${Math.round((i / N) * 100)}%`)
+    }
+    return `linear-gradient(to right, ${stops.join(', ')})`
+})
+
+// Peak margin (dB) over the zone — the right end of the legend's range. Max of the per-island peaks,
+// which equals the grid peak the heatmap's colour ramp tops out at.
+const peakMargin = computed(() => {
+    const feats = store.relayResult?.zone?.features ?? []
+    if (!feats.length) return null
+    return Math.round(Math.max(...feats.map((f) => f.properties.peak_margin)))
+})
 
 // Default the two selectors to the first two nodes when unset / stale.
 watchEffect(() => {
@@ -125,11 +150,9 @@ function promote(pt: { geometry: { coordinates: [number, number] } }) {
 </script>
 
 <style scoped>
-.legend-swatch {
-    display: inline-block;
-    width: 0.8em;
-    height: 0.8em;
+.legend-bar {
+    height: 0.7em;
+    width: 100%;
     border-radius: 2px;
-    vertical-align: middle;
 }
 </style>

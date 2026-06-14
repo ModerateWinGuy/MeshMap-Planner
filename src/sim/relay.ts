@@ -89,6 +89,7 @@ export function relayOverlap(
       relay_rx_gain,
       zone: { type: 'FeatureCollection', features: [] },
       points: { type: 'FeatureCollection', features: [] },
+      marginGrid: null,
       empty: true,
       warning: 'No location receives both A and B above sensitivity.',
     };
@@ -129,6 +130,10 @@ export function relayOverlap(
     relay_rx_gain,
     zone: { type: 'FeatureCollection', features: zoneFeatures },
     points: { type: 'FeatureCollection', features: pointFeatures },
+    // The raw per-cell min-margin field as a CoverageGrid, for the store to drape as a smooth heatmap
+    // (the same pipeline coverage uses). minMargin is already NaN outside the zone and the cell margin
+    // (dB) inside, which is exactly colorizeGrid's value-or-NaN contract — so no copy/transform here.
+    marginGrid: { dbm: minMargin, width, height, west, south, east, north },
     empty: false,
     warning: null,
   };

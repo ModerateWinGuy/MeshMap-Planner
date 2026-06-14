@@ -45,6 +45,15 @@ const JET: RGB[] = [
   [0, 0, 131], [0, 60, 170], [5, 255, 255], [255, 255, 0],
   [250, 0, 0], [128, 0, 0],
 ];
+// matplotlib "cool": a straight cyan -> magenta ramp (R 0->1, G 1->0, B held at 1).
+const COOL: RGB[] = [[0, 255, 255], [255, 0, 255]];
+// matplotlib "CMRmap" (Carey Rappaport): black -> blue -> purple -> red -> orange -> white.
+// Nine evenly-spaced anchors taken straight from matplotlib's _CMRmap_data (values * 255).
+const CMRMAP: RGB[] = [
+  [0, 0, 0], [38, 38, 128], [77, 38, 191], [153, 51, 128],
+  [255, 64, 38], [230, 128, 0], [230, 191, 26], [230, 230, 128],
+  [255, 255, 255],
+];
 const GREYS: RGB[] = [[0, 0, 0], [255, 255, 255]];
 
 export type ColormapFn = (t: number) => RGB;
@@ -53,6 +62,8 @@ export const viridis: ColormapFn = (t) => sampleStops(VIRIDIS, t);
 export const plasma: ColormapFn = (t) => sampleStops(PLASMA, t);
 export const turbo: ColormapFn = (t) => sampleStops(TURBO, t);
 export const jet: ColormapFn = (t) => sampleStops(JET, t);
+export const cool: ColormapFn = (t) => sampleStops(COOL, t);
+export const cmrmap: ColormapFn = (t) => sampleStops(CMRMAP, t);
 export const greys: ColormapFn = (t) => sampleStops(GREYS, t);
 
 // Map the matplotlib names the display config uses (and a couple of aliases) onto our LUTs. Unknown
@@ -63,6 +74,8 @@ const BY_NAME: Record<string, ColormapFn> = {
   turbo,
   jet,
   rainbow: jet,
+  cool,
+  cmrmap,
   greys,
   grays: greys,
   gray: greys,
