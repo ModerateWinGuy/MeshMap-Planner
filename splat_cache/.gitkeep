@@ -1,4 +1,0 @@
-# Persistent terrain cache (diskcache): downloaded SRTM tiles, converted .sdf tiles, the LINZ
-# survey index, and built LINZ SDFs. Bind-mounted into the container at /app/.splat_tiles.
-# Survives restarts and image rebuilds. Contents are large/binary and machine-generated, so the
-# folder is kept but its contents are gitignored. Safe to delete to force a full re-fetch.

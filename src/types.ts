@@ -44,9 +44,10 @@ export interface SplatParams {
         situation_fraction: number;
         time_fraction: number;
         simulation_extent: number;
-        high_resolution: boolean;
-        terrain_source: 'srtm' | 'dem' | 'dsm';
         filter_radio_horizon: boolean;
+        // Browser-side sim fidelity preset (terrain-profile sampling detail vs speed). May be absent
+        // on params persisted before it existed (mergeDefaults is shallow) — read with a default.
+        quality: 'draft' | 'balanced' | 'high' | 'max';
     };
     display: {
         color_scale: string;

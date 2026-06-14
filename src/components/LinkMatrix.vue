@@ -28,6 +28,21 @@
             </div>
         </div>
 
+        <div class="form-check form-switch mb-2">
+            <input
+                class="form-check-input"
+                type="checkbox"
+                role="switch"
+                id="hide_invalid_links"
+                :checked="store.hideInvalidLinks"
+                @change="store.toggleHideInvalidLinks()"
+            />
+            <label class="form-check-label small" for="hide_invalid_links">Hide invalid links</label>
+            <div class="form-text">
+                Hide links that don't meet the margin threshold, including those touching the selected node.
+            </div>
+        </div>
+
         <p v-if="store.nodes.length < 2" class="text-muted small mb-0">Add at least two nodes to compute links.</p>
 
         <template v-else>
@@ -122,8 +137,15 @@ const buttonText = computed(() => {
 })
 
 // Every node except the currently selected one — the rows/options of the "from selected node" view.
+// When "hide invalid links" is on, also drop rows whose link to the selected node isn't viable, so the
+// table matches what's drawn on the map. A pair with no computed link yet still shows (nothing to hide).
 const otherNodes = computed<Node[]>(() =>
-    store.nodes.filter((n) => n.id !== store.selectedNodeId)
+    store.nodes.filter((n) => {
+        if (n.id === store.selectedNodeId) return false
+        if (!store.hideInvalidLinks) return true
+        const link = linkFor(n.id)
+        return !link || link.viable
+    })
 )
 
 function linkFor(other: string): LinkResult | undefined {

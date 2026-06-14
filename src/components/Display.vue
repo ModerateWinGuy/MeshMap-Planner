@@ -34,7 +34,7 @@
     <div class="mt-3 text-center">
       <div>
         <img
-          :src="`/colormaps/${display.color_scale}.png`"
+          :src="`${baseUrl}colormaps/${display.color_scale}.png`"
           alt="Colorbar"
           width="256"
           height="30"
@@ -52,4 +52,7 @@
 <script setup lang="ts">
 import { useStore } from "../store.ts";
 const display = useStore().splatParams.display;
+// Colorbar images live in public/; prefix with Vite's base so they resolve under the
+// GitHub Pages subpath (BASE_URL already ends in '/'), not the domain root.
+const baseUrl = import.meta.env.BASE_URL;
 </script>
