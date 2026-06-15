@@ -172,3 +172,38 @@ body {
   outline: 2px solid rgba(255, 255, 255, 0.65);
   outline-offset: 2px;
 }
+
+/* ── Info tooltips ─────────────────────────────────────────────────────────────
+   A small muted (i) icon next to a field label that reveals its help text on hover or
+   keyboard focus (Bootstrap popover, see InfoTip.vue), replacing the inline form-text
+   blocks that made the panels noisy. */
+.info-tip {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 0.25rem;
+}
+.info-tip-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 0;
+  cursor: help;
+}
+.info-tip-btn:hover,
+.info-tip-btn:focus-visible {
+  color: #fff;
+  outline: none;
+}
+
+/* The popover is appended to <body>, outside the sidebar's dark scope, so size it for paragraph-length
+   help text rather than Bootstrap's short-label default. */
+.info-tip-popover {
+  --bs-popover-max-width: 290px;
+}
+.info-tip-popover .popover-body {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}

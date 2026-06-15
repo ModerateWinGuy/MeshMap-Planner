@@ -67,17 +67,20 @@
               @change="store.toggleViewshedLive()"
             />
             <label class="form-check-label" for="viewshed_live">Live recompute while dragging</label>
-          </div>
-          <div class="form-text">
-            On = recompute continuously as you drag the node (needs a fast GPU; runs at lower detail
-            mid-drag). Off = recompute when you drop it or change a setting.
+            <InfoTip>
+              On = recompute continuously as you drag the node (needs a fast GPU; runs at lower detail
+              mid-drag). Off = recompute when you drop it or change a setting.
+            </InfoTip>
           </div>
         </div>
       </div>
 
       <div class="row mt-3" v-if="store.viewshedEnabled">
         <div class="col-12">
-          <label for="viewshed_radius" class="form-label">Radius: {{ store.viewshedRadiusKm }} km</label>
+          <div class="d-flex align-items-center mb-2">
+            <label for="viewshed_radius" class="form-label mb-0">Radius: {{ store.viewshedRadiusKm }} km</label>
+            <InfoTip>How far out to test. Larger radius = coarser terrain at this range.</InfoTip>
+          </div>
           <input
             type="range"
             class="form-range"
@@ -88,15 +91,19 @@
             :value="store.viewshedRadiusKm"
             @input="store.setViewshedRadiusKm(Number(($event.target as HTMLInputElement).value))"
           />
-          <div class="form-text">How far out to test. Larger radius = coarser terrain at this range.</div>
         </div>
       </div>
 
       <div class="row mt-3" v-if="store.viewshedEnabled">
         <div class="col-12">
-          <label for="viewshed_target_height" class="form-label">
-            Receiver height: {{ store.viewshedTargetHeight }} m
-          </label>
+          <div class="d-flex align-items-center mb-2">
+            <label for="viewshed_target_height" class="form-label mb-0">
+              Receiver height: {{ store.viewshedTargetHeight }} m
+            </label>
+            <InfoTip>
+              Height above ground at the tested cells. The observer uses the node's antenna height.
+            </InfoTip>
+          </div>
           <input
             type="range"
             class="form-range"
@@ -107,17 +114,17 @@
             :value="store.viewshedTargetHeight"
             @input="store.setViewshedTargetHeight(Number(($event.target as HTMLInputElement).value))"
           />
-          <div class="form-text">
-            Height above ground at the tested cells. The observer uses the node's antenna height.
-          </div>
         </div>
       </div>
 
       <div class="row mt-3" v-if="store.viewshedEnabled">
         <div class="col-12">
-          <label for="viewshed_opacity" class="form-label">
-            Opacity: {{ Math.round(store.viewshedOpacity * 100) }}%
-          </label>
+          <div class="d-flex align-items-center mb-2">
+            <label for="viewshed_opacity" class="form-label mb-0">
+              Opacity: {{ Math.round(store.viewshedOpacity * 100) }}%
+            </label>
+            <InfoTip>Higher = more opaque green tint.</InfoTip>
+          </div>
           <input
             type="range"
             class="form-range"
@@ -128,7 +135,6 @@
             :value="store.viewshedOpacity"
             @input="store.setViewshedOpacity(Number(($event.target as HTMLInputElement).value))"
           />
-          <div class="form-text">Higher = more opaque green tint.</div>
         </div>
       </div>
     </template>
@@ -138,5 +144,6 @@
 <script setup lang="ts">
 import { TriangleAlert } from '@lucide/vue'
 import { useStore } from '../store.ts'
+import InfoTip from './InfoTip.vue'
 const store = useStore()
 </script>

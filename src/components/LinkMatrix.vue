@@ -22,10 +22,10 @@
                 @change="store.toggleLinksSelectedOnly()"
             />
             <label class="form-check-label small" for="links_selected_only">Only show selected node's links</label>
-            <div class="form-text">
+            <InfoTip>
                 Hide every link except those touching the selected node. Off: viable links always show,
                 marginal/failed links only for the selected node.
-            </div>
+            </InfoTip>
         </div>
 
         <div class="form-check form-switch mb-2">
@@ -38,9 +38,9 @@
                 @change="store.toggleHideInvalidLinks()"
             />
             <label class="form-check-label small" for="hide_invalid_links">Hide invalid links</label>
-            <div class="form-text">
+            <InfoTip>
                 Hide links that don't meet the margin threshold, including those touching the selected node.
-            </div>
+            </InfoTip>
         </div>
 
         <p v-if="store.nodes.length < 2" class="text-muted small mb-0">Add at least two nodes to compute links.</p>
@@ -127,6 +127,7 @@ import { computed } from 'vue'
 import { Spline } from '@lucide/vue'
 import { useStore } from '../store.ts'
 import { type LinkResult, type Node } from '../types.ts'
+import InfoTip from './InfoTip.vue'
 
 const store = useStore()
 

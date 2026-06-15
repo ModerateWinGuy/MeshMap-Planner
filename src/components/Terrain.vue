@@ -14,9 +14,12 @@
 
     <div class="row mt-3" v-if="store.hillshadeEnabled">
       <div class="col-12">
-        <label for="hillshade_intensity" class="form-label">
-          Shading intensity: {{ Math.round(store.hillshadeExaggeration * 100) }}%
-        </label>
+        <div class="d-flex align-items-center mb-2">
+          <label for="hillshade_intensity" class="form-label mb-0">
+            Shading intensity: {{ Math.round(store.hillshadeExaggeration * 100) }}%
+          </label>
+          <InfoTip>Multidirectional relief shading from the DEM. Higher = stronger.</InfoTip>
+        </div>
         <input
           type="range"
           class="form-range"
@@ -27,15 +30,17 @@
           :value="store.hillshadeExaggeration"
           @input="store.setHillshadeExaggeration(Number(($event.target as HTMLInputElement).value))"
         />
-        <div class="form-text">Multidirectional relief shading from the DEM. Higher = stronger.</div>
       </div>
     </div>
 
     <div class="row mt-3" v-if="store.terrainEnabled">
       <div class="col-12">
-        <label for="terrain_exaggeration" class="form-label">
-          Vertical exaggeration: {{ store.terrainExaggeration.toFixed(1) }}×
-        </label>
+        <div class="d-flex align-items-center mb-2">
+          <label for="terrain_exaggeration" class="form-label mb-0">
+            Vertical exaggeration: {{ store.terrainExaggeration.toFixed(1) }}×
+          </label>
+          <InfoTip>Higher values make subtle terrain easier to read.</InfoTip>
+        </div>
         <input
           type="range"
           class="form-range"
@@ -46,7 +51,6 @@
           :value="store.terrainExaggeration"
           @input="store.setTerrainExaggeration(Number(($event.target as HTMLInputElement).value))"
         />
-        <div class="form-text">Higher values make subtle terrain easier to read.</div>
       </div>
     </div>
 
@@ -62,10 +66,10 @@
             @change="store.toggleLinks3d()"
           />
           <label class="form-check-label" for="links3d_enabled">Show 3D line-of-sight links</label>
-        </div>
-        <div class="form-text">
-          Draw links as 3D lines flying through the air between antenna tops, with terrain-clipping
-          sections in yellow. When off, links stay as flat lines draped on the ground.
+          <InfoTip>
+            Draw links as 3D lines flying through the air between antenna tops, with terrain-clipping
+            sections in yellow. When off, links stay as flat lines draped on the ground.
+          </InfoTip>
         </div>
       </div>
     </div>
@@ -82,19 +86,22 @@
             @change="store.toggleLinkCurtain()"
           />
           <label class="form-check-label" for="link_curtain_enabled">Show link drop-curtain</label>
-        </div>
-        <div class="form-text">
-          A translucent wall dropped from each link to the ground, showing its track and where it clips
-          terrain.
+          <InfoTip>
+            A translucent wall dropped from each link to the ground, showing its track and where it clips
+            terrain.
+          </InfoTip>
         </div>
       </div>
     </div>
 
     <div class="row mt-3" v-if="store.terrainEnabled && store.links3dEnabled && store.linkCurtainEnabled">
       <div class="col-12">
-        <label for="link_curtain_opacity" class="form-label">
-          Drop-curtain opacity: {{ Math.round(store.linkCurtainOpacity * 100) }}%
-        </label>
+        <div class="d-flex align-items-center mb-2">
+          <label for="link_curtain_opacity" class="form-label mb-0">
+            Drop-curtain opacity: {{ Math.round(store.linkCurtainOpacity * 100) }}%
+          </label>
+          <InfoTip>Higher = more opaque.</InfoTip>
+        </div>
         <input
           type="range"
           class="form-range"
@@ -105,7 +112,6 @@
           :value="store.linkCurtainOpacity"
           @input="store.setLinkCurtainOpacity(Number(($event.target as HTMLInputElement).value))"
         />
-        <div class="form-text">Higher = more opaque.</div>
       </div>
     </div>
 
@@ -121,5 +127,6 @@
 
 <script setup lang="ts">
 import { useStore } from '../store.ts'
+import InfoTip from './InfoTip.vue'
 const store = useStore()
 </script>
