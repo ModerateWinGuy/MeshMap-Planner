@@ -6,6 +6,7 @@
 // cache keeps an intact copy for the next call.
 
 import { getHeightmap, type Heightmap } from '../viewshed/heightmap.ts';
+import { type OverlaySpec } from '../terrain/demTiles.ts';
 import { haversineM } from './profile.ts';
 import type { ProfileOptions } from './profile.ts';
 import type { SimNode, SimShared } from './links.ts';
@@ -14,9 +15,10 @@ import type { RelayParams } from './relay.ts';
 import type { LinkResult, ProfileResult, RelayResult } from '../types.ts';
 import type { WireHeightmap } from './worker.ts';
 
-// The active terrain tile source, resolved by the store from terrainDemSource() + the map's zoom.
+// The active terrain tile source, resolved by the store from the map's zoom + overlay state.
 export interface SimSource {
-  urlTemplate: string; // a {z}/{x}/{y} tile template (the AWS Terrarium URL)
+  urlTemplate: string; // the AWS Terrarium baseline {z}/{x}/{y} template (composited from, not meshdem://)
+  overlays: OverlaySpec[]; // higher-detail overlays composited over the baseline (LINZ when on; [] = off)
   maxzoom: number; // served cap for this source
   mapZoom: number; // the map's current zoom (tiles fetched here match what the map shows)
 }
@@ -168,7 +170,7 @@ export function runMatrix(run: MatrixRun): { promise: Promise<LinkResult[]>; can
   const region = coveringRegion(run.nodes);
   const promise = (async (): Promise<LinkResult[]> => {
     const hm = await getHeightmap(
-      { urlTemplate: run.source.urlTemplate, maxzoom: run.source.maxzoom, lon: region.lon, lat: region.lat, radiusM: region.radiusM, mapZoom: run.source.mapZoom },
+      { urlTemplate: run.source.urlTemplate, overlays: run.source.overlays, maxzoom: run.source.maxzoom, lon: region.lon, lat: region.lat, radiusM: region.radiusM, mapZoom: run.source.mapZoom },
       run.onHeightmapProgress ? (p) => run.onHeightmapProgress!(p.loaded, p.total) : undefined,
     );
     return new Promise<LinkResult[]>((resolve, reject) => {
@@ -196,7 +198,7 @@ export function runProfile(run: ProfileRun): { promise: Promise<ProfileResult>; 
   const region = coveringRegion([{ lon: run.tx.lon, lat: run.tx.lat }, { lon: run.rx.lon, lat: run.rx.lat }]);
   const promise = (async (): Promise<ProfileResult> => {
     const hm = await getHeightmap(
-      { urlTemplate: run.source.urlTemplate, maxzoom: run.source.maxzoom, lon: region.lon, lat: region.lat, radiusM: region.radiusM, mapZoom: run.source.mapZoom },
+      { urlTemplate: run.source.urlTemplate, overlays: run.source.overlays, maxzoom: run.source.maxzoom, lon: region.lon, lat: region.lat, radiusM: region.radiusM, mapZoom: run.source.mapZoom },
       run.onHeightmapProgress ? (p) => run.onHeightmapProgress!(p.loaded, p.total) : undefined,
     );
     return new Promise<ProfileResult>((resolve, reject) => {
@@ -239,7 +241,7 @@ export function runCoverage(run: CoverageRun): { promise: Promise<CoverageGrid>;
   };
   const promise = (async (): Promise<CoverageGrid> => {
     const hm = await getHeightmap(
-      { urlTemplate: run.source.urlTemplate, maxzoom: run.source.maxzoom, lon: run.tx.lon, lat: run.tx.lat, radiusM: run.radiusM, mapZoom: run.source.mapZoom },
+      { urlTemplate: run.source.urlTemplate, overlays: run.source.overlays, maxzoom: run.source.maxzoom, lon: run.tx.lon, lat: run.tx.lat, radiusM: run.radiusM, mapZoom: run.source.mapZoom },
       run.onHeightmapProgress ? (p) => run.onHeightmapProgress!(p.loaded, p.total) : undefined,
     );
     return new Promise<CoverageGrid>((resolve, reject) => {
@@ -272,7 +274,7 @@ export function runRelay(run: RelayRun): { promise: Promise<RelayResult>; cancel
   const radiusM = haversineM(lon, lat, east, north); // half-diagonal of the bbox
   const promise = (async (): Promise<RelayResult> => {
     const hm = await getHeightmap(
-      { urlTemplate: run.source.urlTemplate, maxzoom: run.source.maxzoom, lon, lat, radiusM, mapZoom: run.source.mapZoom },
+      { urlTemplate: run.source.urlTemplate, overlays: run.source.overlays, maxzoom: run.source.maxzoom, lon, lat, radiusM, mapZoom: run.source.mapZoom },
       run.onHeightmapProgress ? (p) => run.onHeightmapProgress!(p.loaded, p.total) : undefined,
     );
     return new Promise<RelayResult>((resolve, reject) => {

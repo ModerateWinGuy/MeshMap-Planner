@@ -35,7 +35,13 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Vite inlines VITE_* env vars into the bundle at build time, so the LINZ key must be present
+      # here. Stored as a repo secret (Settings → Secrets and variables → Actions). Note: it ends up
+      # in the published JS — it's protected by LINZ's domain restriction on the Developer key, not by
+      # being secret. If unset, the LINZ overlay just falls back to the AWS Terrarium baseline.
       - run: pnpm build
+        env:
+          VITE_LINZ_API_KEY: ${{ secrets.VITE_LINZ_API_KEY }}
 
       - uses: actions/configure-pages@v5
 
