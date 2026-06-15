@@ -1,15 +1,17 @@
-// Builds the elevation heightmap the WebGPU viewshed marches over (see ./gpu.ts), fetched from the
-// SAME Terrarium tiles the map's active `terrain-dem` source is using — so the line-of-sight result
-// always matches whatever surface (DEM / DSM / SRTM / sim-grid) is currently draped in the viewport.
-// The store resolves the active source (via terrainDemSource) and hands us its tile-URL template +
-// served maxzoom; we pick a zoom for the requested radius, fetch the covering XYZ tiles, and blit
-// them — losslessly, no decode — into one web-mercator-aligned RGBA8 mosaic. Terrarium decoding
-// (height = (R*256 + G + B/256) − 32768) happens later, per-texel, on the GPU.
+// Builds the elevation heightmap the WebGPU viewshed marches over (see ./gpu.ts) from the SAME surface
+// the map's `terrain-dem` source draws — so the line-of-sight result always matches whatever is draped
+// in the viewport. The store hands us the AWS Terrarium baseline template + the active overlays (LINZ
+// when on) + the served maxzoom; we pick a zoom for the requested radius and, per covering XYZ tile,
+// call composeTerrariumTileRGBA (demTiles.ts) — which fetches the baseline, overlays the higher-detail
+// sources per pixel, and returns Terrarium-encoded RGBA — then blit that into one web-mercator-aligned
+// RGBA8 mosaic. Terrarium decoding (height = (R*256 + G + B/256) − 32768) happens later, on the GPU.
 //
 // The mosaic spans whole tile edges, so its bbox corners are exact tile boundaries and it drops
 // straight into a MapLibre canvas source with no reprojection: the tiles are already web-mercator,
 // so rows are evenly spaced in mercator Y. (Contrast the lat-spaced SPLAT coverage GeoTIFF, which
 // store.ts has to mercatorWarp before draping.)
+
+import { composeTerrariumTileRGBA, type OverlaySpec } from '../terrain/demTiles.ts';
 
 // Web-mercator slippy-tile math. A local copy keeps this module self-contained and free of any
 // import cycle with the store, and it needs the inverse (tile→lng/lat) the store doesn't have.
@@ -82,7 +84,8 @@ export interface HeightmapProgress {
 }
 
 export interface HeightmapRequest {
-  urlTemplate: string; // a {z}/{x}/{y} tile template, e.g. the absolute AWS Terrarium url
+  urlTemplate: string; // the AWS Terrarium baseline {z}/{x}/{y} template (composited from, not meshdem://)
+  overlays: OverlaySpec[]; // higher-detail overlays composited over the baseline (LINZ when on; [] = off)
   maxzoom: number; // served cap; never request finer (overzoom past it just 404s/redirects)
   lon: number;
   lat: number;
@@ -133,11 +136,6 @@ function cachePut(key: string, hm: Heightmap): void {
   }
 }
 
-// Fill a {z}/{x}/{y} template (the absolute AWS Terrarium url).
-function tileUrl(tpl: string, z: number, x: number, y: number): string {
-  return tpl.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y));
-}
-
 interface TileRange {
   z: number;
   x0: number;
@@ -180,7 +178,9 @@ export async function getHeightmap(
   const nx = x1 - x0 + 1;
   const ny = y1 - y0 + 1;
 
-  const sourceKey = `${req.urlTemplate}|${z}|${x0},${y0},${x1},${y1}`;
+  // Overlay set is part of the key, so toggling LINZ on/off misses → refetches the new surface.
+  const overlayKey = req.overlays.map((o) => o.urlTemplate).join(',');
+  const sourceKey = `${req.urlTemplate}|${overlayKey}|${z}|${x0},${y0},${x1},${y1}`;
   const cached = cacheGet(sourceKey);
   if (cached) {
     return cached;
@@ -246,17 +246,15 @@ export async function getHeightmap(
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), TILE_TIMEOUT_MS);
       try {
-        const res = await fetch(tileUrl(req.urlTemplate, z, x, y), { mode: 'cors', signal: ctrl.signal });
-        if (res.ok) {
-          // colorSpaceConversion 'none' keeps the elevation-encoded bytes from being gamma/ICC-shifted.
-          const bmp = await createImageBitmap(await res.blob(), {
-            premultiplyAlpha: 'none',
-            colorSpaceConversion: 'none',
-          });
-          ctx.drawImage(bmp, (x - x0) * TILE, (y - y0) * TILE);
-          bmp.close();
+        // composeTerrariumTileRGBA fetches the AWS baseline and overlays the active higher-detail
+        // sources (LINZ when on) per pixel, returning Terrarium-encoded RGBA — the SAME surface the map
+        // draws via the meshdem:// protocol. putImageData writes the bytes verbatim (no colour
+        // management), so the elevation encoding stays byte-exact for the GPU decode.
+        const rgba = await composeTerrariumTileRGBA(z, x, y, req.urlTemplate, req.overlays, ctrl.signal);
+        if (rgba) {
+          ctx.putImageData(new ImageData(rgba, TILE, TILE), (x - x0) * TILE, (y - y0) * TILE);
         } else {
-          failed++; // non-2xx: leave the sea sentinel for this cell
+          failed++; // nothing fetched: leave the sea sentinel for this cell
         }
       } catch {
         failed++; // network/decode failure or timeout: keep the sea sentinel
@@ -272,8 +270,8 @@ export async function getHeightmap(
     // A warn (not a throw) so the compute still completes and renders: diagnosable without freezing.
     console.warn(
       `viewshed: ${failed}/${total} terrain tiles failed or timed out at z${z} (filled as sea). ` +
-        `Cold LINZ tiles are slow — they may still be warming on the backend; try again, or use ` +
-        `"Download terrain for this view" in Settings to warm them first.`,
+        `Cold LINZ elevation tiles are a live COG render and can be slow on first request; ` +
+        `pan/zoom over the area once to warm them, then recompute.`,
     );
   }
 

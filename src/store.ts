@@ -8,6 +8,15 @@ import { cloneObject, escapeHtml } from './utils.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
 import { Links3DLayer, buildLinkGeometry, setLinkColorFn, type LinkPick } from './links3d.ts';
 import { getHeightmap, type Heightmap } from './viewshed/heightmap.ts';
+import {
+  AWS_TERRARIUM_TEMPLATE,
+  DEM_MAXZOOM,
+  DEM_SCHEME,
+  linzOverlaySpec,
+  registerDemProtocol,
+  type LinzModel,
+  type OverlaySpec,
+} from './terrain/demTiles.ts';
 import { ViewshedEngine } from './viewshed/gpu.ts';
 import { runMatrix as runMatrixWorker, runProfile as runProfileWorker, runCoverage as runCoverageWorker, runRelay as runRelayWorker, type SimSource } from './sim/simClient.ts';
 import type { ProfileOptions } from './sim/profile.ts';
@@ -167,28 +176,33 @@ function pairPopupHtml(aName: string, bName: string): string {
     + `<br><button type="button" class="pair-profile-btn btn btn-sm btn-primary mt-2 w-100">Calculate link &amp; show profile</button>`;
 }
 
-// AWS Terrarium tiles — the global bare-earth baseline backing both the 3D terrain mesh and the
-// hillshade. Already carry LINZ 8 m DEM over NZ + 30 m SRTM elsewhere, with no backend dependency.
-const TERRARIUM_TILES = 'https://elevation-tiles-prod.s3.amazonaws.com/v2/terrarium/{z}/{x}/{y}.png';
-
-// Zoom at which Terrarium stops serving finer tiles; MapLibre overzooms past this rather than
-// fetching tiles that don't exist. Shared by the map source and the client-side sim/viewshed fetch.
-const TERRARIUM_MAXZOOM = 15;
+// The active terrain overlays for a given linzOverlay state + surface model. Empty = AWS Terrarium
+// baseline only. Resolved in one place so the map source and the sim/viewshed agree on exactly which
+// surface is current (see demTiles.ts).
+function terrainOverlays(linzOverlay: boolean, linzModel: LinzModel): OverlaySpec[] {
+  return linzOverlay ? [linzOverlaySpec(linzModel)] : [];
+}
 
 // The single raster-dem source backing the 3D terrain mesh, the hillshade, and the client-side sim
-// (matrix/profile/coverage/relay/viewshed). Always AWS Terrarium — global, fast, no backend.
-function terrainDemSource(): any {
+// (matrix/profile/coverage/relay/viewshed). Baseline is always AWS Terrarium (global, no key). When the
+// LINZ overlay is OFF the source points straight at the AWS tiles (zero overhead, byte-identical to
+// before). When ON it points at the `meshdem://` protocol, which composites LINZ over AWS per pixel and
+// returns Terrarium-encoded tiles — so `encoding` stays 'terrarium' either way and every downstream
+// decoder is unchanged. Swapping the two URL forms via setTiles is what the toggle does live.
+function terrainDemSource(linzOverlay: boolean, linzModel: LinzModel): any {
   return {
     type: 'raster-dem',
-    tiles: [TERRARIUM_TILES],
+    // meshdem://{model}/… when on (model in the URL so DEM↔DSM swaps reload cleanly); plain AWS when off.
+    tiles: [linzOverlay ? `${DEM_SCHEME}://${linzModel}/{z}/{x}/{y}` : AWS_TERRARIUM_TEMPLATE],
     tileSize: 256,
-    // 'terrarium' is mandatory: these tiles decode to garbage under the default mapbox encoding.
+    // 'terrarium' is mandatory: these tiles decode to garbage under the default mapbox encoding. The
+    // composited LINZ tiles are normalised to Terrarium too, so this holds for both URL forms.
     encoding: 'terrarium',
     // minzoom 0 so MapLibre requests terrain at every zoom (the map opens at z10); overzooms past
     // maxzoom rather than fetching finer tiles that don't exist.
     minzoom: 0,
-    maxzoom: TERRARIUM_MAXZOOM,
-    attribution: 'Terrain: AWS / Mapzen / SRTM',
+    maxzoom: DEM_MAXZOOM,
+    attribution: 'Terrain: AWS / Mapzen / SRTM · LINZ CC-BY 4.0',
   };
 }
 
@@ -199,6 +213,8 @@ function buildStyle(
   activeBasemap: string,
   terrainEnabled: boolean,
   terrainExaggeration: number,
+  linzOverlay: boolean,
+  linzModel: LinzModel,
 ): any {
   const sources: Record<string, any> = {};
   const layers: any[] = [];
@@ -209,7 +225,7 @@ function buildStyle(
     sources[b.id] = { type: 'raster', tiles: b.tiles, tileSize: 256, attribution: b.attribution, maxzoom: b.maxzoom };
     layers.push({ id: `basemap-${b.id}`, type: 'raster', source: b.id, layout: { visibility: b.id === visibleId ? 'visible' : 'none' } });
   });
-  sources['terrain-dem'] = terrainDemSource();
+  sources['terrain-dem'] = terrainDemSource(linzOverlay, linzModel);
   const style: any = { version: 8, sources, layers };
   // Top-level `terrain` drapes the map over the DEM; runtime toggles go through setTerrain.
   if (terrainEnabled) {
@@ -433,6 +449,14 @@ const useStore = defineStore('store', {
       // 3D terrain (draped from the terrain raster-dem). Persisted so the view survives a reload.
       terrainEnabled: useLocalStorage('terrainEnabled', false),
       terrainExaggeration: useLocalStorage('terrainExaggeration', 1),
+      // Opt-in: layer LINZ NZ 1 m LIDAR DEM over the AWS Terrarium baseline where it has data (the
+      // baseline fills the ~20% of NZ without LIDAR + the rest of the world). Off by default so the
+      // map keeps the zero-overhead direct-AWS path until the user asks for the finer NZ terrain.
+      // Drives the terrain-dem source URL (AWS vs the meshdem:// compositor) and the sim/viewshed.
+      linzOverlay: useLocalStorage('linzOverlay', false),
+      // Which LINZ surface model the overlay layers on: 'dem' = bare earth, 'dsm' = surface (buildings,
+      // vegetation — usually better for line-of-sight). Persisted; only matters when linzOverlay is on.
+      linzModel: useLocalStorage<LinzModel>('linzModel', 'dem'),
       // The 3D line-of-sight links (chords through the air + masts + drop-curtains). When off, the
       // flat 2D draped links show at full opacity instead. Only render with 3D terrain on. Persisted.
       links3dEnabled: useLocalStorage('links3dEnabled', true),
@@ -1112,9 +1136,10 @@ const useStore = defineStore('store', {
             return;
           }
         }
-        // Resolve the terrain source exactly as the map does, so the heightmap matches the AWS
-        // Terrarium surface currently draped in the viewport.
-        const spec = terrainDemSource();
+        // Resolve the same surface the map draws: the AWS Terrarium baseline plus the active overlays
+        // (LINZ when on). heightmap.ts can't fetch the map's meshdem:// URL, so it composites from the
+        // base template + overlays itself (same underlying tiles → warm HTTP cache as the map).
+        const overlays = terrainOverlays(this.linzOverlay, this.linzModel);
         const radiusM = Math.max(1000, Math.min(30000, this.viewshedRadiusKm * 1000));
         // Output-grid long-edge cap, the knob that trades detail for GPU cost (cost ~ outPx² × steps):
         //  - live drag: small, for framerate.
@@ -1136,8 +1161,9 @@ const useStore = defineStore('store', {
         // drop frames while a pass is busy. The panel shows the live N/M tile count via viewshedProgress.
         const hm = await getHeightmap(
           {
-            urlTemplate: spec.tiles[0],
-            maxzoom: spec.maxzoom ?? 15,
+            urlTemplate: AWS_TERRARIUM_TEMPLATE,
+            overlays,
+            maxzoom: DEM_MAXZOOM,
             lon: node.transmitter.tx_lon,
             lat: node.transmitter.tx_lat,
             radiusM,
@@ -1227,6 +1253,10 @@ const useStore = defineStore('store', {
         start ? start.transmitter.tx_lon : DEFAULT_LON,
         start ? start.transmitter.tx_lat : DEFAULT_LAT,
       ];
+      // The `meshdem://{model}/…` protocol composites LINZ over the AWS baseline (see demTiles.ts).
+      // Registered once, globally, before the map reads a style that may reference it (when linzOverlay
+      // persisted on). The model is encoded in the tile URL, so the handler needs no store reference.
+      registerDemProtocol(maplibregl);
       // markRaw is essential: this.map lives in Pinia state, so without it Vue deep-proxies the Map
       // and its internal registries, breaking MapLibre's identity-based event bookkeeping — the same
       // hazard that applied to Leaflet (see the leaflet-markraw memory).
@@ -1237,6 +1267,8 @@ const useStore = defineStore('store', {
             this.activeBasemap,
             this.terrainEnabled,
             this.terrainExaggeration,
+            this.linzOverlay,
+            this.linzModel,
           ),
           center,
           zoom: 10,
@@ -1668,6 +1700,36 @@ const useStore = defineStore('store', {
         map.setPaintProperty('hillshade', 'hillshade-exaggeration', x);
       }
     },
+    // Flip the LINZ high-detail overlay and re-point the terrain-dem source live.
+    toggleLinzOverlay() {
+      this.linzOverlay = !this.linzOverlay;
+      this.applyLinzOverlay();
+    },
+    // Swap the LINZ surface model (DEM ↔ DSM). The model is in the meshdem:// URL, so applyLinzOverlay's
+    // setTiles sees a changed URL and reloads; no-op visually while the overlay is off.
+    setLinzModel(model: LinzModel) {
+      this.linzModel = model;
+      this.applyLinzOverlay();
+    },
+    applyLinzOverlay() {
+      const map = this.map as maplibregl.Map | undefined;
+      const src = map?.getSource('terrain-dem') as { setTiles?: (t: string[]) => void } | undefined;
+      if (!map || !src?.setTiles) {
+        return;
+      }
+      // Swap the source's tile URLs in place — AWS direct when off, the meshdem://{model}/… compositor
+      // when on. setTiles reloads the source, so the 3D mesh and the hillshade re-read the new surface
+      // without a removeSource/addSource teardown (which would tear down terrain + the hillshade layer).
+      src.setTiles(terrainDemSource(this.linzOverlay, this.linzModel).tiles);
+      // setTerrain re-reads the reloaded DEM; rebuild the 3D links against the new heights. The
+      // sim/viewshed heightmap LRU is keyed by the overlay set (heightmap.ts), so it refetches on its
+      // next run; re-run the live viewshed now so the change is visible immediately.
+      this.applyTerrain();
+      this.rebuild3dLinks();
+      if (this.viewshedEnabled) {
+        this.requestViewshed();
+      }
+    },
     applyTerrain() {
       const map = this.map as maplibregl.Map | undefined;
       // Not gated on isStyleLoaded() (false while tiles stream, as in setBasemap); setTerrain only
@@ -2059,12 +2121,17 @@ const useStore = defineStore('store', {
       pairPopup = popup;
     },
     // Resolve the terrain tile source for the client-side sim exactly as the map/viewshed do, so
-    // simulations run against the AWS Terrarium surface currently drawn, at the zoom the map is
-    // showing — see computeViewshed for the same resolution.
+    // simulations run against the surface currently drawn (AWS Terrarium + the active overlays), at the
+    // zoom the map is showing — see computeViewshed for the same resolution. The sim composites from the
+    // AWS base template + overlays (not the map's meshdem:// URL, which it can't fetch).
     _simSource(): SimSource {
-      const spec = terrainDemSource();
       const mapZoom = this.map ? (this.map as maplibregl.Map).getZoom() : 10;
-      return { urlTemplate: spec.tiles[0], maxzoom: spec.maxzoom ?? TERRARIUM_MAXZOOM, mapZoom };
+      return {
+        urlTemplate: AWS_TERRARIUM_TEMPLATE,
+        overlays: terrainOverlays(this.linzOverlay, this.linzModel),
+        maxzoom: DEM_MAXZOOM,
+        mapZoom,
+      };
     },
     // Shared environment/model params for a client-side ITM run (matrix, profile, and later coverage).
     _simShared(): SimShared {
