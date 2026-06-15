@@ -35,7 +35,7 @@ export const LORA_PRESETS = [
   'MediumSlow', 'LongFast', 'LongModerate', 'LongSlow'
 ];
 
-// The four switchable raster basemaps. MapLibre has no Leaflet `{s}` subdomain placeholder, so
+// The switchable raster basemaps. MapLibre has no Leaflet `{s}` subdomain placeholder, so
 // subdomained hosts are listed as a tiles[] array (MapLibre rotates over them) and single-host
 // sources use one entry. Each carries its own attribution for the AttributionControl.
 export const BASEMAPS = [
@@ -54,6 +54,20 @@ export const BASEMAPS = [
       'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
       'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
       'https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+    ],
+    attribution: '© OpenStreetMap contributors © CARTO',
+    maxzoom: 20,
+  },
+  {
+    // Dark counterpart of Carto Light — its near-black, low-chroma palette lets the hillshade relief
+    // overlay read far more clearly than it can over the pale light_all tiles.
+    id: 'carto-dark',
+    label: 'Carto Dark',
+    tiles: [
+      'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      'https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
     ],
     attribution: '© OpenStreetMap contributors © CARTO',
     maxzoom: 20,
