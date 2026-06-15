@@ -3,7 +3,7 @@ import { useLocalStorage } from '@vueuse/core';
 import { watch, markRaw } from 'vue';
 import { randanimalSync } from 'randanimal';
 import maplibregl from 'maplibre-gl';
-import { type Site, type SplatParams, type Node, type MatrixResult, type LinkResult, type RelayResult, type ProfileResult, type UiMode } from './types.ts';
+import { type Site, type SplatParams, type Node, type NodeGroup, type MatrixResult, type LinkResult, type RelayResult, type ProfileResult, type UiMode } from './types.ts';
 import { cloneObject, escapeHtml } from './utils.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
 import { Links3DLayer, buildLinkGeometry, setLinkColorFn, type LinkPick } from './links3d.ts';
@@ -420,6 +420,9 @@ const useStore = defineStore('store', {
       // the panel's "Loading terrain… N/M tiles" indicator so a slow LINZ fetch never looks frozen.
       viewshedProgress: null as { loaded: number; total: number } | null,
       nodes: useLocalStorage<Node[]>('nodes', [seedNode()]),
+      // User-created folders for the node list (single-level). Display order = array order; a node's
+      // membership lives on the node (Node.groupId). Empty by default; persisted across reloads.
+      groups: useLocalStorage<NodeGroup[]>('nodeGroups', []),
       selectedNodeId: useLocalStorage<string | null>('selectedNodeId', null),
       // When set, node markers are non-draggable so they can't be moved by accident. Persisted so
       // the lock survives a reload. Manual lat/lon edits in the panel still apply either way.
@@ -457,6 +460,16 @@ const useStore = defineStore('store', {
     selectedNode(state): Node | undefined {
       return state.nodes.find((n) => n.id === state.selectedNodeId) ?? state.nodes[0];
     },
+    // Effective on-map visibility for a node: hidden if its own `hidden` flag is set OR its folder's
+    // is. The folder flag is an override that leaves the per-node flag untouched, so showing the
+    // folder again restores each node's prior state. Returned as a predicate so callers test any node
+    // reactively (templates, renderNodeMarkers, visibleLinks). Rebuilds the hidden-folder set per
+    // access — cheap at this scale, and keeps it reactive on `groups`.
+    nodeHidden(state): (node: Node) => boolean {
+      const hiddenGroups = new Set(state.groups.filter((g) => g.hidden).map((g) => g.id));
+      return (node: Node): boolean =>
+        Boolean(node.hidden) || (node.groupId != null && hiddenGroups.has(node.groupId));
+    },
     // The 3D links only make sense (and queryTerrainElevation only works) with terrain on, and they
     // can be switched off independently. Gates rendering, click-picking and the 2D-line dimming.
     links3dActive(state): boolean {
@@ -476,10 +489,12 @@ const useStore = defineStore('store', {
       const sel = state.selectedNodeId;
       const touchesSelected = (l: LinkResult): boolean => l.a === sel || l.b === sel;
       // Hidden nodes drop off the map entirely — including every link that touches one — so a user can
-      // focus on a subset without deleting the rest. Layered on top of the selected/viable filters
-      // below, so it applies in every mode. The matrix itself still spans all nodes, so toggling
-      // visibility re-filters instantly without recomputing.
-      const hidden = new Set(state.nodes.filter((n) => n.hidden).map((n) => n.id));
+      // focus on a subset without deleting the rest. A node counts as hidden if its own flag or its
+      // folder's is set (nodeHidden). Layered on top of the selected/viable filters below, so it
+      // applies in every mode. The matrix itself still spans all nodes, so toggling visibility
+      // re-filters instantly without recomputing.
+      const isHidden = this.nodeHidden;
+      const hidden = new Set(state.nodes.filter((n) => isHidden(n)).map((n) => n.id));
       const shown = (l: LinkResult): boolean => !hidden.has(l.a) && !hidden.has(l.b);
       // "Hide invalid links" drops every non-viable link, overriding the selected-node exception that
       // would otherwise still show them (both for selected-only and the default view).
@@ -507,7 +522,10 @@ const useStore = defineStore('store', {
           tx_lat: Number(center.lat.toFixed(6)),
           tx_lon: Number(center.lng.toFixed(6))
         },
-        receiver: base ? cloneObject(base.receiver) : defaultReceiver()
+        receiver: base ? cloneObject(base.receiver) : defaultReceiver(),
+        // Join the selected node's folder so adding nodes while building out a group keeps them
+        // together; undefined (top-level) when nothing is selected or the selection is ungrouped.
+        groupId: base?.groupId
       };
       this.nodes.push(node);
       this.selectedNodeId = node.id;
@@ -539,7 +557,8 @@ const useStore = defineStore('store', {
       this.redrawLinks();       // re-filter the links touching it (2D + 3D)
     },
     // Bulk hide/show, behind the node list's "Hide all" / "Show all" buttons. No-op (no redraw) when
-    // nothing actually changes, so a redundant click doesn't churn the markers/links.
+    // nothing actually changes, so a redundant click doesn't churn the markers/links. "Show all" also
+    // clears every folder-level hide so a hidden folder can't keep its members off the map.
     setAllNodesHidden(hidden: boolean) {
       let changed = false;
       for (const node of this.nodes) {
@@ -548,11 +567,112 @@ const useStore = defineStore('store', {
           changed = true;
         }
       }
+      if (!hidden) {
+        for (const group of this.groups) {
+          if (group.hidden) {
+            group.hidden = false;
+            changed = true;
+          }
+        }
+      }
       if (!changed) {
         return;
       }
       this.renderNodeMarkers();
       this.redrawLinks();
+    },
+    // --- Folders (node groups) -------------------------------------------------------------------
+    // Create a folder and return its id so the caller can drop the user straight into renaming it.
+    // New folders start empty and expanded; nodes join via moveNodeToGroup / drag-and-drop.
+    addGroup(name = 'New folder'): string {
+      const group: NodeGroup = { id: crypto.randomUUID(), name };
+      this.groups.push(group);
+      return group.id;
+    },
+    renameGroup(id: string, name: string) {
+      const group = this.groups.find((g) => g.id === id);
+      if (group) {
+        group.name = name;
+      }
+    },
+    // List-only toggle: collapse/expand a folder in the panel. Doesn't touch the map.
+    toggleGroupCollapsed(id: string) {
+      const group = this.groups.find((g) => g.id === id);
+      if (group) {
+        group.collapsed = !group.collapsed;
+      }
+    },
+    // Hide/show every member of a folder at once. Flips the folder's own flag (which overrides each
+    // member's per-node flag in nodeHidden) rather than the nodes', so the members' individual
+    // visibility is preserved and restored when the folder is shown again.
+    toggleGroupVisibility(id: string) {
+      const group = this.groups.find((g) => g.id === id);
+      if (!group) {
+        return;
+      }
+      group.hidden = !group.hidden;
+      this.renderNodeMarkers();
+      this.redrawLinks();
+    },
+    // Delete a folder. Its member nodes are kept — they fall back to ungrouped (top-level), not
+    // deleted. Only needs a redraw if the folder was hiding members, which now reappear.
+    deleteGroup(id: string) {
+      const idx = this.groups.findIndex((g) => g.id === id);
+      if (idx === -1) {
+        return;
+      }
+      const wasHiding = Boolean(this.groups[idx].hidden);
+      this.groups.splice(idx, 1);
+      for (const node of this.nodes) {
+        if (node.groupId === id) {
+          node.groupId = undefined;
+        }
+      }
+      if (wasHiding) {
+        this.renderNodeMarkers();
+        this.redrawLinks();
+      }
+    },
+    // Move a node into a folder (groupId) or to the top level (null), optionally inserting it before
+    // another node so drag-and-drop can both regroup and reorder in one call. Order lives in the flat
+    // `nodes` array; the panel renders each folder by filtering that array, so contiguity isn't
+    // required — appending to the array end still renders as the folder's last child. Always redraws:
+    // crossing a hidden-folder boundary can flip the node's effective visibility, and a reorder is
+    // cheap to reconcile.
+    moveNodeToGroup(nodeId: string, groupId: string | null, beforeNodeId: string | null = null) {
+      const fromIdx = this.nodes.findIndex((n) => n.id === nodeId);
+      if (fromIdx === -1 || nodeId === beforeNodeId) {
+        return;
+      }
+      const [node] = this.nodes.splice(fromIdx, 1);
+      node.groupId = groupId ?? undefined;
+      let insertIdx = this.nodes.length;
+      if (beforeNodeId) {
+        const at = this.nodes.findIndex((n) => n.id === beforeNodeId);
+        if (at !== -1) {
+          insertIdx = at;
+        }
+      }
+      this.nodes.splice(insertIdx, 0, node);
+      this.renderNodeMarkers();
+      this.redrawLinks();
+    },
+    // Reorder a folder, moving it before another (or to the end when beforeGroupId is null). Purely a
+    // list reordering — folder membership and map state are unaffected, so no redraw.
+    moveGroup(groupId: string, beforeGroupId: string | null) {
+      const fromIdx = this.groups.findIndex((g) => g.id === groupId);
+      if (fromIdx === -1 || groupId === beforeGroupId) {
+        return;
+      }
+      const [group] = this.groups.splice(fromIdx, 1);
+      let insertIdx = this.groups.length;
+      if (beforeGroupId) {
+        const at = this.groups.findIndex((g) => g.id === beforeGroupId);
+        if (at !== -1) {
+          insertIdx = at;
+        }
+      }
+      this.groups.splice(insertIdx, 0, group);
     },
     deleteNode(id: string) {
       const idx = this.nodes.findIndex((n) => n.id === id);
@@ -584,17 +704,19 @@ const useStore = defineStore('store', {
       if (!map) {
         return;
       }
-      // Remove markers for nodes that no longer exist or have been hidden.
+      // Remove markers for nodes that no longer exist or have been hidden (by their own flag or their
+      // folder's — see nodeHidden).
+      const isHidden = this.nodeHidden;
       for (const id of Object.keys(this.nodeMarkers)) {
         const node = this.nodes.find((n) => n.id === id);
-        if (!node || node.hidden) {
+        if (!node || isHidden(node)) {
           this.nodeMarkers[id].remove();
           delete this.nodeMarkers[id];
         }
       }
       const selectedId = this.selectedNode?.id;
       for (const node of this.nodes) {
-        if (node.hidden) {
+        if (isHidden(node)) {
           continue; // hidden nodes have no marker — they're excluded from the map and all links
         }
         const lngLat: [number, number] = [node.transmitter.tx_lon, node.transmitter.tx_lat];

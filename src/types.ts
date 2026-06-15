@@ -19,7 +19,26 @@ export interface Node {
     receiver: SplatParams['receiver'];
     // When true the node is hidden from the map: no marker, and every link touching it drops out of
     // visibleLinks (2D + 3D). Lets a user focus on a subset without deleting the rest. Absent on
-    // nodes persisted before this existed → treated as visible.
+    // nodes persisted before this existed → treated as visible. The node's folder can also hide it
+    // (NodeGroup.hidden) — effective visibility is the OR of the two, computed by the store's
+    // nodeHidden getter.
+    hidden?: boolean;
+    // Id of the folder this node belongs to, or absent for an ungrouped (top-level) node. Folders are
+    // single-level — a node is in at most one. Absent on nodes persisted before folders existed.
+    groupId?: string;
+}
+
+// A user-created folder grouping nodes in the list. Single-level: folders never nest. Order in the
+// store's `groups` array is the display order; membership is the back-reference Node.groupId.
+export interface NodeGroup {
+    id: string;
+    name: string;
+    // List UI only: when true the folder is collapsed so its members are hidden from the *list* (not
+    // the map). Absent = expanded.
+    collapsed?: boolean;
+    // Folder-level map visibility. When true every member node is hidden from the map regardless of
+    // its own `hidden` flag — which is left untouched, so showing the folder restores each node's
+    // prior per-node state. See the store's nodeHidden getter for the combined rule.
     hidden?: boolean;
 }
 export interface SplatParams {

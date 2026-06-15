@@ -143,7 +143,7 @@ const buttonText = computed(() => {
 const otherNodes = computed<Node[]>(() =>
     store.nodes.filter((n) => {
         if (n.id === store.selectedNodeId) return false
-        if (n.hidden) return false
+        if (store.nodeHidden(n)) return false
         if (!store.hideInvalidLinks) return true
         const link = linkFor(n.id)
         return !link || link.viable
