@@ -73,6 +73,11 @@ export interface SplatParams {
         // Browser-side sim fidelity preset (terrain-profile sampling detail vs speed). May be absent
         // on params persisted before it existed (mergeDefaults is shallow) — read with a default.
         quality: 'draft' | 'balanced' | 'high' | 'max';
+        // Max draped-overlay texture dimension (px). Caps how fine the coverage raster can get: a
+        // larger cap buys smaller ground cells at the cost of memory/GPU. Clamped to the GPU's real
+        // MAX_TEXTURE_SIZE at use time. May be absent on params persisted before it existed — read
+        // with a default (mergeDefaults is shallow).
+        overlay_max_texture: number;
     };
     display: {
         color_scale: string;

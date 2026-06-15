@@ -83,8 +83,57 @@ const VIEWSHED_ID = 'viewshed';
 const EMPTY_FC = { type: 'FeatureCollection', features: [] };
 
 // Conservative floor for gl.MAX_TEXTURE_SIZE across GPUs; a coverage canvas larger than this on
-// either axis is downsampled before upload so it never silently fails to render.
+// either axis is downsampled before upload so it never silently fails to render. Also the default
+// (and old-Safari-safe) overlay cap: 4096² is exactly the historical 16.7M-px canvas-area limit.
 const MAX_TEXTURE = 4096;
+
+// Coverage overlay raster sizing, keyed by the quality preset. az/rangeSteps set the ITM budget
+// (cost ≈ az × rangeSteps²/2, since each ray reruns ITM over a growing prefix). cellM is the TARGET
+// ground cell size for the OUTPUT raster: the raster is sized to hit it over the chosen range, then
+// clamped to [GRID_FLOOR, the texture cap]. The raster is cheap (decoupled from the ITM budget), so a
+// finer cell only costs rasterization + memory and buys a sharper overlay. 'max' targets 8 m — the
+// native LINZ DEM resolution — which it reaches at ranges up to (cap × cellM / 2); beyond that the
+// texture cap (not the target) bounds the cell size.
+const COVERAGE_PRESETS = {
+  draft: { az: 360, rangeSteps: 160, cellM: 60 },
+  balanced: { az: 540, rangeSteps: 224, cellM: 30 },
+  high: { az: 720, rangeSteps: 320, cellM: 16 },
+  max: { az: 1080, rangeSteps: 448, cellM: 8 },
+} as const;
+// Smallest output raster a coverage run uses, so a short-range pass still has a usable overlay.
+const COVERAGE_GRID_FLOOR = 256;
+
+// The GPU's real gl.MAX_TEXTURE_SIZE, queried once via a throwaway context and cached. Used to clamp
+// the user's chosen overlay cap so a too-large texture can't silently fail to upload. Falls back to
+// the conservative MAX_TEXTURE if WebGL is unavailable.
+let gpuMaxTextureCache: number | null = null;
+function gpuMaxTexture(): number {
+  if (gpuMaxTextureCache != null) {
+    return gpuMaxTextureCache;
+  }
+  try {
+    const gl = document.createElement('canvas').getContext('webgl') as WebGLRenderingContext | null;
+    gpuMaxTextureCache = gl ? gl.getParameter(gl.MAX_TEXTURE_SIZE) : MAX_TEXTURE;
+  } catch {
+    gpuMaxTextureCache = MAX_TEXTURE;
+  }
+  return gpuMaxTextureCache ?? MAX_TEXTURE;
+}
+
+// Effective overlay texture cap: the user's chosen ceiling, clamped to what this GPU can upload.
+// Note this does NOT model older Safari's separate canvas-AREA limit (16.7M px = 4096²) — picking a
+// cap above 4096 is an explicit opt-in for capable browsers (the panel help text flags the cost).
+function effectiveTextureCap(setting: number | undefined): number {
+  return Math.min(setting ?? MAX_TEXTURE, gpuMaxTexture());
+}
+
+// Output raster dimension (px per side) for a coverage run: target the preset's cell size over the
+// 2·radiusM span, clamped to [GRID_FLOOR, texture cap]. The resulting on-ground cell size is
+// 2·radiusM / this — surfaced to the user via the coverageCellMeters getter.
+function coverageGridSize(radiusM: number, preset: keyof typeof COVERAGE_PRESETS, cap: number): number {
+  const target = Math.ceil((2 * radiusM) / COVERAGE_PRESETS[preset].cellM);
+  return Math.min(cap, Math.max(COVERAGE_GRID_FLOOR, target));
+}
 
 // Colour a link by its margin: green (strong) -> red (marginal/none). Grey when unknown.
 export function linkColor(margin: number | null): string {
@@ -223,12 +272,12 @@ function isPow2(n: number): boolean {
 // 1024² or a 4096² downscale — would then be sampled against mipmaps that were never generated,
 // leaving the texture "incomplete", which WebGL renders as opaque black. Pixel dimensions don't
 // affect geo-registration (the four corner coordinates do), so shrinking one axis a pixel is free.
-function fitCoverageCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+function fitCoverageCanvas(canvas: HTMLCanvasElement, maxTexture = MAX_TEXTURE): HTMLCanvasElement {
   let w = canvas.width;
   let h = canvas.height;
   const max = Math.max(w, h);
-  if (max > MAX_TEXTURE) {
-    const scale = MAX_TEXTURE / max;
+  if (max > maxTexture) {
+    const scale = maxTexture / max;
     w = Math.max(1, Math.round(w * scale));
     h = Math.max(1, Math.round(h * scale));
   }
@@ -445,7 +494,8 @@ const useStore = defineStore('store', {
           time_fraction: 95.0,
           simulation_extent: 30.0,
           filter_radio_horizon: true,
-          quality: 'balanced'
+          quality: 'balanced',
+          overlay_max_texture: 4096
         },
         display: {
           color_scale: 'plasma',
@@ -459,6 +509,15 @@ const useStore = defineStore('store', {
   getters: {
     selectedNode(state): Node | undefined {
       return state.nodes.find((n) => n.id === state.selectedNodeId) ?? state.nodes[0];
+    },
+    // Ground size (m) of one coverage-overlay cell for the current quality/range/texture-cap settings:
+    // (2·radiusM) / renderGrid, the exact width the user sees as a draped square. Surfaced in the
+    // Simulation panel so the cell size is explicit instead of implied by the quality label.
+    coverageCellMeters(state): number {
+      const radiusM = Math.min(100000, state.splatParams.simulation.simulation_extent * 1000);
+      const preset = (state.splatParams.simulation.quality ?? 'balanced') as keyof typeof COVERAGE_PRESETS;
+      const cap = effectiveTextureCap(state.splatParams.simulation.overlay_max_texture);
+      return (2 * radiusM) / coverageGridSize(radiusM, preset, cap);
     },
     // Effective on-map visibility for a node: hidden if its own `hidden` flag is set OR its folder's
     // is. The folder flag is an override that leaves the per-node flag untouched, so showing the
@@ -1674,17 +1733,15 @@ const useStore = defineStore('store', {
 
       // Coverage is a RADIAL SWEEP from the TX (sharp near-site detail), not a uniform per-cell grid.
       // The preset picks the ITM budget (az rays × rangeSteps samples/ray — cost ≈ az × rangeSteps²/2,
-      // since each ray reruns ITM over a growing prefix) and the OUTPUT raster size (renderGrid), which
-      // is now just a cheap rasterization target decoupled from the ITM cost. Presets are tuned to a
-      // sane budget per quality tier independent of the chosen range.
-      const COVERAGE = {
-        draft: { az: 360, rangeSteps: 160, renderGrid: 512 },
-        balanced: { az: 540, rangeSteps: 224, renderGrid: 768 },
-        high: { az: 720, rangeSteps: 320, renderGrid: 1024 },
-        max: { az: 1080, rangeSteps: 448, renderGrid: 1536 },
-      } as const;
-      const preset = this.splatParams.simulation.quality ?? 'balanced';
-      const { az, rangeSteps, renderGrid } = COVERAGE[preset];
+      // since each ray reruns ITM over a growing prefix). The OUTPUT raster size is derived from the
+      // preset's target cell size over the chosen range and clamped to the user's overlay texture cap
+      // (coverageGridSize) — a cheap rasterization target decoupled from the ITM cost, so a finer grid
+      // just sharpens the overlay. renderGrid earlier was a FIXED count per preset, which made cells
+      // balloon with range (e.g. 'max' = 1536 cells gave ~39 m cells at 30 km, not the labelled 8 m).
+      const preset = (this.splatParams.simulation.quality ?? 'balanced') as keyof typeof COVERAGE_PRESETS;
+      const { az, rangeSteps } = COVERAGE_PRESETS[preset];
+      const textureCap = effectiveTextureCap(this.splatParams.simulation.overlay_max_texture);
+      const renderGrid = coverageGridSize(radiusM, preset, textureCap);
 
       // A stable id per run so the overlay layer/source naming and the visibility toggle keep working
       // (the server used to supply a task_id; now we mint one locally).
@@ -1720,7 +1777,9 @@ const useStore = defineStore('store', {
         // texture bug. markRaw keeps the canvas out of Vue's deep reactivity.
         const colored = colorizeGrid(grid, display.min_dbm, display.max_dbm, display.color_scale);
         const warped = mercatorWarp(colored, grid.north, grid.south);
-        const image = markRaw(fitCoverageCanvas(warped));
+        // Cap at the user-chosen overlay texture limit (same cap that sized renderGrid), so a grid
+        // taken above the default 4096 isn't downsampled back to it on upload.
+        const image = markRaw(fitCoverageCanvas(warped, textureCap));
         // Four corners [lng,lat] TL,TR,BR,BL — same north-up axis-aligned layout coverageCoords produced.
         const coords: Site['coords'] = [
           [grid.west, grid.north], [grid.east, grid.north],
