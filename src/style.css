@@ -136,6 +136,22 @@ body {
     margin-right: 0.5rem; /* Optional: Add spacing between spinner and text */
 }
 
+/* The icon is a Lucide SVG (stroke = currentColor), so `color` drives it; active = filled red to
+   match the "red = active" toggle convention. */
+.maplibregl-ctrl button.measure-ctrl-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+}
+.maplibregl-ctrl button.measure-ctrl-btn.measure-ctrl-active {
+  background-color: var(--accent-red);
+  color: #fff;
+}
+.maplibregl-ctrl button.measure-ctrl-btn.measure-ctrl-active:hover {
+  background-color: var(--accent-red-hover);
+}
+
 /* Top-bar mode toggle, styled as an iOS-style segmented control: a rounded translucent track with
    the active segment shown as a solid white pill. These rules override Bootstrap's btn-group
    borders/dividers and square inner corners so the group reads as one unified pill. */

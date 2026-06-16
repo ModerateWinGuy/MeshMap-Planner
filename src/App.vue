@@ -37,6 +37,7 @@
       <div class="map-col">
         <div id="map" ref="map"></div>
         <MapLoadingBar />
+        <MeasurePanel v-if="store.measureActive" />
         <ProfilePanel v-if="store.profileResult || store.profileState === 'running' || store.profileState === 'failed'" />
       </div>
       <!-- data-bs-theme="dark" puts every Bootstrap component in this dark sidebar onto its dark-mode
@@ -146,6 +147,7 @@ import BasemapControl from "./components/BasemapControl.vue"
 import BasemapButtons from "./components/BasemapButtons.vue"
 import ProfilePanel from "./components/ProfilePanel.vue"
 import MapLoadingBar from "./components/MapLoadingBar.vue"
+import MeasurePanel from "./components/MeasurePanel.vue"
 import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical, ScanEye } from "@lucide/vue"
 import type { Component } from "vue"
 

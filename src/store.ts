@@ -6,6 +6,7 @@ import maplibregl from 'maplibre-gl';
 import { type Site, type SplatParams, type Node, type NodeGroup, type MatrixResult, type LinkResult, type RelayResult, type ProfileResult, type UiMode } from './types.ts';
 import { cloneObject, escapeHtml } from './utils.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
+import { createElement, Ruler } from 'lucide';
 import { Links3DLayer, buildLinkGeometry, setLinkColorFn, type LinkPick } from './links3d.ts';
 import { getHeightmap, type Heightmap } from './viewshed/heightmap.ts';
 import {
@@ -29,15 +30,15 @@ import { receiverSensitivityDbm } from './sim/linkBudget.ts';
 const DEFAULT_LAT = -41.257053283864224;
 const DEFAULT_LON = 174.86568331718445;
 
-// Meshtastic LoRa modem presets (must match app/services/link_budget.py PRESET_TABLE).
+// Meshtastic LoRa modem presets; must match PRESET_TABLE in sim/linkBudget.ts.
 export const LORA_PRESETS = [
   'ShortTurbo', 'ShortFast', 'ShortSlow', 'MediumFast',
   'MediumSlow', 'LongFast', 'LongModerate', 'LongSlow'
 ];
 
-// The switchable raster basemaps. MapLibre has no Leaflet `{s}` subdomain placeholder, so
-// subdomained hosts are listed as a tiles[] array (MapLibre rotates over them) and single-host
-// sources use one entry. Each carries its own attribution for the AttributionControl.
+// The switchable raster basemaps. Subdomained hosts go in the tiles[] array so MapLibre rotates
+// over them; single-host sources use one entry. Each carries its own attribution for the
+// AttributionControl.
 export const BASEMAPS = [
   {
     id: 'osm',
@@ -198,11 +199,11 @@ function terrainOverlays(linzOverlay: boolean, linzModel: LinzModel): OverlaySpe
 }
 
 // The single raster-dem source backing the 3D terrain mesh, the hillshade, and the client-side sim
-// (matrix/profile/coverage/relay/viewshed). Baseline is always AWS Terrarium (global, no key). When the
-// LINZ overlay is OFF the source points straight at the AWS tiles (zero overhead, byte-identical to
-// before). When ON it points at the `meshdem://` protocol, which composites LINZ over AWS per pixel and
-// returns Terrarium-encoded tiles — so `encoding` stays 'terrarium' either way and every downstream
-// decoder is unchanged. Swapping the two URL forms via setTiles is what the toggle does live.
+// (matrix/profile/coverage/relay/viewshed). Baseline is always AWS Terrarium (global, no key). With the
+// LINZ overlay OFF the source points straight at the AWS tiles (zero overhead); ON, it points at the
+// `meshdem://` protocol, which composites LINZ over AWS per pixel and returns Terrarium-encoded tiles —
+// so `encoding` stays 'terrarium' either way and every downstream decoder is unchanged. The toggle
+// swaps the two URL forms live via setTiles.
 function terrainDemSource(linzOverlay: boolean, linzModel: LinzModel): any {
   return {
     type: 'raster-dem',
@@ -220,7 +221,7 @@ function terrainDemSource(linzOverlay: boolean, linzModel: LinzModel): any {
   };
 }
 
-// Build the initial MapLibre style: the four raster basemaps (the persisted one visible) plus the
+// Build the initial MapLibre style: the raster basemaps (the persisted one visible) plus the
 // terrain raster-dem for 3D terrain, draped via the style's `terrain` when enabled so both render on
 // the first frame. Overlay sources/layers are added later, on 'load'.
 function buildStyle(
@@ -257,7 +258,7 @@ function inverseMercatorY(y: number): number {
 }
 
 // MapLibre image/canvas sources don't reproject: they stretch the image linearly in Web-Mercator Y
-// between the corner coordinates, while our GeoTIFF rows are evenly spaced in latitude. For a tall
+// between the corner coordinates, while the input canvas rows are evenly spaced in latitude. For a tall
 // extent at high latitude that mismatch shows up as a north-south coverage offset (zero at the top
 // and bottom edges, up to a few hundred metres mid-image). Resample the canvas so its rows are
 // evenly spaced in Mercator Y; MapLibre's linear interpolation then lands each row at the right
@@ -372,6 +373,11 @@ let matrixRecomputeTimer: ReturnType<typeof setTimeout> | null = null;
 let links3dPicks: LinkPick[] = [];
 // Whether the 3D-line hover handler currently owns the cursor, so it only clears a cursor it set.
 let cursor3dActive = false;
+let measureControl: MeasureControl | null = null;
+// Set when a double-click finishes a line: freezes it (no rubber-band) until the next click starts anew.
+let measureFinished = false;
+// Measure vertex being dragged, or -1 when none.
+let measureDragIndex = -1;
 // Keys of tiles currently loading across all sources, for the bottom loading bar. Module-scoped (not
 // in reactive state) so updating a hot Set per tile event doesn't churn Vue's proxy; its size is
 // mirrored into store.mapTiles.inFlight. Reset on map teardown.
@@ -418,6 +424,37 @@ function distToSegment(p: { x: number; y: number }, a: { x: number; y: number },
   return Math.hypot(p.x - cx, p.y - cy);
 }
 
+// A native MapLibre control (not a Vue overlay like the rest) so the toggle stacks in the same corner
+// as the zoom/compass buttons.
+class MeasureControl implements maplibregl.IControl {
+  private container!: HTMLElement;
+  private button!: HTMLButtonElement;
+  constructor(private onToggle: () => void) {}
+  onAdd(): HTMLElement {
+    this.container = document.createElement('div');
+    this.container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    this.button = document.createElement('button');
+    this.button.type = 'button';
+    this.button.className = 'measure-ctrl-btn';
+    this.button.title = 'Measure distance — click points on the map; double-click to finish';
+    this.button.setAttribute('aria-label', 'Measure distance');
+    const svg = createElement(Ruler);
+    svg.setAttribute('width', '18');
+    svg.setAttribute('height', '18');
+    this.button.appendChild(svg);
+    this.button.addEventListener('click', () => this.onToggle());
+    this.container.appendChild(this.button);
+    return this.container;
+  }
+  onRemove(): void {
+    this.container.remove();
+  }
+  setActive(active: boolean): void {
+    this.button.classList.toggle('measure-ctrl-active', active);
+    this.button.setAttribute('aria-pressed', String(active));
+  }
+}
+
 const useStore = defineStore('store', {
   state() {
     return {
@@ -432,7 +469,7 @@ const useStore = defineStore('store', {
       activeMode: useLocalStorage<UiMode>('activeMode', 'nodes'),
       localSites: [] as Site[], // in-memory only (raster/canvas are not JSON-serializable)
       simulationState: 'idle',
-      // Live progress for the active job (coverage/matrix/relay), polled from /status.
+      // Live progress for the active job (coverage/matrix/relay).
       progress: null as { message: string; fraction: number | null } | null,
       matrixState: 'idle',
       matrixResult: null as MatrixResult | null, // in-memory only
@@ -483,7 +520,7 @@ const useStore = defineStore('store', {
       // only for the selected node. Both feed visibleLinks. Persisted.
       linksSelectedOnly: useLocalStorage('linksSelectedOnly', false),
       // When true, non-viable links are hidden everywhere — including those touching the selected node
-      // (which visibleLinks otherwise keeps). Default off to preserve the existing behaviour. Persisted.
+      // (which visibleLinks otherwise keeps). Default off. Persisted.
       hideInvalidLinks: useLocalStorage('hideInvalidLinks', false),
       // In-flight map tile tracker for the bottom loading bar (basemap + terrain + sim tiles). inFlight
       // mirrors the size of a non-reactive key set; peak is the high-water mark since it last hit zero,
@@ -514,6 +551,11 @@ const useStore = defineStore('store', {
       // When set, node markers are non-draggable so they can't be moved by accident. Persisted so
       // the lock survives a reload. Manual lat/lon edits in the panel still apply either way.
       nodesLocked: useLocalStorage('nodesLocked', false),
+      // Measure tool: committed vertices [lng,lat], plus the live cursor that draws the rubber-band
+      // preview segment out to the pointer.
+      measureActive: false,
+      measurePoints: [] as [number, number][],
+      measureCursor: null as [number, number] | null,
       // shared / global params (per-node radio lives on the nodes themselves)
       splatParams: useLocalStorage('splatParams', {
         lora: {
@@ -571,6 +613,21 @@ const useStore = defineStore('store', {
     // can be switched off independently. Gates rendering, click-picking and the 2D-line dimming.
     links3dActive(state): boolean {
       return state.terrainEnabled && state.links3dEnabled;
+    },
+    // Metres along the measured path. LngLat.distanceTo is a great-circle distance, so no geo
+    // dependency is needed.
+    measureDistanceM(state): number {
+      const pts =
+        state.measureCursor && state.measurePoints.length
+          ? [...state.measurePoints, state.measureCursor]
+          : state.measurePoints;
+      let total = 0;
+      for (let i = 1; i < pts.length; i++) {
+        total += new maplibregl.LngLat(pts[i - 1][0], pts[i - 1][1]).distanceTo(
+          new maplibregl.LngLat(pts[i][0], pts[i][1])
+        );
+      }
+      return total;
     },
     // The links actually drawn on the map (2D draped lines and 3D air-links both filter through
     // this). A dense mesh shows every node-to-node link, most of them non-viable, which buries the
@@ -642,6 +699,60 @@ const useStore = defineStore('store', {
       this.nodesLocked = !this.nodesLocked;
       this.renderNodeMarkers(); // re-render flips setDraggable on every existing marker
     },
+    toggleMeasure() {
+      this.measureActive = !this.measureActive;
+      if (!this.measureActive) {
+        this.measurePoints = [];
+        this.measureCursor = null;
+        measureFinished = false;
+        measureDragIndex = -1;
+      }
+      this.applyMeasureMode();
+    },
+    // Clear the line without leaving the tool (vs toggleMeasure, which exits).
+    clearMeasure() {
+      this.measurePoints = [];
+      this.measureCursor = null;
+      measureFinished = false;
+      this.redrawMeasure();
+    },
+    applyMeasureMode() {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map) {
+        return;
+      }
+      if (this.measureActive) {
+        map.getCanvas().style.cursor = 'crosshair';
+        // so the double-click-to-finish gesture doesn't also zoom
+        map.doubleClickZoom.disable();
+      } else {
+        map.getCanvas().style.cursor = '';
+        map.doubleClickZoom.enable();
+      }
+      measureControl?.setActive(this.measureActive);
+      this.redrawMeasure();
+    },
+    redrawMeasure() {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map || !map.getSource('measure-line')) {
+        return;
+      }
+      const linePts =
+        this.measureCursor && this.measurePoints.length
+          ? [...this.measurePoints, this.measureCursor]
+          : this.measurePoints;
+      const lineFc =
+        linePts.length >= 2
+          ? { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: linePts }, properties: {} }] }
+          : EMPTY_FC;
+      const ptFc = {
+        type: 'FeatureCollection',
+        // index lets the mousedown handler tell which vertex was grabbed for dragging.
+        features: this.measurePoints.map((c, i) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: { index: i } })),
+      };
+      (map.getSource('measure-line') as maplibregl.GeoJSONSource).setData(lineFc as any);
+      (map.getSource('measure-pts') as maplibregl.GeoJSONSource).setData(ptFc as any);
+    },
     // Hide/show a single node from the map. The node stays in the list (and editable / selectable),
     // but its marker and every link touching it disappear — see renderNodeMarkers + visibleLinks.
     toggleNodeVisibility(id: string) {
@@ -678,7 +789,6 @@ const useStore = defineStore('store', {
       this.renderNodeMarkers();
       this.redrawLinks();
     },
-    // --- Folders (node groups) -------------------------------------------------------------------
     // Create a folder and return its id so the caller can drop the user straight into renaming it.
     // New folders start empty and expanded; nodes join via moveNodeToGroup / drag-and-drop.
     addGroup(name = 'New folder'): string {
@@ -838,7 +948,7 @@ const useStore = defineStore('store', {
           marker = markRaw(
             new maplibregl.Marker({ element: el, draggable: !this.nodesLocked, anchor: 'bottom' })
               .setLngLat(lngLat)
-              // setText (not HTML) closes the latent XSS from Leaflet's bindPopup(name).
+              // setText (not setHTML) so a node name can't inject HTML.
               .setPopup(new maplibregl.Popup({ offset: 30 }).setText(node.transmitter.name))
               .addTo(map)
           );
@@ -938,9 +1048,8 @@ const useStore = defineStore('store', {
     // Live-apply the global transparency slider to every coverage layer (watched in initMap).
     applyCoverageOpacity() {
       const map = this.map as maplibregl.Map | undefined;
-      // Per-layer getLayer() guards each setPaintProperty below, so only a null map needs gating here.
-      // NOT isStyleLoaded(): it reads false while the slow sim-terrain tiles stream, which would drop
-      // slider updates. See [[maplibre-isstyleloaded]].
+      // Per-layer getLayer() guards each setPaintProperty below, so only a null map needs gating here
+      // (not isStyleLoaded — see [[maplibre-isstyleloaded]]).
       if (!map) {
         return;
       }
@@ -956,7 +1065,6 @@ const useStore = defineStore('store', {
         map.setPaintProperty('relay-cov', 'raster-opacity', opacity);
       }
     },
-    // ---- Viewshed (browser-computed WebGPU line-of-sight) ----------------------------------------
     toggleViewshed() {
       this.viewshedEnabled = !this.viewshedEnabled;
       if (this.viewshedEnabled) {
@@ -1041,10 +1149,10 @@ const useStore = defineStore('store', {
         this.viewshedState = 'idle';
       }
     },
-    // Drape the latest computed footprint as a canvas source + raster layer. Mirrors redrawSites: the
-    // result canvas is already web-mercator tile-aligned (no mercatorWarp needed, unlike the lat-spaced
-    // SPLAT GeoTIFF), but still needs fitCoverageCanvas to dodge the square-power-of-two black-texture
-    // bug. Gate on the overlay slot existing (NOT isStyleLoaded — it reads false while tiles stream).
+    // Drape the latest computed footprint as a canvas source + raster layer. Mirrors redrawSites, but
+    // the result canvas is already web-mercator tile-aligned (no mercatorWarp needed); still runs through
+    // fitCoverageCanvas to dodge the square-power-of-two black-texture bug. Gate on the overlay slot
+    // existing (not isStyleLoaded — see [[maplibre-isstyleloaded]]).
     renderViewshed() {
       const map = this.map as maplibregl.Map | undefined;
       if (!map || !map.getLayer(COVERAGE_BEFORE)) {
@@ -1225,6 +1333,8 @@ const useStore = defineStore('store', {
       links3dLayer = null;
       links3dPicks = [];
       cursor3dActive = false;
+      measureControl = null;
+      measureDragIndex = -1;
       // Tear down the viewshed engine (releases the GPUDevice) and cancel any pending recompute so a
       // remount (Vite HMR) re-inits a fresh device lazily instead of leaking the old one.
       if (viewshedRaf) {
@@ -1297,6 +1407,9 @@ const useStore = defineStore('store', {
       );
       // The compass gives tilt/rotate handles; visualizePitch shows the current pitch on the control.
       this.map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), 'bottom-left');
+      this.map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-right');
+      measureControl = new MeasureControl(() => this.toggleMeasure());
+      this.map.addControl(measureControl, 'bottom-left');
 
       if (!this.selectedNodeId && this.nodes[0]) {
         this.selectedNodeId = this.nodes[0].id;
@@ -1413,11 +1526,13 @@ const useStore = defineStore('store', {
       }
       map.addSource('links', { type: 'geojson', data: EMPTY_FC as any });
       // 'anchor' carries no features; it backs the two empty z-order anchor layers below (a line layer
-      // on an empty source renders nothing). The relay zone is now a draped raster, not GeoJSON.
+      // on an empty source renders nothing).
       map.addSource('anchor', { type: 'geojson', data: EMPTY_FC as any });
       map.addSource('relay-pts', { type: 'geojson', data: EMPTY_FC as any });
       map.addSource('profile-path', { type: 'geojson', data: EMPTY_FC as any });
       map.addSource('pair-link', { type: 'geojson', data: EMPTY_FC as any });
+      map.addSource('measure-line', { type: 'geojson', data: EMPTY_FC as any });
+      map.addSource('measure-pts', { type: 'geojson', data: EMPTY_FC as any });
 
       // Relief shading over the existing raster-dem. Added first so it sits directly above the
       // basemaps and below every data overlay (coverage inserts before 'coverage-top', so it lands
@@ -1425,8 +1540,8 @@ const useStore = defineStore('store', {
       this.addHillshadeLayer(map);
 
       // Invisible ordering anchors: coverage rasters insert before 'coverage-top', the relay heatmap
-      // before 'relay-top'. Added in this order so relay drapes above coverage (matching the old
-      // relay-zone-over-coverage z-order), both below the link/point vector overlays added next.
+      // before 'relay-top'. Added in this order so relay drapes above coverage, both below the
+      // link/point vector overlays added next.
       map.addLayer({ id: 'coverage-top', type: 'line', source: 'anchor' } as any);
       map.addLayer({ id: 'relay-top', type: 'line', source: 'anchor' } as any);
       // Dashed (non-viable) vs solid (viable) links: line-dasharray isn't data-drivable, so two
@@ -1522,7 +1637,7 @@ const useStore = defineStore('store', {
       // (the 2D layer handlers in wireOverlayPopups bow out then); the general click also fires for the
       // 2D layers but they short-circuit, so there's no double popup.
       map.on('click', (e: any) => {
-        if (!this.links3dActive) {
+        if (!this.links3dActive || this.measureActive) {
           return;
         }
         const hit = this.pick3dLink(e.point);
@@ -1533,7 +1648,7 @@ const useStore = defineStore('store', {
       // Hover cursor, throttled to one pick per frame so mousemove doesn't reproject every link.
       let hoverScheduled = false;
       map.on('mousemove', (e: any) => {
-        if (!this.links3dActive || hoverScheduled) {
+        if (!this.links3dActive || this.measureActive || hoverScheduled) {
           return;
         }
         hoverScheduled = true;
@@ -1574,6 +1689,92 @@ const useStore = defineStore('store', {
         layout: { 'line-cap': 'round' },
         paint: { 'line-color': '#ffb703', 'line-width': 2.5, 'line-dasharray': [2, 2] },
       } as any);
+      // Magenta to stand apart from the cyan profile path and amber pair preview.
+      map.addLayer({
+        id: 'measure-line-line', type: 'line', source: 'measure-line',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#f72585', 'line-width': 2.5, 'line-dasharray': [2, 1.5] },
+      } as any);
+      map.addLayer({
+        id: 'measure-pts-circle', type: 'circle', source: 'measure-pts',
+        paint: { 'circle-radius': 5, 'circle-color': '#f72585', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 },
+      } as any);
+      map.on('click', (e: any) => {
+        if (!this.measureActive) {
+          return;
+        }
+        // A click on a vertex is a grab (handled by mousedown), not a new point — skipping it also
+        // absorbs a double-click's second click landing on the vertex the first one placed.
+        if (map.queryRenderedFeatures(e.point, { layers: ['measure-pts-circle'] }).length) {
+          return;
+        }
+        const pt: [number, number] = [e.lngLat.lng, e.lngLat.lat];
+        // After finishing, a click starts a fresh line instead of extending the old one.
+        if (measureFinished) {
+          measureFinished = false;
+          this.measurePoints = [pt];
+          this.measureCursor = null;
+          this.redrawMeasure();
+          return;
+        }
+        this.measurePoints = [...this.measurePoints, pt];
+        this.redrawMeasure();
+      });
+      map.on('mousemove', (e: any) => {
+        if (!this.measureActive) {
+          return;
+        }
+        // A vertex drag takes priority over the rubber-band preview.
+        if (measureDragIndex >= 0) {
+          const pts = [...this.measurePoints];
+          pts[measureDragIndex] = [e.lngLat.lng, e.lngLat.lat];
+          this.measurePoints = pts;
+          this.redrawMeasure();
+          return;
+        }
+        if (measureFinished || !this.measurePoints.length) {
+          return;
+        }
+        this.measureCursor = [e.lngLat.lng, e.lngLat.lat];
+        this.redrawMeasure();
+      });
+      // preventDefault stops the map panning while dragging; mouseup is on the whole map because the
+      // pointer can leave the small dot mid-drag.
+      map.on('mousedown', 'measure-pts-circle', (e: any) => {
+        if (!this.measureActive) {
+          return;
+        }
+        e.preventDefault();
+        measureDragIndex = Number(e.features?.[0]?.properties?.index ?? -1);
+        this.measureCursor = null;
+        map.getCanvas().style.cursor = 'grabbing';
+      });
+      map.on('mouseup', () => {
+        if (measureDragIndex < 0) {
+          return;
+        }
+        measureDragIndex = -1;
+        map.getCanvas().style.cursor = this.measureActive ? 'crosshair' : '';
+      });
+      // Move cursor signals a draggable vertex; the guard skips mid-drag, where 'grabbing' owns it.
+      map.on('mouseenter', 'measure-pts-circle', () => {
+        if (this.measureActive && measureDragIndex < 0) {
+          map.getCanvas().style.cursor = 'move';
+        }
+      });
+      map.on('mouseleave', 'measure-pts-circle', () => {
+        if (this.measureActive && measureDragIndex < 0) {
+          map.getCanvas().style.cursor = 'crosshair';
+        }
+      });
+      map.on('dblclick', () => {
+        if (!this.measureActive || !this.measurePoints.length) {
+          return;
+        }
+        measureFinished = true;
+        this.measureCursor = null;
+        this.redrawMeasure();
+      });
 
       this.wireOverlayPopups();
     },
@@ -1589,8 +1790,9 @@ const useStore = defineStore('store', {
       for (const layer of ['links-solid', 'links-dashed']) {
         map.on('click', layer, (e: any) => {
           // While the 3D lines are active they are the click target (handled by the general click in
-          // setupOverlays); the faint draped 2D line is offset and shouldn't pop up its own.
-          if (this.links3dActive) {
+          // setupOverlays); the faint draped 2D line is offset and shouldn't pop up its own. The
+          // measure tool also owns the click while it's running.
+          if (this.links3dActive || this.measureActive) {
             return;
           }
           const f = e.features?.[0];
@@ -1606,11 +1808,15 @@ const useStore = defineStore('store', {
             popup.remove();
           }, { once: true });
         });
-        map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
-        map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+        // Keep the measure crosshair while the tool is on rather than flipping to the link pointer.
+        map.on('mouseenter', layer, () => { if (!this.measureActive) { map.getCanvas().style.cursor = 'pointer'; } });
+        map.on('mouseleave', layer, () => { if (!this.measureActive) { map.getCanvas().style.cursor = ''; } });
       }
       // Relay candidate points carry a "Promote to node" button in their popup.
       map.on('click', 'relay-pts', (e: any) => {
+        if (this.measureActive) {
+          return;
+        }
         const f = e.features?.[0];
         if (!f) {
           return;
@@ -1623,15 +1829,14 @@ const useStore = defineStore('store', {
           popup.remove();
         }, { once: true });
       });
-      map.on('mouseenter', 'relay-pts', () => { map.getCanvas().style.cursor = 'pointer'; });
-      map.on('mouseleave', 'relay-pts', () => { map.getCanvas().style.cursor = ''; });
+      map.on('mouseenter', 'relay-pts', () => { if (!this.measureActive) { map.getCanvas().style.cursor = 'pointer'; } });
+      map.on('mouseleave', 'relay-pts', () => { if (!this.measureActive) { map.getCanvas().style.cursor = ''; } });
     },
     setBasemap(id: string) {
       this.activeBasemap = id;
       const map = this.map as maplibregl.Map | undefined;
-      // Not gated on isStyleLoaded(): it reads false while source tiles are still streaming (e.g.
-      // just after 'load'), and setLayoutProperty only needs the layer to exist — which the
-      // per-layer getLayer check below ensures.
+      // setLayoutProperty only needs the layer to exist (the per-layer getLayer below ensures it), not
+      // isStyleLoaded — see [[maplibre-isstyleloaded]].
       if (!map) {
         return;
       }
@@ -1746,8 +1951,8 @@ const useStore = defineStore('store', {
     },
     applyTerrain() {
       const map = this.map as maplibregl.Map | undefined;
-      // Not gated on isStyleLoaded() (false while tiles stream, as in setBasemap); setTerrain only
-      // needs the DEM source to exist, so gate on that instead.
+      // setTerrain only needs the DEM source to exist, so gate on that, not isStyleLoaded — see
+      // [[maplibre-isstyleloaded]].
       if (!map || !map.getSource('terrain-dem')) {
         return;
       }
@@ -1776,10 +1981,9 @@ const useStore = defineStore('store', {
     resetView() {
       this.map?.easeTo({ pitch: 0, bearing: 0 });
     },
-    // Compute the coverage overlay entirely in the browser (WASM ITM, off-thread), replacing the old
-    // /predict round-trip. The result still flows through the existing Site/overlay model — a palette
-    // canvas draped as a MapLibre canvas source — so the visibility toggle, opacity slider and
-    // multi-site stacking all keep working unchanged; only the source of the canvas has moved client-side.
+    // Compute the coverage overlay in the browser (WASM ITM, off-thread). The result drapes through the
+    // Site/overlay model as a palette canvas on a MapLibre canvas source, so the visibility toggle,
+    // opacity slider and multi-site stacking all apply.
     async runSimulation() {
       const node = this.selectedNode;
       if (!node) {
@@ -1799,8 +2003,7 @@ const useStore = defineStore('store', {
         tx_power: 10 * Math.log10(node.transmitter.tx_power) + 30, // watts -> dBm
         tx_gain: node.transmitter.tx_gain,
         frequency_mhz: node.transmitter.tx_freq,
-        // Receiver params live per-node (splatParams holds only the shared blocks); matches the old
-        // /predict payload, which read system_loss/rx_height off the selected node's receiver.
+        // Receiver params live per-node (splatParams holds only the shared blocks).
         system_loss: node.receiver.rx_loss,
       };
       // simulation_extent is a radius in km; clamp the half-extent so one run can't request a
@@ -1812,15 +2015,13 @@ const useStore = defineStore('store', {
       // since each ray reruns ITM over a growing prefix). The OUTPUT raster size is derived from the
       // preset's target cell size over the chosen range and clamped to the user's overlay texture cap
       // (coverageGridSize) — a cheap rasterization target decoupled from the ITM cost, so a finer grid
-      // just sharpens the overlay. renderGrid earlier was a FIXED count per preset, which made cells
-      // balloon with range (e.g. 'max' = 1536 cells gave ~39 m cells at 30 km, not the labelled 8 m).
+      // just sharpens the overlay.
       const preset = (this.splatParams.simulation.quality ?? 'balanced') as keyof typeof COVERAGE_PRESETS;
       const { az, rangeSteps } = COVERAGE_PRESETS[preset];
       const textureCap = effectiveTextureCap(this.splatParams.simulation.overlay_max_texture);
       const renderGrid = coverageGridSize(radiusM, preset, textureCap);
 
-      // A stable id per run so the overlay layer/source naming and the visibility toggle keep working
-      // (the server used to supply a task_id; now we mint one locally).
+      // A stable id per run, used to name the overlay layer/source and drive the visibility toggle.
       const taskId = crypto.randomUUID();
 
       this.simulationState = 'running';
@@ -1847,16 +2048,15 @@ const useStore = defineStore('store', {
 
       try {
         const grid = await promise;
-        // Colorize the dBm grid into an RGBA canvas, then run it through the SAME draping the GeoTIFF
-        // path used: the grid is latitude-even (like the old raster), so mercatorWarp resamples its
-        // rows into web-mercator spacing and fitCoverageCanvas dodges the square-power-of-two black
-        // texture bug. markRaw keeps the canvas out of Vue's deep reactivity.
+        // Colorize the dBm grid into an RGBA canvas. The grid is latitude-even, so mercatorWarp
+        // resamples its rows into web-mercator spacing and fitCoverageCanvas dodges the square-power-
+        // of-two black-texture bug. markRaw keeps the canvas out of Vue's deep reactivity.
         const colored = colorizeGrid(grid, display.min_dbm, display.max_dbm, display.color_scale);
         const warped = mercatorWarp(colored, grid.north, grid.south);
         // Cap at the user-chosen overlay texture limit (same cap that sized renderGrid), so a grid
         // taken above the default 4096 isn't downsampled back to it on upload.
         const image = markRaw(fitCoverageCanvas(warped, textureCap));
-        // Four corners [lng,lat] TL,TR,BR,BL — same north-up axis-aligned layout coverageCoords produced.
+        // Four corners [lng,lat]: TL, TR, BR, BL (north-up, axis-aligned).
         const coords: Site['coords'] = [
           [grid.west, grid.north], [grid.east, grid.north],
           [grid.east, grid.south], [grid.west, grid.south],
@@ -1891,10 +2091,9 @@ const useStore = defineStore('store', {
       if (!map) {
         return;
       }
-      // Gate on the source existing, NOT isStyleLoaded(): the latter is false while terrain/coverage
-      // tiles stream — e.g. right after a profile computes — which would skip the 2D update and the
-      // rebuild3dLinks() call below, so the merged link wouldn't appear until the next camera move
-      // re-triggered the 3D rebuild. See [[maplibre-isstyleloaded]].
+      // Gate on the source existing, not isStyleLoaded() (see [[maplibre-isstyleloaded]]): here a false
+      // reading right after a profile computes would skip the 2D update and rebuild3dLinks() below, so
+      // the merged link wouldn't show until the next camera move re-triggered the 3D rebuild.
       const src = map.getSource('links') as maplibregl.GeoJSONSource | undefined;
       if (!src) {
         return;
@@ -2147,7 +2346,7 @@ const useStore = defineStore('store', {
         mapZoom,
       };
     },
-    // Shared environment/model params for a client-side ITM run (matrix, profile, and later coverage).
+    // Shared environment/model params for a client-side ITM run (matrix, profile, coverage, relay).
     _simShared(): SimShared {
       return {
         clutter_height: this.splatParams.environment.clutter_height,
@@ -2185,8 +2384,8 @@ const useStore = defineStore('store', {
         return receiverSensitivityDbm('LongFast');
       }
     },
-    // Compute the full link matrix entirely in the browser (WASM ITM), replacing the old /matrix
-    // round-trip. The worker streams results pair-by-pair, mirroring the old progressive render.
+    // Compute the full link matrix in the browser (WASM ITM). The worker streams results pair-by-pair,
+    // so links fill in progressively.
     async runMatrix() {
       if (this.nodes.length < 2) {
         console.warn('Need at least 2 nodes to compute a link matrix.');
@@ -2275,8 +2474,8 @@ const useStore = defineStore('store', {
       this.redrawProfilePath();
 
       const sensitivity = this._simSensitivity();
-      // tx carries the radio params (power/gain/freq); matching the old /profile payload, it also
-      // takes the RX node's loss as system_loss. rx carries only position/height/rx_gain.
+      // tx carries the radio params (power/gain/freq) plus the RX node's loss as system_loss; rx carries
+      // only position/height/rx_gain.
       const tx: SimNode = {
         id: a.id,
         lat: a.transmitter.tx_lat,
@@ -2358,11 +2557,10 @@ const useStore = defineStore('store', {
         }
       }
     },
-    // Persist the just-computed profile pair as a normal link on the map. /profile and /matrix share
-    // the same point_to_point() computation, so a ProfileResult carries every LinkResult field —
-    // convert it and upsert into matrixResult.links, then reuse redrawLinks (which also rebuilds the
-    // 3D links). The link then renders + is clickable like any matrix link and survives clearProfile
-    // (which only wipes the transient cyan slice), so it stays after the profile graph is closed.
+    // Persist the just-computed profile pair as a normal link on the map. A ProfileResult carries every
+    // LinkResult field, so convert it and upsert into matrixResult.links, then reuse redrawLinks (which
+    // also rebuilds the 3D links). The link then renders + is clickable like any matrix link and survives
+    // clearProfile (which only wipes the transient cyan slice), so it stays after the graph is closed.
     mergeProfileLink() {
       const r = this.profileResult;
       const a = this.profileFromId;
@@ -2443,10 +2641,10 @@ const useStore = defineStore('store', {
       this.profileToId = null;
       this.redrawProfilePath();
     },
-    // Find the candidate relay zone between two nodes entirely in the browser (WASM ITM), replacing
-    // the old /relay round-trip. Runs two coverage passes (one per endpoint) over a SHARED bbox so
-    // their grids align, then intersects them per-cell: every location that hears both A and B above
-    // sensitivity (plus the hypothetical relay's rx gain) is a candidate site.
+    // Find the candidate relay zone between two nodes in the browser (WASM ITM). Runs two coverage
+    // passes (one per endpoint) over a SHARED bbox so their grids align, then intersects them per-cell:
+    // every location that hears both A and B above sensitivity (plus the hypothetical relay's rx gain)
+    // is a candidate site.
     async runRelay(aId: string, bId: string) {
       const a = this.nodes.find((n) => n.id === aId);
       const b = this.nodes.find((n) => n.id === bId);
@@ -2473,13 +2671,12 @@ const useStore = defineStore('store', {
       const txA = toCoverageNode(a);
       const txB = toCoverageNode(b);
 
-      // The hypothetical relay's receive antenna height (m AGL). The old /relay flow ran each
-      // endpoint's coverage pass at rx_height=2.0 (app/services/splat.py); mirror that here so the
-      // two grids predict the signal at the same relay antenna height the server assumed.
+      // The hypothetical relay's receive antenna height (m AGL). Both endpoint passes use it so they
+      // predict the signal at the same relay antenna height.
       const RELAY_RX_HEIGHT_M = 2.0;
 
-      // Per-site search radius (m), the old RelayRequest.search_radius_m default basis: the simulation
-      // extent in km. Capped at 100 km like coverage so one search can't request a continent of terrain.
+      // Per-site search radius (m): the simulation extent in km, capped at 100 km like coverage so one
+      // search can't request a continent of terrain.
       const searchRadiusM = Math.min(100000, this.splatParams.simulation.simulation_extent * 1000);
 
       // Shared bbox covering BOTH endpoints, expanded by the search radius on each side. dLon widens
@@ -2519,10 +2716,10 @@ const useStore = defineStore('store', {
 
       const params: RelayParams = {
         sensitivity_dbm: this._simSensitivity(),
-        // The old RelayRequest used node A's receiver gain as the hypothetical relay rx gain.
+        // Node A's receiver gain stands in for the hypothetical relay's rx gain.
         relay_rx_gain: a.receiver.rx_gain,
-        band_edges_db: [0.0, 10.0, 20.0], // RelayRequest.band_edges_db default
-        top_n: 5, // RelayRequest.top_n default
+        band_edges_db: [0.0, 10.0, 20.0],
+        top_n: 5, // return the 5 best candidate sites
         node_a_id: a.id,
         node_b_id: b.id,
       };
@@ -2553,11 +2750,10 @@ const useStore = defineStore('store', {
         const result = markRaw(await promise);
         this.relayResult = result;
 
-        // Drape the margin grid as a smooth heatmap through the SAME pipeline coverage uses, so the
-        // relay zone reads like a coverage overlay (continuous colour + soft FADE_BAND edge) instead
-        // of the old blocky banded polygons. The grid carries margin (dB), not dBm, but colorizeGrid
-        // is value-agnostic. Range 0..peak uses the full colour ramp; floor the peak so a low-margin
-        // zone isn't washed out by a degenerate span.
+        // Drape the margin grid as a smooth heatmap through the same pipeline coverage uses, so the
+        // relay zone reads like a coverage overlay (continuous colour + soft FADE_BAND edge). The grid
+        // carries margin (dB), not dBm, but colorizeGrid is value-agnostic. Range 0..peak uses the full
+        // colour ramp; floor the peak so a low-margin zone isn't washed out by a degenerate span.
         if (!result.empty && result.marginGrid) {
           const grid = result.marginGrid;
           let peak = 0;
@@ -2596,9 +2792,8 @@ const useStore = defineStore('store', {
     },
     redrawRelay() {
       const map = this.map as maplibregl.Map | undefined;
-      // NOT isStyleLoaded() (reads false while the slow sim-terrain tiles stream, which would drop the
-      // relay result); the guards below suffice — adding the source/layer only needs the anchor layer
-      // to exist (style mutable), and setData only needs the points source. See [[maplibre-isstyleloaded]].
+      // The guards below suffice (not isStyleLoaded — see [[maplibre-isstyleloaded]]): adding the
+      // source/layer only needs the anchor layer to exist, and setData only needs the points source.
       if (!map) {
         return;
       }
@@ -2651,8 +2846,7 @@ const useStore = defineStore('store', {
     clearRelay() {
       const map = this.map as maplibregl.Map | undefined;
       // Tear down the draped heatmap layer/source and empty the points. setData/removeLayer only need
-      // the layer/source to exist (guarded), not isStyleLoaded() — which reads false while sim-terrain
-      // tiles stream. See [[maplibre-isstyleloaded]].
+      // the layer/source to exist (guarded), not isStyleLoaded() — see [[maplibre-isstyleloaded]].
       if (map) {
         if (map.getLayer('relay-cov')) map.removeLayer('relay-cov');
         if (map.getSource('relay-cov')) map.removeSource('relay-cov');
