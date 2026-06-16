@@ -57,8 +57,7 @@
                     </template>
                 </p>
 
-                <!-- Per-node link list (selected node -> every other node). Replaces the old N×N grid,
-                     which got unreadable past a handful of nodes. -->
+                <!-- Per-node link list: selected node -> every other node. -->
                 <div v-if="store.matrixResult" class="mb-2" style="max-height: 38vh; overflow-y: auto; overflow-x: hidden;">
                     <table class="table table-sm table-dark table-bordered text-center small mb-0 align-middle" style="table-layout: fixed; width: 100%;">
                         <thead>
@@ -175,7 +174,7 @@ function fieldText(other: string, key: 'distance_km' | 'path_loss_db' | 'fresnel
 function cellStyle(other: string): Record<string, string> {
     const link = linkFor(other)
     if (!link || link.margin_db === null) return {}
-    // Same red->green margin ramp the old grid used (margin 0..30 dB maps to red..green).
+    // Margin 0..30 dB maps to a red->green ramp.
     const t = Math.max(0, Math.min(1, link.margin_db / 30))
     const r = Math.round(200 * (1 - t))
     const g = Math.round(40 + 140 * t)

@@ -127,9 +127,9 @@
         }
         popover.show();
         store.map!.once("click", (e: any) => {
-            const { lng, lat } = e.lngLat; // MapLibre click coords are e.lngLat, not e.latlng
-            store.updateNodeCoords(node.id, lat, lng); // Update the store (marker follows via watch)
-            popover.hide(); // Hide the popover
+            const { lng, lat } = e.lngLat;
+            store.updateNodeCoords(node.id, lat, lng); // marker follows via watch
+            popover.hide();
         });
     };
     onMounted(() => {

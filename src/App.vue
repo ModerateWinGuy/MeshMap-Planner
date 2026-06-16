@@ -187,8 +187,8 @@ const buttonText = () => {
     return 'Run Simulation'
   }
 }
-// Bar width: proportional when the backend reports a fraction, else a full animated bar (the
-// striped animation reads as "working" while we have no estimate, e.g. during a remote warp).
+// Bar width: proportional when we have a fraction, else a full animated bar (the striped animation
+// reads as "working" while we have no estimate).
 const progressWidth = () => {
   const f = store.progress?.fraction
   return typeof f === 'number' ? `${Math.round(Math.min(Math.max(f, 0), 1) * 100)}%` : '100%'

@@ -8,8 +8,8 @@
 //
 // The mosaic spans whole tile edges, so its bbox corners are exact tile boundaries and it drops
 // straight into a MapLibre canvas source with no reprojection: the tiles are already web-mercator,
-// so rows are evenly spaced in mercator Y. (Contrast the lat-spaced SPLAT coverage GeoTIFF, which
-// store.ts has to mercatorWarp before draping.)
+// so rows are evenly spaced in mercator Y. (Contrast the lat-spaced coverage grid, which store.ts
+// has to mercatorWarp before draping.)
 
 import { composeTerrariumTileRGBA, type OverlaySpec } from '../terrain/demTiles.ts';
 

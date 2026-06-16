@@ -1,18 +1,17 @@
-// LoRa link-budget helpers — a faithful port of app/services/link_budget.py so client-side link
-// viability uses the identical receiver-sensitivity model the backend does.
+// LoRa link-budget helpers for client-side link viability.
 //
 //   sensitivity_dBm = -174 + 10*log10(bandwidth_Hz) + noise_figure_dB + snr_limit(SF)
 //
 // Spreading factor and bandwidth are what drive sensitivity, so the table is region-independent
-// (centre frequency doesn't enter the noise-floor calculation). The preset names match the list in
-// store.ts (LORA_PRESETS) and the Python PRESET_TABLE.
+// (centre frequency doesn't enter the noise-floor calculation). The preset names match LORA_PRESETS
+// in store.ts.
 
 export interface LoRaPreset {
   spreadingFactor: number;
   bandwidthKhz: number;
 }
 
-// Meshtastic modem presets -> (spreading factor, bandwidth kHz). Mirrors link_budget.PRESET_TABLE.
+// Meshtastic modem presets -> (spreading factor, bandwidth kHz).
 export const PRESET_TABLE: Record<string, LoRaPreset> = {
   ShortTurbo: { spreadingFactor: 7, bandwidthKhz: 500.0 },
   ShortFast: { spreadingFactor: 7, bandwidthKhz: 250.0 },
@@ -41,7 +40,6 @@ const SNR_LIMIT_BY_SF: Record<number, number> = {
 export const NOISE_FIGURE_DB = 6.0;
 
 // Receiver sensitivity in dBm for a Meshtastic modem preset (e.g. LongFast ~= -131.5 dBm).
-// Throws on an unknown preset, matching the Python KeyError contract.
 export function receiverSensitivityDbm(presetName: string, noiseFigureDb: number = NOISE_FIGURE_DB): number {
   const preset = PRESET_TABLE[presetName];
   if (!preset) {

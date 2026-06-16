@@ -62,8 +62,6 @@ const TILE_BYTES = TILE * TILE * 4;
 // ArrayBuffer at runtime; the cast just narrows the type (same pattern as heightmap.ts).
 type RgbaBytes = Uint8ClampedArray<ArrayBuffer>;
 
-// --- height <-> RGB codecs -------------------------------------------------------------------------
-
 // Mapbox terrain-RGB (LINZ): metres above sea level.
 function decodeMapbox(r: number, g: number, b: number): number {
   return -10000 + (r * 65536 + g * 256 + b) * 0.1;
@@ -87,8 +85,6 @@ function encodeTerrarium(h: number, out: Uint8ClampedArray, i: number): void {
   out[i + 2] = b;
   out[i + 3] = 255;
 }
-
-// --- tile fetch + decode ---------------------------------------------------------------------------
 
 // Fetch one tile and return its raw RGBA bytes (256×256×4), or null on 404 / network error / abort.
 // colorSpaceConversion:'none' + premultiplyAlpha:'none' keep the elevation-encoded bytes (and LINZ's
@@ -120,8 +116,6 @@ async function fetchTileRGBA(url: string, signal?: AbortSignal): Promise<RgbaByt
 function tileUrl(tpl: string, z: number, x: number, y: number): string {
   return tpl.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y));
 }
-
-// --- the composite ---------------------------------------------------------------------------------
 
 // Compose one tile: AWS Terrarium baseline, with each overlay (top-down) overwriting the pixels where
 // it has valid data, re-encoded to Terrarium. Returns 256×256×4 Terrarium RGBA, or null if nothing
@@ -164,8 +158,6 @@ export async function composeTerrariumTileRGBA(
 
   return anyData ? out : null;
 }
-
-// --- map source (MapLibre addProtocol) -------------------------------------------------------------
 
 // Re-encode composited RGBA to a PNG ArrayBuffer for MapLibre to consume as a raster-dem tile.
 async function rgbaToPng(rgba: RgbaBytes): Promise<ArrayBuffer> {

@@ -1,8 +1,6 @@
-// Client-side port of the relay-siting logic in app/services/splat.py (`relay_overlap` and its
-// helpers). The server bins two radial SPLAT! coverage passes onto a shared coarse grid; here we
-// instead receive two already-aligned coverage grids (same width/height/bbox, so cell (r,c) is the
-// same ground location in both) and intersect them directly. The algorithm — per-cell margins,
-// 4-connected islands, band colouring, and point ranking — mirrors the reference faithfully.
+// Relay-siting: takes two already-aligned coverage grids (same width/height/bbox, so cell (r,c) is
+// the same ground location in both) and intersects them directly to find where both A and B are
+// receivable. Computes per-cell margins, 4-connected islands, band colouring, and point ranking.
 
 import type { CoverageGrid } from './coverageTypes.ts';
 import type {
@@ -25,7 +23,7 @@ const round2 = (x: number): number => Math.round(x * 100) / 100;
 const round3 = (x: number): number => Math.round(x * 1000) / 1000;
 const round6 = (x: number): number => Math.round(x * 1e6) / 1e6;
 
-// Mean Earth metres per degree at the equator for the km area approximation (matches splat.py).
+// Mean Earth metres per degree at the equator, for the km^2 area approximation.
 const KM_PER_DEG_LAT = 110.574;
 const KM_PER_DEG_LON_EQUATOR = 111.32;
 
@@ -139,8 +137,8 @@ export function relayOverlap(
   };
 }
 
-// 4-connected flood fill of a boolean cell mask (dependency-free stack fill, like the Python
-// `_label_components`). Returns labels (BACKGROUND for off cells, 0..count-1 for islands) and count.
+// 4-connected flood fill of a boolean cell mask (dependency-free stack fill). Returns labels
+// (BACKGROUND for off cells, 0..count-1 for islands) and count.
 function labelComponents(
   mask: Uint8Array,
   width: number,

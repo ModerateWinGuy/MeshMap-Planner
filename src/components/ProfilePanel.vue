@@ -211,8 +211,8 @@ const chart = computed(() => {
     return { terrainLine, terrainFill, losLine: toPath(los), fresnelBand, fresnel60Line, xTicks, xMinorTicks, yTicks }
 })
 
-// Worst-point first-Fresnel-zone clearance for the header. Computed once on the backend (so the
-// link matrix and this chart always agree) as (LOS - terrain) / Fresnel-radius at the worst point:
+// Worst-point first-Fresnel-zone clearance for the header. Computed in the shared sim (so the link
+// matrix and this chart always agree) as (LOS - terrain) / Fresnel-radius at the worst point:
 // 100% = fully clear, 60% = the rule-of-thumb boundary, 0% = grazing the LOS, negative = blocked.
 const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pct ?? null)
 </script>

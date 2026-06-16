@@ -1,8 +1,7 @@
-// Client-side point-to-point link + profile computation, mirroring run_matrix / run_profile in
-// app/main.py but driven by the WASM ITM core and the map's own heightmap. Pure given an ITM module
-// and a heightmap (no DOM / no I/O), so it runs unchanged inside the sim Web Worker and is testable.
+// Point-to-point link + profile computation, driven by the WASM ITM core and the map's own
+// heightmap. Pure given an ITM module and a heightmap (no DOM / no I/O), so it runs unchanged inside
+// the sim Web Worker and is testable.
 //
-// Parity notes with the server:
 //   - rx_power = (tx_power_dBm + tx_gain - system_loss) - path_loss   (SPLAT's ERP-basis received power)
 //   - margin   = (rx_power + rx_gain) - sensitivity ; viable = margin >= 0
 //   - frequency / power / gains / system_loss are the TX node's; position/height/rx_gain the RX node's
@@ -46,7 +45,7 @@ const round3 = (x: number): number => Math.round(x * 1000) / 1000;
 const clampFrac = (pct: number): number => Math.min(0.999, Math.max(0.001, pct / 100));
 
 // Distance to the geometric LOS horizon (k=4/3 effective Earth): 4.1225·(√h_a+√h_b) km on heights
-// above sea level. Mirrors app/main.py _radio_horizon_km, used to pre-filter impossible matrix pairs.
+// above sea level, used to pre-filter impossible matrix pairs.
 const RADIO_HORIZON_KM_PER_SQRT_M = Math.sqrt(2 * (4 / 3) * 6_371_000) / 1000; // ~4.1225
 export function radioHorizonKm(hAmslA: number, hAmslB: number): number {
   return RADIO_HORIZON_KM_PER_SQRT_M * (Math.sqrt(Math.max(0, hAmslA)) + Math.sqrt(Math.max(0, hAmslB)));
@@ -103,7 +102,7 @@ function evaluate(
 }
 
 // One matrix link (LinkResult shape). Never throws for a single pair: a failure is recorded as
-// error + viable:false, matching the server's per-pair contract.
+// error + viable:false so one bad pair can't abort the matrix.
 export function computeLink(
   mod: ItmModule,
   hm: Heightmap,

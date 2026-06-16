@@ -1,6 +1,4 @@
-// Enum mappings the ITM core expects, mirroring Splat._create_splat_lrp (app/services/splat.py):
-// the .lrp file translated the same radio-climate / polarization strings into these integers, so
-// keeping the maps here means a client-side run feeds ITM the identical codes the server did.
+// String -> integer code mappings the ITM core expects for radio climate and polarization.
 
 // Radio climate string -> ITM code (1..7).
 export const CLIMATE_MAP: Record<string, number> = {
@@ -19,8 +17,8 @@ export const POLARIZATION_MAP: Record<string, number> = {
   vertical: 1,
 };
 
-// Continental temperate / vertical are SPLAT's own defaults; fall back to them for an unknown label
-// rather than throwing, so a stray value can't abort a whole link matrix.
+// Fall back to continental temperate / vertical for an unknown label rather than throwing, so a
+// stray value can't abort a whole link matrix.
 export function climateCode(climate: string): number {
   return CLIMATE_MAP[climate] ?? CLIMATE_MAP.continental_temperate;
 }

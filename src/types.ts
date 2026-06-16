@@ -1,6 +1,6 @@
-// Which task-focused panel the sidebar shows; persisted to localStorage as the active UI mode.
 import type { CoverageGrid } from './sim/coverageTypes.ts'; // type-only: erased at compile, no runtime cycle
 
+// Which task-focused panel the sidebar shows; persisted to localStorage as the active UI mode.
 export type UiMode = 'nodes' | 'radio' | 'coverage' | 'linkfinder' | 'viewshed' | 'settings';
 
 export interface Site {
@@ -107,17 +107,17 @@ export interface MatrixResult {
     links: LinkResult[];
 }
 
-// A SPLAT! profile curve: a list of [distance_km, value_m] samples along the path.
+// A profile curve: a list of [distance_km, value_m] samples along the path.
 export type ProfileCurve = Array<[number, number]>;
 
-// Curves SPLAT! emits for the terrain graph (`-p`). Just the ground elevation above sea level
-// (metres) vs distance (km), TX->RX; the frontend derives the line of sight and Fresnel zone.
+// Just the ground elevation AMSL (metres) vs distance (km), TX->RX; the line of sight and Fresnel
+// zone are derived from it.
 export interface ProfileCurves {
-    terrain: ProfileCurve;      // ground profile, elevation AMSL (profile.gp)
+    terrain: ProfileCurve;      // ground profile, elevation AMSL
 }
 
-// Result of POST /profile: the point-to-point link metrics plus the chart curves and the derived
-// headline link-budget figures the bottom strip annotates.
+// Point-to-point link metrics plus the chart curves and the derived headline link-budget figures
+// the bottom strip annotates.
 export interface ProfileResult {
     distance_km: number | null;
     path_loss_db: number | null;
@@ -165,10 +165,10 @@ export interface RelayResult {
     relay_rx_gain: number;
     zone: FeatureCollection<RelayZoneProps>;
     points: FeatureCollection<RelayPointProps>;
-    // Per-cell min-margin field (dB) over the shared bbox, rendered as a smooth heatmap the way the
-    // coverage overlay renders dBm — replaces the old blocky banded polygons. NaN marks a non-zone
-    // cell; null on the empty result. dbm here carries margin, not received power, so colorizeGrid
-    // (which is value-agnostic) drapes it identically. See [[client-side-splat-port]].
+    // Per-cell min-margin field (dB) over the shared bbox, rendered as a smooth heatmap like the
+    // coverage overlay. NaN marks a non-zone cell; null on the empty result. dbm here carries margin,
+    // not received power, so colorizeGrid (which is value-agnostic) drapes it identically.
+    // See [[client-side-splat-port]].
     marginGrid: CoverageGrid | null;
     empty: boolean;
     warning: string | null;

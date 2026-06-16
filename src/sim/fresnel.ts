@@ -1,11 +1,10 @@
-// Geometric first-Fresnel-zone clearance — a port of Splat._fresnel_clearance_pct
-// (app/services/splat.py). This is the SAME figure the profile chart draws and the link matrix
-// shows, kept identical to the server so the two never disagree.
+// Geometric first-Fresnel-zone clearance — the figure the profile chart draws and the link matrix
+// shows.
 //
 // It is a geometric indicator only; link viability comes from the ITM margin, not this.
 
 // Effective-earth-radius (4/3) model for the line-of-sight curvature bulge. Mirrors the constants
-// shared by the 3D links and the viewshed (src/viewshed/gpu.ts INV_KR2) and the Python service.
+// shared by the 3D links and the viewshed (src/viewshed/gpu.ts INV_KR2).
 const EARTH_RADIUS_M = 6371000.0;
 const K_FACTOR = 4.0 / 3.0;
 

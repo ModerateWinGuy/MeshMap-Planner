@@ -1,7 +1,6 @@
-// Client-side colorization of a coverage dBm grid. The server baked a matplotlib colormap into its
-// GeoTIFF palette; computing coverage in the browser instead means we hold a raw Float32 dBm grid and
-// must map it to RGBA ourselves. These LUTs are piecewise-linear interpolations between a handful of
-// anchor stops per colormap — close enough to read like the matplotlib originals, not bit-exact.
+// Client-side colorization of a raw Float32 coverage dBm grid to RGBA. These LUTs are
+// piecewise-linear interpolations between a handful of anchor stops per colormap — close enough to
+// read like the matplotlib originals, not bit-exact.
 
 import type { CoverageGrid } from './coverageTypes.ts';
 
@@ -107,14 +106,13 @@ export function colorizeGrid(
   const span = maxDbm - minDbm;
   // Fade the weakest band of signal in over the bottom FADE_BAND of the dBm range rather than cutting
   // off at full opacity, so the coverage perimeter (where signal ≈ min_dbm) is a soft translucent
-  // falloff instead of a hard 1-pixel cliff. The old server overlay looked soft mostly because it was
-  // low-res and got smooth-scaled when draped; this reproduces that edge at the new higher resolution.
+  // falloff instead of a hard 1-pixel cliff.
   const FADE_BAND = 0.15;
   for (let i = 0; i < dbm.length; i++) {
     const v = dbm[i];
     const o = i * 4;
     // NaN (no usable ITM result) and signal below the floor are not coverage: leave fully transparent
-    // so the basemap shows through, matching the server palette's nodata handling.
+    // so the basemap shows through.
     if (Number.isNaN(v) || v < minDbm) {
       data[o + 3] = 0;
       continue;

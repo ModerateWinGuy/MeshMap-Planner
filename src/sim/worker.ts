@@ -2,9 +2,6 @@
 // The sim Web Worker: runs the CPU-bound ITM evaluations off the UI thread. The main thread fetches
 // and decodes the terrain heightmap (that needs the DOM canvas, unavailable here) and transfers the
 // raw Terrarium buffer in; this worker reconstructs the Heightmap and computes links/profiles.
-//
-// Coverage and relay handlers are added alongside these as those phases land; the dispatch is a
-// simple switch on msg.type so new jobs are additive.
 
 import type { Heightmap } from '../viewshed/heightmap.ts';
 import type { LinkResult } from '../types.ts';
@@ -103,7 +100,7 @@ async function handleMatrix(msg: MatrixMsg): Promise<void> {
   // Ground elevations (for the radio-horizon pre-filter) sampled once per node from this heightmap.
   const ground = filterHorizon ? nodes.map((n) => groundElevationM(hm, n)) : null;
 
-  // Unordered pairs, pre-filtered by the LOS radio horizon when requested (mirrors run_matrix).
+  // Unordered pairs, pre-filtered by the LOS radio horizon when requested.
   const pairs: Array<[number, number]> = [];
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
@@ -201,9 +198,8 @@ async function handleRelay(msg: RelayMsg): Promise<void> {
       emit(0.5 + 0.5 * (total ? done / total : 0));
     });
     const result = relayOverlap(gridA, gridB, msg.params);
-    // Beyond the plain-JSON FeatureCollections the result now carries a marginGrid (a Float32 field).
-    // Structured clone preserves the typed-array view; transfer its backing buffer (it can be several
-    // MB) so it moves rather than copies. The worker is done with it once posted.
+    // The result's marginGrid is a Float32 field; transfer its backing buffer (it can be several MB)
+    // so it moves rather than copies. The worker is done with it once posted.
     const transfer = result.marginGrid ? [result.marginGrid.dbm.buffer] : [];
     ctx.postMessage({ type: 'relay-done', reqId, result }, transfer);
   } catch (err) {

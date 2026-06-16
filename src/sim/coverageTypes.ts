@@ -33,8 +33,8 @@ export interface CoverageOptions {
 }
 
 // Per-cell received power (dBm), row-major, north row first. NaN marks a cell with no usable result.
-// dbm = (tx_power + tx_gain - system_loss) - path_loss  (receiver gain NOT included, matching the
-// server's coverage_dbm_points; relay adds the relay rx gain when forming margins).
+// dbm = (tx_power + tx_gain - system_loss) - path_loss  (receiver gain NOT included; relay adds the
+// relay rx gain when forming margins).
 export interface CoverageGrid {
   dbm: Float32Array; // length width*height
   width: number;

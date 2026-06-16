@@ -151,7 +151,6 @@ const ungroupedNodes = computed(() =>
     store.nodes.filter((n) => !n.groupId || !groupIds.value.has(n.groupId))
 );
 
-// --- Rename ---------------------------------------------------------------------------------------
 const editingGroupId = ref<string | null>(null);
 const editName = ref('');
 
@@ -182,7 +181,6 @@ function addFolder() {
     startRename({ id, name: 'New folder' } as NodeGroup); // drop straight into renaming the new folder
 }
 
-// --- Drag and drop --------------------------------------------------------------------------------
 function isGroupDragSource(id: string) {
     return dragKind.value === 'group' && dragId.value === id;
 }

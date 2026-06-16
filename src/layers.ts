@@ -1,7 +1,7 @@
-// Node pins for maplibregl.Marker, which takes a DOM element rather than a Leaflet-style icon. Each
-// pin is a small name caption stacked above a Lucide MapPin SVG (monotone — recoloured/resized per
-// selection); selection state and renames are style/text mutations on the same element (markers are
-// not churned — see store.renderNodeMarkers).
+// Node pins for maplibregl.Marker, which takes a DOM element. Each pin is a small name caption
+// stacked above a Lucide MapPin SVG (monotone — recoloured/resized per selection); selection state
+// and renames are style/text mutations on the same element (markers are not churned — see
+// store.renderNodeMarkers).
 import { createElement, MapPin } from 'lucide';
 
 // Apply the selected/unselected look (and current name) to an existing pin element. Selected pins

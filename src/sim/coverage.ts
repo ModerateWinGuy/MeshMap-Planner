@@ -1,6 +1,4 @@
-// Client-side RF coverage, the browser-side equivalent of the server's coverage_dbm_points /
-// coverage_prediction (app/services/splat.py). Computed as a RADIAL SWEEP from the TX (the way the
-// old SPLAT backend produced sharp near-site coverage), then rasterized into the output grid.
+// RF coverage as a RADIAL SWEEP from the TX, then rasterized into the output grid.
 //
 // Why radial rather than a uniform per-cell grid: a uniform 8 m grid over a 30 km radius is ~56M ITM
 // calls (infeasible). A radial sweep fires `azimuths` rays out to `radiusM` with `rangeSteps` samples
@@ -8,12 +6,10 @@
 // That concentrates compute near the TX (sharp close-in coverage) and decouples the displayed overlay
 // resolution (width×height, a cheap rasterization target) from the ITM budget (≈ az × rangeSteps²/2).
 //
-// Each ray IS the terrain profile, so unlike the per-cell version this samples no per-path profile and
-// ignores opts.quality. Otherwise the ITM parameter assembly mirrors links.ts evaluate() exactly so a
-// client run feeds ITM the identical inputs the server did. Pure given an ITM module + heightmap (no
-// DOM / no I/O), so it runs unchanged inside the sim Web Worker.
+// Each ray IS the terrain profile, so unlike a per-cell grid this samples no per-path profile and
+// ignores opts.quality. Otherwise the ITM parameter assembly mirrors links.ts evaluate() exactly.
+// Pure given an ITM module + heightmap (no DOM / no I/O), so it runs unchanged inside the sim Web Worker.
 //
-// Parity notes with the server (coverage_dbm_points):
 //   - dbm = (tx_power + tx_gain - system_loss) - path_loss   (SPLAT's ERP-basis received power)
 //   - receiver gain is NOT included here; relay forms margins by adding the relay rx gain per cell
 //   - clutter_height is added to interior terrain points (not the antenna sites), as SPLAT's -gc does
@@ -91,7 +87,7 @@ export function computeCoverage(
 
     // Uniform ground clutter on interior ray points only (the antennas sit on bare ground), matching
     // links.ts evaluate() and SPLAT's -gc. rayH[0] stays the TX site; each prefix's rx endpoint also
-    // getting clutter is a negligible approximation we accept to keep one shared height array per ray.
+    // getting clutter is a negligible approximation accepted to keep one shared height array per ray.
     if (shared.clutter_height > 0) {
       for (let s = 1; s < rangeSteps; s++) {
         rayH[s] += shared.clutter_height;
@@ -139,8 +135,8 @@ export function computeCoverage(
   }
 
   // Rasterize the polar field into the output grid. Row 0 is the NORTH edge; each cell is sampled at
-  // its centre (+0.5), the SAME bbox-cell-centre convention the per-cell version used, so the overlay
-  // drapes identically. Cells beyond the disc stay NaN (transparent corners).
+  // its centre (+0.5) so the overlay drapes correctly. Cells beyond the disc stay NaN (transparent
+  // corners).
   const dbm = new Float32Array(width * height).fill(NaN);
   for (let r = 0; r < height; r++) {
     const lat = opts.north - ((r + 0.5) / height) * (opts.north - opts.south);
