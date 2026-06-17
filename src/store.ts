@@ -368,6 +368,9 @@ let rebuild3dTimer: ReturnType<typeof setTimeout> | null = null;
 // Debounce handle for re-running the link matrix when a link-affecting setting changes (radio params,
 // shared environment, lora preset, node coords). Coalesces keystroke/slider bursts into one ITM run.
 let matrixRecomputeTimer: ReturnType<typeof setTimeout> | null = null;
+// Debounce handle for refreshing an open profile when one of its endpoints moves. Coalesces a burst
+// of lat/lon keystrokes into one recompute (a drag-drop is a single event, so it fires once anyway).
+let profileRecomputeTimer: ReturnType<typeof setTimeout> | null = null;
 // Elevated per-link polylines for click hit-testing the 3D lines (the 2D click target is offset
 // from the visible 3D line once the camera tilts). Rebuilt alongside the geometry.
 let links3dPicks: LinkPick[] = [];
@@ -1510,6 +1513,34 @@ const useStore = defineStore('store', {
               // drag starting.
               if (this.matrixResult && !this.dragging) {
                 this.runMatrix();
+              }
+            }, 300);
+          }
+        ),
+        // Refresh an open profile when either of its endpoints moves — a map drag-drop or a manual
+        // lat/lon edit. Tracks only the two endpoint coords (resolved via profileFromId/profileToId),
+        // so an unrelated node moving never fires it. runProfile is cache-keyed on the resolved coords:
+        // a no-op move returns from cache instantly (no spinner), a real move recomputes the chart and
+        // redraws the cyan path. Gated on !dragging so it fires once on drop (not per frame mid-drag),
+        // and debounced like the matrix watcher so a lat/lon keystroke burst is one run.
+        watch(
+          () => {
+            const from = this.nodes.find((n) => n.id === this.profileFromId);
+            const to = this.nodes.find((n) => n.id === this.profileToId);
+            return `${from?.transmitter.tx_lat}:${from?.transmitter.tx_lon}:${to?.transmitter.tx_lat}:${to?.transmitter.tx_lon}`;
+          },
+          () => {
+            if (!this.profileFromId || !this.profileToId || this.dragging) {
+              return;
+            }
+            if (profileRecomputeTimer) {
+              clearTimeout(profileRecomputeTimer);
+            }
+            profileRecomputeTimer = setTimeout(() => {
+              profileRecomputeTimer = null;
+              // Re-check after the debounce: the profile may have been closed or a drag started.
+              if (this.profileFromId && this.profileToId && !this.dragging) {
+                this.runProfile(this.profileFromId, this.profileToId);
               }
             }, 300);
           }
