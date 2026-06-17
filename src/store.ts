@@ -81,6 +81,16 @@ export const BASEMAPS = [
     maxzoom: 19,
   },
   {
+    // LINZ Basemaps NZ aerial imagery — higher detail than the global Esri 'Satellite', but NZ-only:
+    // no tiles exist outside NZ, so the map is blank there. `aerial`/WebMercatorQuad, .webp for the
+    // smallest payload. Needs VITE_LINZ_API_KEY (same free key as the DEM overlay; empty → blank).
+    id: 'linz-aerial',
+    label: 'Aerial Imagery',
+    tiles: [`https://basemaps.linz.govt.nz/v1/tiles/aerial/WebMercatorQuad/{z}/{x}/{y}.webp?api=${import.meta.env.VITE_LINZ_API_KEY ?? ''}`],
+    attribution: 'Aerial imagery © LINZ, CC-BY 4.0',
+    maxzoom: 22,
+  },
+  {
     id: 'topo',
     label: 'Topo Map',
     tiles: [
@@ -468,6 +478,9 @@ const useStore = defineStore('store', {
       nodeMarkers: {} as Record<string, maplibregl.Marker>,
       dragging: false,
       activeBasemap: useLocalStorage('activeBasemap', 'osm'),
+      // Opt-in to the NZ-only 'Satellite (NZ)' (LINZ aerial) basemap button. Off by default so the
+      // picker stays uncluttered for non-NZ users; when on, availableBasemaps reveals the button.
+      nzBasemapEnabled: useLocalStorage('nzBasemapEnabled', false),
       // Which sidebar panel the top-bar mode toggle shows. Persisted so the chosen mode survives reload.
       activeMode: useLocalStorage<UiMode>('activeMode', 'nodes'),
       localSites: [] as Site[], // in-memory only (raster/canvas are not JSON-serializable)
@@ -590,6 +603,12 @@ const useStore = defineStore('store', {
     }
   },
   getters: {
+    // The basemaps shown in the switcher. The NZ aerial (LINZ) basemap is NZ-only, so it's hidden
+    // unless the user opts in (nzBasemapEnabled) — the source/layer always exist in the style; this
+    // only gates whether its button appears.
+    availableBasemaps(state) {
+      return state.nzBasemapEnabled ? BASEMAPS : BASEMAPS.filter((b) => b.id !== 'linz-aerial');
+    },
     selectedNode(state): Node | undefined {
       return state.nodes.find((n) => n.id === state.selectedNodeId) ?? state.nodes[0];
     },
@@ -1876,6 +1895,14 @@ const useStore = defineStore('store', {
         if (map.getLayer('basemap-' + b.id)) {
           map.setLayoutProperty('basemap-' + b.id, 'visibility', b.id === id ? 'visible' : 'none');
         }
+      }
+    },
+    // Reveal/hide the NZ aerial (LINZ) basemap button. If turning it off while that basemap is active,
+    // fall back to the global Satellite so the map isn't left on a basemap whose button just vanished.
+    toggleNzBasemap() {
+      this.nzBasemapEnabled = !this.nzBasemapEnabled;
+      if (!this.nzBasemapEnabled && this.activeBasemap === 'linz-aerial') {
+        this.setBasemap('satellite');
       }
     },
     toggleTerrain() {

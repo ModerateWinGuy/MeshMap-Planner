@@ -5,7 +5,7 @@
        inline in the sidebar. -->
   <div class="btn-group-vertical shadow w-100" role="group" aria-label="Basemap">
     <button
-      v-for="b in BASEMAPS"
+      v-for="b in store.availableBasemaps"
       :key="b.id"
       type="button"
       class="btn btn-sm text-start"
@@ -80,7 +80,7 @@
 </template>
 
 <script setup lang="ts">
-import { useStore, BASEMAPS } from '../store.ts'
+import { useStore } from '../store.ts'
 import { Lock, LockOpen, Waypoints, ScanEye } from '@lucide/vue'
 const store = useStore()
 </script>

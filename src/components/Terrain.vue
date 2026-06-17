@@ -57,6 +57,27 @@
       </div>
     </div>
 
+    <div class="row mt-3">
+      <div class="col-12">
+        <div class="form-check form-switch">
+          <input
+            class="form-check-input"
+            type="checkbox"
+            role="switch"
+            id="nz_basemap_enabled"
+            :checked="store.nzBasemapEnabled"
+            @change="store.toggleNzBasemap()"
+          />
+          <label class="form-check-label" for="nz_basemap_enabled">Show NZ satellite basemap (LINZ)</label>
+          <InfoTip>
+            Adds a <strong>Satellite (NZ)</strong> option to the basemap buttons, using LINZ aerial
+            photography — higher detail than the global Esri imagery, but New Zealand only (blank
+            elsewhere). Off by default; enable it if you're mapping in NZ. Imagery © LINZ, CC&#8209;BY&nbsp;4.0.
+          </InfoTip>
+        </div>
+      </div>
+    </div>
+
     <div class="row mt-3" v-if="store.hillshadeEnabled">
       <div class="col-12">
         <div class="d-flex align-items-center mb-2">
