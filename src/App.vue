@@ -27,8 +27,22 @@
             </label>
           </template>
         </div>
+
+        <!-- Share the whole set of nodes as one link. Right-aligned by the navbar container's
+             space-between; disabled until at least one node exists. -->
+        <ShareButton
+          :payload="siteSharePayload"
+          :disabled="!store.nodes.length"
+          class="btn-outline-light"
+          text="Share site"
+          title="Copy a link that shares all your nodes"
+          label="Share site"
+        />
       </div>
     </nav>
+
+    <!-- A node/link shared via #s=… link: confirm before adding it to the user's saved map. -->
+    <SharedLinkBanner />
 
     <div class="content-row">
       <!-- Map column: the map fills it, with the point-to-point profile strip docked below when a
@@ -145,6 +159,8 @@ import Viewshed from "./components/Viewshed.vue"
 import Terrain from "./components/Terrain.vue"
 import BasemapControl from "./components/BasemapControl.vue"
 import ContactImport from "./components/ContactImport.vue"
+import SharedLinkBanner from "./components/SharedLinkBanner.vue"
+import ShareButton from "./components/ShareButton.vue"
 import ProfilePanel from "./components/ProfilePanel.vue"
 import MapLoadingBar from "./components/MapLoadingBar.vue"
 import MeasurePanel from "./components/MeasurePanel.vue"
@@ -153,8 +169,14 @@ import type { Component } from "vue"
 
 import { useStore } from './store.ts'
 import { installKeyboardShortcuts } from './keyboard.ts'
+import { nodeToShared, type SharePayload } from './utils.ts'
 import type { UiMode } from './types.ts'
 const store = useStore()
+
+// "Share site": all current nodes in one link. Built on click so it captures the latest map; returns
+// null when empty (the button is also disabled then).
+const siteSharePayload = (): SharePayload | null =>
+  store.nodes.length ? { v: 1, t: 'site', n: store.nodes.map(nodeToShared) } : null
 
 // Top-bar mode toggle. Order is the rough workflow: build nodes -> set radio params -> run coverage
 // -> analyse links -> map settings.

@@ -1,5 +1,13 @@
 <template>
     <div class="profile-strip text-bg-dark" data-bs-theme="dark">
+        <ShareButton
+            v-if="linkPayload()"
+            :payload="linkPayload"
+            class="profile-share"
+            title="Copy a share link for this link profile"
+            label="Share link"
+            :size="18"
+        />
         <button type="button" class="btn btn-sm p-0 border-0 bg-transparent lh-1 profile-close" aria-label="Close profile" title="Close" @click="store.clearProfile()">
             <X :size="20" />
         </button>
@@ -83,9 +91,22 @@ import { computed, ref } from 'vue'
 import { X } from '@lucide/vue'
 import { useStore } from '../store.ts'
 import { interpGreatCircle } from '../sim/profile.ts'
+import { nodeToShared, type SharePayload } from '../utils.ts'
+import ShareButton from './ShareButton.vue'
 import type { ProfileCurve } from '../types.ts'
 
 const store = useStore()
+
+// Share link for the open profile's two endpoints, built fresh on click so it reflects any edits to
+// the nodes. Returns null until both endpoints resolve, which hides the button.
+const linkPayload = (): SharePayload | null => {
+    const a = fromNode.value
+    const b = toNode.value
+    if (!a || !b) {
+        return null
+    }
+    return { v: 1, t: 'link', n: [nodeToShared(a), nodeToShared(b)], lp: store.splatParams.lora?.preset }
+}
 
 const VB_W = 1600, VB_H = 320
 const PAD_L = 70, PAD_R = 20, PAD_T = 24, PAD_B = 44
@@ -303,6 +324,14 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
     position: absolute;
     top: 4px;
     right: 6px;
+    z-index: 2;
+    color: #ccc;
+}
+/* Sits just left of the close button, sharing its top-right corner. */
+.profile-share {
+    position: absolute;
+    top: 4px;
+    right: 34px;
     z-index: 2;
     color: #ccc;
 }

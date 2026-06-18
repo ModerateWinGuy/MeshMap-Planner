@@ -4,7 +4,7 @@ import { watch, markRaw } from 'vue';
 import { randanimalSync } from 'randanimal';
 import maplibregl from 'maplibre-gl';
 import { type Site, type SplatParams, type Node, type NodeGroup, type MatrixResult, type LinkResult, type RelayResult, type ProfileResult, type UiMode } from './types.ts';
-import { cloneObject, escapeHtml } from './utils.ts';
+import { cloneObject, escapeHtml, decodeShare, type SharePayload } from './utils.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
 import { createElement, Ruler, Keyboard } from 'lucide';
 import { Popover } from 'bootstrap';
@@ -530,6 +530,10 @@ const useStore = defineStore('store', {
       map: undefined as any,
       nodeMarkers: {} as Record<string, maplibregl.Marker>,
       dragging: false,
+      // A share link opened in the URL (#s=…), parsed but NOT yet applied: the confirm banner
+      // (SharedLinkBanner) shows it and the user picks Add (applyIncomingShare) or Dismiss. In-memory
+      // only — the hash is stripped the moment it's parsed, so a reload/HMR remount never re-triggers.
+      incomingShare: null as SharePayload | null,
       activeBasemap: useLocalStorage('activeBasemap', 'osm'),
       // Opt-in to the NZ-only 'Satellite (NZ)' (LINZ aerial) basemap button. Off by default so the
       // picker stays uncluttered for non-NZ users; when on, availableBasemaps reveals the button.
@@ -953,6 +957,110 @@ const useStore = defineStore('store', {
       this.renderNodeMarkers();
       this.redrawLinks();
       return rows.length;
+    },
+    // Parse a share link (#s=<base64url>) from the URL on startup into `incomingShare` (pending, not
+    // yet applied — the banner confirms before mutating the saved map). The hash is stripped
+    // immediately, whether or not it decoded, so a reload or HMR remount never re-triggers. Called
+    // once at the top of initMap; needs no map.
+    parseShareLink() {
+      const match = location.hash.match(/^#s=(.+)$/);
+      if (!match) {
+        return;
+      }
+      const payload = decodeShare(match[1]);
+      history.replaceState(null, '', location.pathname + location.search);
+      if (payload) {
+        this.incomingShare = payload;
+      }
+    },
+    // Apply the pending shared node(s) (the banner's "Add"): add each (deduped by name+coords against
+    // the existing nodes, same key the import uses, so reopening a link can't pile up duplicates),
+    // select the first, frame them, and for a link share compute the profile between the pair.
+    applyIncomingShare() {
+      const payload = this.incomingShare;
+      if (!payload) {
+        return;
+      }
+      const dt = defaultTransmitter();
+      const dr = defaultReceiver();
+      const fin = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+      const ids: string[] = [];
+      for (const sn of payload.n) {
+        const lat = Number(sn.lat.toFixed(6));
+        const lon = Number(sn.lon.toFixed(6));
+        const existing = this.nodes.find(
+          (n) =>
+            n.transmitter.name === sn.name &&
+            Number(n.transmitter.tx_lat.toFixed(6)) === lat &&
+            Number(n.transmitter.tx_lon.toFixed(6)) === lon
+        );
+        if (existing) {
+          ids.push(existing.id);
+          continue;
+        }
+        const node: Node = {
+          id: crypto.randomUUID(),
+          transmitter: {
+            name: sn.name,
+            tx_lat: lat,
+            tx_lon: lon,
+            tx_power: fin(sn.txp, dt.tx_power),
+            tx_freq: fin(sn.txf, dt.tx_freq),
+            tx_height: fin(sn.txh, dt.tx_height),
+            tx_gain: fin(sn.txg, dt.tx_gain),
+          },
+          receiver: {
+            rx_sensitivity: fin(sn.rxs, dr.rx_sensitivity),
+            rx_height: fin(sn.rxh, dr.rx_height),
+            rx_gain: fin(sn.rxg, dr.rx_gain),
+            rx_loss: fin(sn.rxl, dr.rx_loss),
+          },
+        };
+        this.nodes.push(node);
+        ids.push(node.id);
+      }
+      this.incomingShare = null;
+      if (!ids.length) {
+        return;
+      }
+      this.selectedNodeId = ids[0];
+      this.renderNodeMarkers();
+      this.redrawLinks();
+      if (payload.t === 'link' && ids.length >= 2) {
+        this.fitNodes([ids[0], ids[1]]);
+        this.runProfile(ids[0], ids[1]); // opens the bottom profile strip for the shared pair
+      } else {
+        this.fitNodes(ids); // a site share: frame every added/matched node
+      }
+    },
+    // Dismiss the pending share without touching the saved map (the hash was already stripped on parse).
+    dismissIncomingShare() {
+      this.incomingShare = null;
+    },
+    // Frame the map on one or more nodes: fly to a single node (keeping any closer zoom), or fit the
+    // bounds of several. Used when applying a shared link.
+    fitNodes(ids: string[]) {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map) {
+        return;
+      }
+      const pts = ids
+        .map((id) => this.nodes.find((n) => n.id === id))
+        .filter((n): n is Node => Boolean(n))
+        .map((n) => [n.transmitter.tx_lon, n.transmitter.tx_lat] as [number, number]);
+      if (!pts.length) {
+        return;
+      }
+      if (pts.length === 1) {
+        map.flyTo({ center: pts[0], zoom: Math.max(map.getZoom(), 12) });
+        return;
+      }
+      const bounds = new maplibregl.LngLatBounds(pts[0], pts[0]);
+      for (const p of pts) {
+        bounds.extend(p);
+      }
+      // Bottom padding leaves room for the docked profile strip that a link share opens.
+      map.fitBounds(bounds, { padding: { top: 60, right: 60, bottom: 160, left: 60 }, maxZoom: 14, duration: 800 });
     },
     renameGroup(id: string, name: string) {
       const group = this.groups.find((g) => g.id === id);
@@ -1527,6 +1635,10 @@ const useStore = defineStore('store', {
       // fires again on a remount (Vite HMR). Tear the old map down first so its WebGL context and
       // watchers don't leak.
       this.destroyMap();
+
+      // Pull any shared node(s) out of the URL hash into a pending state the confirm banner shows.
+      // Strips the hash as it goes, so this is idempotent across the HMR remount above.
+      this.parseShareLink();
 
       // MapLibre globally caps in-flight tile image requests (default 16) across ALL sources. Slow
       // LINZ terrain tiles can otherwise hog every slot and starve the basemap, leaving the map
