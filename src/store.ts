@@ -341,6 +341,9 @@ function fitCoverageCanvas(canvas: HTMLCanvasElement, maxTexture = MAX_TEXTURE):
   return out;
 }
 
+// Folder that bulk-imported MeshCore contacts land in; reused across re-imports (see importContacts).
+const IMPORTED_FOLDER_NAME = 'Imported';
+
 function defaultTransmitter(): SplatParams['transmitter'] {
   return {
     name: randanimalSync(),
@@ -922,6 +925,34 @@ const useStore = defineStore('store', {
       const group: NodeGroup = { id: crypto.randomUUID(), name };
       this.groups.push(group);
       return group.id;
+    },
+    // Bulk-create nodes from imported MeshCore contacts, all dropped into a single "Imported" folder
+    // (reused across re-imports rather than re-created). Rows are already type-filtered and deduped by
+    // the import UI; this just builds nodes with default radio params and the name/coords overridden,
+    // mirroring addNode. Returns how many were added.
+    importContacts(rows: Array<{ name: string; lat: number; lon: number }>): number {
+      if (!rows.length) {
+        return 0;
+      }
+      const groupId =
+        this.groups.find((g) => g.name === IMPORTED_FOLDER_NAME)?.id ?? this.addGroup(IMPORTED_FOLDER_NAME);
+      for (const row of rows) {
+        const node: Node = {
+          id: crypto.randomUUID(),
+          transmitter: {
+            ...defaultTransmitter(),
+            name: row.name,
+            tx_lat: Number(row.lat.toFixed(6)),
+            tx_lon: Number(row.lon.toFixed(6))
+          },
+          receiver: defaultReceiver(),
+          groupId
+        };
+        this.nodes.push(node);
+      }
+      this.renderNodeMarkers();
+      this.redrawLinks();
+      return rows.length;
     },
     renameGroup(id: string, name: string) {
       const group = this.groups.find((g) => g.id === id);

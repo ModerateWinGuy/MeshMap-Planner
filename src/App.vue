@@ -98,7 +98,7 @@
           </div>
 
           <div v-show="store.activeMode === 'settings'">
-            <BasemapButtons />
+            <ContactImport />
             <hr />
             <Terrain />
           </div>
@@ -144,7 +144,7 @@ import Display from "./components/Display.vue"
 import Viewshed from "./components/Viewshed.vue"
 import Terrain from "./components/Terrain.vue"
 import BasemapControl from "./components/BasemapControl.vue"
-import BasemapButtons from "./components/BasemapButtons.vue"
+import ContactImport from "./components/ContactImport.vue"
 import ProfilePanel from "./components/ProfilePanel.vue"
 import MapLoadingBar from "./components/MapLoadingBar.vue"
 import MeasurePanel from "./components/MeasurePanel.vue"
