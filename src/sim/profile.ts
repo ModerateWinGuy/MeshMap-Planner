@@ -43,7 +43,7 @@ export function haversineM(lon1: number, lat1: number, lon2: number, lat2: numbe
 
 // Point a fraction f (0..1) of the way along the great circle from (lon1,lat1) to (lon2,lat2).
 // Linear lon/lat interpolation drifts off the true path on long links; this stays on the geodesic.
-function interpGreatCircle(
+export function interpGreatCircle(
   lon1: number, lat1: number, lon2: number, lat2: number, f: number,
 ): [number, number] {
   const φ1 = lat1 * DEG2RAD, λ1 = lon1 * DEG2RAD;

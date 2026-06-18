@@ -2142,6 +2142,22 @@ const useStore = defineStore('store', {
     resetView() {
       this.map?.easeTo({ pitch: 0, bearing: 0 });
     },
+    // Fly to a point on the ground viewed side-on at a near-horizontal tilt — used by the profile
+    // chart to inspect where a link's beam meets the terrain. viewBearing is perpendicular to the
+    // link, so the path runs left-to-right across the screen. Force the 3D view on (if off) so the
+    // beam-vs-terrain intersection is actually visible.
+    focusTerrainView(lng: number, lat: number, viewBearing: number) {
+      if (!this.terrainEnabled) this.toggleTerrain();
+      if (!this.links3dEnabled) this.toggleLinks3d();
+      const map = this.map as maplibregl.Map | undefined;
+      map?.flyTo({
+        center: [lng, lat],
+        bearing: viewBearing,
+        pitch: 75, // near-horizontal side view (maxPitch is 85)
+        zoom: Math.max(map.getZoom(), 15),
+        duration: 1200,
+      });
+    },
     // Compute the coverage overlay in the browser (WASM ITM, off-thread). The result drapes through the
     // Site/overlay model as a palette canvas on a MapLibre canvas source, so the visibility toggle,
     // opacity slider and multi-site stacking all apply.
@@ -2331,6 +2347,40 @@ const useStore = defineStore('store', {
         links3dPicks = geom.picks;
         map.triggerRepaint();
       }, 200);
+    },
+    // Mirror the profile chart's hover dot onto the 3D line-of-sight beam. f is the path fraction
+    // (0..1) measured from the profiled link's "from" node; null clears the marker. We ride the
+    // already-built 3D pick polyline (absolute mercator, sampled along the sagged chord) so the dot
+    // sits exactly on the rendered beam — no need to re-query terrain or recompute the curvature.
+    setBeamCursor(f: number | null) {
+      const layer = links3dLayer;
+      if (!layer) {
+        return;
+      }
+      const fromId = this.profileFromId;
+      const toId = this.profileToId;
+      if (f === null || !this.links3dActive || !fromId || !toId) {
+        layer.setBeamCursor(null);
+        return;
+      }
+      const pk = links3dPicks.find(
+        (p) => (p.a === fromId && p.b === toId) || (p.a === toId && p.b === fromId),
+      );
+      const n = pk ? pk.pts.length / 3 : 0;
+      if (!pk || n < 2) {
+        layer.setBeamCursor(null);
+        return;
+      }
+      // Pick polylines run a→b; flip the fraction when the profile's "from" is the pick's b end.
+      const t = pk.a === fromId ? f : 1 - f;
+      const pos = Math.min(n - 1, Math.max(0, t * (n - 1)));
+      const i0 = Math.floor(pos);
+      const i1 = Math.min(n - 1, i0 + 1);
+      const fr = pos - i0;
+      const pts = pk.pts;
+      const lerp = (k: number) => pts[i0 * 3 + k] + (pts[i1 * 3 + k] - pts[i0 * 3 + k]) * fr;
+      layer.setBeamCursor([lerp(0), lerp(1), lerp(2)]);
+      (this.map as maplibregl.Map | undefined)?.triggerRepaint();
     },
     // Show the 3D links only with terrain on, and dim the draped 2D links to a faint ground
     // reference so they still anchor the links and keep their popups/"Show line profile" clickable.
@@ -2800,6 +2850,7 @@ const useStore = defineStore('store', {
       this.profileState = 'idle';
       this.profileFromId = null;
       this.profileToId = null;
+      this.setBeamCursor(null);
       this.redrawProfilePath();
     },
     // Find the candidate relay zone between two nodes in the browser (WASM ITM). Runs two coverage

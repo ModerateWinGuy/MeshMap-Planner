@@ -41,41 +41,47 @@
             </div>
 
             <!-- Inline SVG chart. viewBox + 100% width keeps it crisp and responsive without a chart lib. -->
-            <svg v-if="chart" class="profile-svg" :viewBox="`0 0 ${VB_W} ${VB_H}`" preserveAspectRatio="none">
-                <!-- y grid + labels -->
-                <g v-for="t in chart.yTicks" :key="'y' + t.v">
-                    <line :x1="PAD_L" :y1="t.y" :x2="VB_W - PAD_R" :y2="t.y" stroke="#ffffff14" stroke-width="1" />
-                    <text :x="PAD_L - 8" :y="t.y + 5" text-anchor="end" class="axis-label">{{ t.v }}</text>
-                </g>
-                <!-- minor distance ticks (ruler dashes) -->
-                <line v-for="(mx, i) in chart.xMinorTicks" :key="'xm' + i" :x1="mx" :y1="VB_H - PAD_B" :x2="mx" :y2="VB_H - PAD_B + 8" stroke="#ffffff45" stroke-width="1" />
-                <!-- x grid + labels -->
-                <g v-for="t in chart.xTicks" :key="'x' + t.v">
-                    <line :x1="t.x" :y1="PAD_T" :x2="t.x" :y2="VB_H - PAD_B + 13" stroke="#ffffff10" stroke-width="1" />
-                    <text :x="t.x" :y="VB_H - PAD_B + 30" text-anchor="middle" class="axis-label">{{ t.v }}</text>
-                </g>
+            <div v-if="chart" class="profile-chart">
+                <svg class="profile-svg" :viewBox="`0 0 ${VB_W} ${VB_H}`" preserveAspectRatio="none" @click="onChartClick" @mousemove="onChartMove" @mouseleave="onChartLeave">
+                    <!-- y grid + labels -->
+                    <g v-for="t in chart.yTicks" :key="'y' + t.v">
+                        <line :x1="PAD_L" :y1="t.y" :x2="VB_W - PAD_R" :y2="t.y" stroke="#ffffff14" stroke-width="1" />
+                        <text :x="PAD_L - 8" :y="t.y + 5" text-anchor="end" class="axis-label">{{ t.v }}</text>
+                    </g>
+                    <!-- minor distance ticks (ruler dashes) -->
+                    <line v-for="(mx, i) in chart.xMinorTicks" :key="'xm' + i" :x1="mx" :y1="VB_H - PAD_B" :x2="mx" :y2="VB_H - PAD_B + 8" stroke="#ffffff45" stroke-width="1" />
+                    <!-- x grid + labels -->
+                    <g v-for="t in chart.xTicks" :key="'x' + t.v">
+                        <line :x1="t.x" :y1="PAD_T" :x2="t.x" :y2="VB_H - PAD_B + 13" stroke="#ffffff10" stroke-width="1" />
+                        <text :x="t.x" :y="VB_H - PAD_B + 30" text-anchor="middle" class="axis-label">{{ t.v }}</text>
+                    </g>
 
-                <!-- terrain -->
-                <path :d="chart.terrainFill" fill="#6b563f" fill-opacity="0.85" />
-                <path :d="chart.terrainLine" fill="none" stroke="#9acd32" stroke-width="2" />
-                <!-- first Fresnel zone band + 60% boundary -->
-                <path v-if="chart.fresnelBand" :d="chart.fresnelBand" fill="#d83a4b" fill-opacity="0.30" />
-                <path v-if="chart.fresnel60Line" :d="chart.fresnel60Line" fill="none" stroke="#ff8a8a" stroke-width="1.5" stroke-dasharray="6 5" />
-                <!-- line of sight -->
-                <path :d="chart.losLine" fill="none" stroke="#f2e205" stroke-width="2" />
+                    <!-- terrain -->
+                    <path :d="chart.terrainFill" fill="#6b563f" fill-opacity="0.85" />
+                    <path :d="chart.terrainLine" fill="none" stroke="#9acd32" stroke-width="2" />
+                    <!-- first Fresnel zone band + 60% boundary -->
+                    <path v-if="chart.fresnelBand" :d="chart.fresnelBand" fill="#d83a4b" fill-opacity="0.30" />
+                    <path v-if="chart.fresnel60Line" :d="chart.fresnel60Line" fill="none" stroke="#ff8a8a" stroke-width="1.5" stroke-dasharray="6 5" />
+                    <!-- line of sight -->
+                    <path :d="chart.losLine" fill="none" stroke="#f2e205" stroke-width="2" />
 
-                <text :x="PAD_L" :y="VB_H - 4" class="axis-title">Distance (km) →</text>
-                <text :x="6" :y="PAD_T - 8" class="axis-title">Elevation (m)</text>
-            </svg>
+                    <text :x="PAD_L" :y="VB_H - 4" class="axis-title">Distance (km) →</text>
+                    <text :x="6" :y="PAD_T - 8" class="axis-title">Elevation (m)</text>
+                </svg>
+                <!-- Hover dot riding the signal line, marking the point a click will fly the camera to.
+                     An HTML overlay (not an SVG circle) so preserveAspectRatio="none" can't squash it. -->
+                <span v-if="hoverMarker" class="profile-cursor" :style="{ left: hoverMarker.left + '%', top: hoverMarker.top + '%' }"></span>
+            </div>
             <div v-else class="profile-status text-muted">No terrain profile data returned.</div>
         </template>
     </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { X } from '@lucide/vue'
 import { useStore } from '../store.ts'
+import { interpGreatCircle } from '../sim/profile.ts'
 import type { ProfileCurve } from '../types.ts'
 
 const store = useStore()
@@ -109,6 +115,49 @@ const bearing = computed<number | null>(() => {
     const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon)
     return (toDeg(Math.atan2(y, x)) + 360) % 360
 })
+
+// Path fraction (0..1) under the pointer. The chart's x-axis is linear in fraction, so the x-pixel
+// inverts straight to f. preserveAspectRatio="none" → client-x maps linearly onto the 0..VB_W viewBox.
+function fractionFromEvent(evt: MouseEvent): number {
+    const rect = (evt.currentTarget as SVGSVGElement).getBoundingClientRect()
+    const vbX = ((evt.clientX - rect.left) / rect.width) * VB_W
+    const plotW = VB_W - PAD_L - PAD_R
+    return Math.min(1, Math.max(0, (vbX - PAD_L) / plotW))
+}
+
+// Fraction the hover dot tracks; null when the pointer is off the chart. Mirrored onto the 3D
+// line-of-sight beam (store.setBeamCursor) so the chart dot and the map indicator stay in lockstep.
+const hoverF = ref<number | null>(null)
+const onChartMove = (evt: MouseEvent) => {
+    hoverF.value = fractionFromEvent(evt)
+    store.setBeamCursor(hoverF.value)
+}
+const onChartLeave = () => {
+    hoverF.value = null
+    store.setBeamCursor(null)
+}
+
+// Position the dot (as % of the chart box) on the signal line at the hovered fraction.
+const hoverMarker = computed<{ left: number; top: number } | null>(() => {
+    const c = chart.value
+    if (!c || hoverF.value === null) return null
+    const [x, y] = c.losPx(hoverF.value)
+    return { left: (x / VB_W) * 100, top: (y / VB_H) * 100 }
+})
+
+// Clicking flies the map camera to that spot on the path, viewed side-on (perpendicular to the link)
+// so the user can see where the beam meets the terrain.
+function onChartClick(evt: MouseEvent) {
+    const a = fromNode.value, b = toNode.value
+    if (!a || !b || bearing.value === null) return
+    const f = fractionFromEvent(evt)
+    const [lng, lat] = interpGreatCircle(
+        a.transmitter.tx_lon, a.transmitter.tx_lat,
+        b.transmitter.tx_lon, b.transmitter.tx_lat, f,
+    )
+    const viewBearing = (bearing.value - 90 + 360) % 360
+    store.focusTerrainView(lng, lat, viewBearing)
+}
 
 const marginColor = computed(() => {
     const m = store.profileResult?.margin_db
@@ -193,6 +242,16 @@ const chart = computed(() => {
     const fresnelBand = `${toPath(fresUpper)} ${reversePts(fresLower)} Z`
     const fresnel60Line = toPath(fres60)
 
+    // Pixel position on the line-of-sight curve at path fraction f (0..1) — mirrors the loop above so
+    // the hover dot rides exactly on the drawn signal line.
+    const losPx = (f: number): [number, number] => {
+        const d = f * xMax
+        const d1 = Math.min(Math.max(d * 1000, 0), dM)
+        const bulge = (d1 * (dM - d1)) / (2 * K_FACTOR * EARTH_RADIUS_M)
+        const losV = topA + (topB - topA) * (d1 / dM) - bulge
+        return [sx(d), sy(losV)]
+    }
+
     const xStep = niceStep(xMax, 8)
     const xTicks: Array<{ v: number; x: number }> = []
     for (let v = 0; v <= xMax + 1e-6; v += xStep) xTicks.push({ v: Math.round(v), x: sx(v) })
@@ -208,7 +267,7 @@ const chart = computed(() => {
     const yStart = Math.ceil(yMin / yStep) * yStep
     for (let v = yStart; v <= yMax; v += yStep) yTicks.push({ v: Math.round(v), y: sy(v) })
 
-    return { terrainLine, terrainFill, losLine: toPath(los), fresnelBand, fresnel60Line, xTicks, xMinorTicks, yTicks }
+    return { terrainLine, terrainFill, losLine: toPath(los), fresnelBand, fresnel60Line, xTicks, xMinorTicks, yTicks, losPx }
 })
 
 // Worst-point first-Fresnel-zone clearance for the header. Computed in the shared sim (so the link
@@ -269,13 +328,32 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
 .profile-stats .badge {
     font-size: 14px;
 }
+/* Positioning context + layout slot for the SVG and its hover-dot overlay. */
+.profile-chart {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    margin-top: 4px;
+}
 .profile-svg {
     flex: 1 1 auto;
     width: 100%;
     min-height: 0;
     background: #0b1f33;
     border-radius: 4px;
-    margin-top: 4px;
+    cursor: crosshair;
+}
+/* Hover dot on the signal line; left/top set inline as % of the chart box. */
+.profile-cursor {
+    position: absolute;
+    width: 13px;
+    height: 13px;
+    border: 2px solid #f2e205;
+    background: rgba(242, 226, 5, 0.25);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
 }
 .profile-svg .axis-label {
     fill: #9fb3c8;

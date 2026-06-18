@@ -305,6 +305,11 @@ export class Links3DLayer implements CustomLayerInterface {
   private origin = { x: 0, y: 0, z: 0 };
   private readonly projM = new Matrix4();
   private readonly transM = new Matrix4();
+  // A small DOM dot riding the 3D line-of-sight beam, kept in sync with the profile chart's hover dot.
+  // Positioned each frame by projecting cursorPoint (absolute mercator xyz) to canvas pixels (see
+  // updateCursor / setBeamCursor); null = hidden.
+  private cursorEl: HTMLDivElement | null = null;
+  private cursorPoint: [number, number, number] | null = null;
 
   onAdd(map: MlMap, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
     this.map = map;
@@ -341,6 +346,15 @@ export class Links3DLayer implements CustomLayerInterface {
     // Share MapLibre's canvas + GL context; never auto-clear (that would wipe the map).
     this.renderer = new WebGLRenderer({ canvas: map.getCanvas(), context: gl });
     this.renderer.autoClear = false;
+
+    // The profile-synced beam dot. An HTML overlay in the canvas container (rather than scene
+    // geometry) so it's a true pixel-sized circle matching the profile chart's dot, always on top.
+    const el = document.createElement('div');
+    el.style.cssText =
+      'position:absolute;left:0;top:0;width:14px;height:14px;border:2px solid #f2e205;' +
+      'background:rgba(242,226,5,0.25);border-radius:50%;pointer-events:none;display:none;will-change:transform;';
+    map.getCanvasContainer().appendChild(el);
+    this.cursorEl = el;
   }
 
   setData(g: LinkGeometry): void {
@@ -379,7 +393,31 @@ export class Links3DLayer implements CustomLayerInterface {
     }
   }
 
+  // Place (point) or hide (null) the beam dot synced to the profile chart's hover. point is absolute
+  // mercator xyz on a link's elevated polyline; render() reprojects it each frame so it tracks the
+  // beam as the camera moves. Position it now too, so a hover while the camera is idle updates it.
+  setBeamCursor(point: [number, number, number] | null): void {
+    this.cursorPoint = point;
+    this.updateCursor();
+  }
+
+  private updateCursor(): void {
+    const el = this.cursorEl;
+    if (!el) {
+      return;
+    }
+    const p = this.cursorPoint;
+    const s = p ? this.project(p[0], p[1], p[2]) : null;
+    if (!s) {
+      el.style.display = 'none';
+      return;
+    }
+    el.style.transform = `translate(${s.x}px, ${s.y}px) translate(-50%, -50%)`;
+    el.style.display = 'block';
+  }
+
   clear(): void {
+    this.setBeamCursor(null);
     this.setData({
       positions: new Float32Array(0),
       colors: new Float32Array(0),
@@ -408,6 +446,7 @@ export class Links3DLayer implements CustomLayerInterface {
     this.material.resolution.set(ctx.drawingBufferWidth, ctx.drawingBufferHeight);
     this.renderer.resetState(); // three and MapLibre share the context; resync three's cached GL state
     this.renderer.render(this.scene, this.camera);
+    this.updateCursor(); // keep the profile-synced beam dot glued to the line as the camera moves
   }
 
   // Project a mercator world point to CSS pixel coordinates on the map canvas (matching MapLibre's
@@ -431,6 +470,8 @@ export class Links3DLayer implements CustomLayerInterface {
   }
 
   onRemove(): void {
+    this.cursorEl?.remove();
+    this.cursorEl = null;
     this.lines.geometry.dispose();
     this.material.dispose();
     this.curtainMesh.geometry.dispose();
