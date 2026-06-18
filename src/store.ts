@@ -728,16 +728,27 @@ const useStore = defineStore('store', {
       const shown = (l: LinkResult): boolean => !hidden.has(l.a) && !hidden.has(l.b);
       // "Hide invalid links" drops every non-viable link, overriding the selected-node exception that
       // would otherwise still show them (both for selected-only and the default view).
+      let links: LinkResult[];
       if (state.hideInvalidLinks) {
-        if (state.linksSelectedOnly) {
-          return all.filter((l) => l.viable && touchesSelected(l) && shown(l));
+        links = state.linksSelectedOnly
+          ? all.filter((l) => l.viable && touchesSelected(l) && shown(l))
+          : all.filter((l) => l.viable && shown(l));
+      } else if (state.linksSelectedOnly) {
+        links = all.filter((l) => touchesSelected(l) && shown(l));
+      } else {
+        links = all.filter((l) => (l.viable || touchesSelected(l)) && shown(l));
+      }
+      // The link whose profile is open is always shown, even when a filter above would drop it (a
+      // non-viable link with "hide invalid" on, an unselected link with "selected only" on, or a
+      // hidden endpoint) — the user explicitly opened its profile to inspect the 2D line / 3D beam.
+      const pa = state.profileFromId, pb = state.profileToId;
+      if (pa && pb) {
+        const profiled = all.find((l) => (l.a === pa && l.b === pb) || (l.a === pb && l.b === pa));
+        if (profiled && !links.includes(profiled)) {
+          links = [...links, profiled];
         }
-        return all.filter((l) => l.viable && shown(l));
       }
-      if (state.linksSelectedOnly) {
-        return all.filter((l) => touchesSelected(l) && shown(l));
-      }
-      return all.filter((l) => (l.viable || touchesSelected(l)) && shown(l));
+      return links;
     },
   },
   actions: {
@@ -2737,7 +2748,11 @@ const useStore = defineStore('store', {
         rx,
         shared,
         sensitivity,
-        quality: this._simQuality(),
+        // The chart is one on-demand path, so it can afford many more samples than the bulk
+        // matrix/coverage (whose Draft/Balanced/High preset trades samples for speed). Lift the cap so
+        // the line follows the DEM's own pixel detail across longer links instead of being
+        // vertex-limited below the chart's width; keep the preset's spacing so Draft stays Draft.
+        quality: { ...this._simQuality(), maxPoints: Math.max(this._simQuality().maxPoints ?? 0, 4096) },
         onHeightmapProgress: (loaded, total) => {
           this.progress = { message: `Loading terrain ${loaded}/${total}…`, fraction: total ? 0.8 * (loaded / total) : 0 };
         },
@@ -2852,6 +2867,7 @@ const useStore = defineStore('store', {
       this.profileToId = null;
       this.setBeamCursor(null);
       this.redrawProfilePath();
+      this.redrawLinks(); // re-filter: a link forced visible only because its profile was open drops out
     },
     // Find the candidate relay zone between two nodes in the browser (WASM ITM). Runs two coverage
     // passes (one per endpoint) over a SHARED bbox so their grids align, then intersects them per-cell:

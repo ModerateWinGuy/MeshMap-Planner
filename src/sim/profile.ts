@@ -9,7 +9,11 @@
 // Sampling resolution defaults to one sample per heightmap pixel, so the profile fidelity tracks
 // whatever terrain (DEM/DSM/SRTM, at the map's zoom) is currently displayed.
 
-import { type Heightmap, lngLatToMosaicPixel, mosaicMetresPerPixel } from '../viewshed/heightmap.ts';
+import {
+  type Heightmap, type CorridorTiles,
+  lngLatToMosaicPixel, mosaicMetresPerPixel,
+  sampleCorridorHeightAt, corridorMetresPerPixel,
+} from '../viewshed/heightmap.ts';
 
 const DEG2RAD = Math.PI / 180;
 const RAD2DEG = 180 / Math.PI;
@@ -90,17 +94,18 @@ export function sampleHeightAt(hm: Heightmap, lon: number, lat: number): number 
   return top + (bot - top) * fy;
 }
 
-// Sample the TX->RX terrain profile from an already-fetched heightmap. Pure (no I/O): the caller
-// fetches the covering mosaic (via getHeightmap) so this stays trivially testable.
-export function sampleProfile(
-  hm: Heightmap,
+// Walk the TX->RX great circle at uniform spacing, reading each point's ground height from `height`.
+// Shared by the square (sampleProfile) and corridor (sampleProfileCorridor) samplers — they differ
+// only in the height source and the default spacing, so the loop lives here once.
+function buildProfile(
   txLon: number, txLat: number,
   rxLon: number, rxLat: number,
-  opts: ProfileOptions = {},
+  defaultSpacingM: number,
+  opts: ProfileOptions,
+  height: (lon: number, lat: number) => number,
 ): ProfileSample {
   const distanceM = haversineM(txLon, txLat, rxLon, rxLat);
-  const midLat = (txLat + rxLat) / 2;
-  const spacing = opts.targetSpacingM ?? mosaicMetresPerPixel(hm, midLat);
+  const spacing = opts.targetSpacingM ?? defaultSpacingM;
   const minPoints = opts.minPoints ?? 16;
   const maxPoints = opts.maxPoints ?? 2048;
 
@@ -112,10 +117,44 @@ export function sampleProfile(
   for (let i = 0; i < n; i++) {
     const f = n === 1 ? 0 : i / (n - 1);
     const [lon, lat] = interpGreatCircle(txLon, txLat, rxLon, rxLat, f);
-    const h = sampleHeightAt(hm, lon, lat);
+    const h = height(lon, lat);
     heights[i] = h;
     terrain[i] = [(f * distanceM) / 1000, Math.round(h)];
   }
 
   return { heights, spacingM: distanceM / Math.max(n - 1, 1), distanceM, terrain };
+}
+
+// Sample the TX->RX terrain profile from an already-fetched heightmap. Pure (no I/O): the caller
+// fetches the covering mosaic (via getHeightmap) so this stays trivially testable.
+export function sampleProfile(
+  hm: Heightmap,
+  txLon: number, txLat: number,
+  rxLon: number, rxLat: number,
+  opts: ProfileOptions = {},
+): ProfileSample {
+  const midLat = (txLat + rxLat) / 2;
+  return buildProfile(
+    txLon, txLat, rxLon, rxLat,
+    mosaicMetresPerPixel(hm, midLat), opts,
+    (lon, lat) => sampleHeightAt(hm, lon, lat),
+  );
+}
+
+// Sample the TX->RX terrain profile from a corridor fetch (the long-link path: full-zoom tiles along
+// only the line; see getCorridor). Same loop and ProfileSample as sampleProfile — only the height
+// source and the default spacing (the corridor zoom's metres-per-pixel) differ — so it honours the
+// same ProfileOptions density knob and stays byte-for-byte equal to the square for short links.
+export function sampleProfileCorridor(
+  c: CorridorTiles,
+  txLon: number, txLat: number,
+  rxLon: number, rxLat: number,
+  opts: ProfileOptions = {},
+): ProfileSample {
+  const midLat = (txLat + rxLat) / 2;
+  return buildProfile(
+    txLon, txLat, rxLon, rxLat,
+    corridorMetresPerPixel(c, midLat), opts,
+    (lon, lat) => sampleCorridorHeightAt(c, lon, lat),
+  );
 }

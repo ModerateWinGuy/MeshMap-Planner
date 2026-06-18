@@ -10,7 +10,7 @@
 import type { Heightmap } from '../viewshed/heightmap.ts';
 import type { LinkResult, ProfileResult } from '../types.ts';
 import { type ItmModule, itmP2P } from './itm/index.ts';
-import { sampleProfile, sampleHeightAt, type ProfileOptions } from './profile.ts';
+import { sampleProfile, sampleHeightAt, type ProfileOptions, type ProfileSample } from './profile.ts';
 import { fresnelClearancePct } from './fresnel.ts';
 import { climateCode, polarizationCode } from './itmParams.ts';
 
@@ -56,19 +56,19 @@ export function groundElevationM(hm: Heightmap, node: SimNode): number {
   return sampleHeightAt(hm, node.lon, node.lat);
 }
 
-// Core ITM evaluation shared by link and profile. Returns the raw ITM result plus the derived
-// link-budget figures, given a resolved sensitivity (dBm).
-function evaluate(
+// Core ITM evaluation shared by link and profile, given an ALREADY-sampled terrain profile. Applies
+// clutter, runs ITM, and derives the link-budget figures from a resolved sensitivity (dBm). Split out
+// of evaluate() so the profile path can sample the corridor on the main thread (sampleProfileCorridor)
+// and hand the resulting ProfileSample straight in, with no heightmap crossing to the worker. Sampling
+// quality (ProfileOptions) is applied at sample time, so it isn't a parameter here.
+function evaluateSample(
   mod: ItmModule,
-  hm: Heightmap,
+  profile: ProfileSample,
   tx: SimNode,
   rx: SimNode,
   shared: SimShared,
   sensitivity: number,
-  quality: ProfileOptions,
 ) {
-  const profile = sampleProfile(hm, tx.lon, tx.lat, rx.lon, rx.lat, quality);
-
   // Apply uniform ground clutter to interior points only (the antennas sit on bare ground).
   const heights = profile.heights;
   if (shared.clutter_height > 0) {
@@ -101,6 +101,20 @@ function evaluate(
   return { profile, itm, distanceKm, rxPower, margin, fresnel };
 }
 
+// Core ITM evaluation from a heightmap: sample the TX->RX profile, then evaluate it. The matrix path
+// (computeLink) samples its many pairs from one shared square heightmap, so it stays here unchanged.
+function evaluate(
+  mod: ItmModule,
+  hm: Heightmap,
+  tx: SimNode,
+  rx: SimNode,
+  shared: SimShared,
+  sensitivity: number,
+  quality: ProfileOptions,
+) {
+  return evaluateSample(mod, sampleProfile(hm, tx.lon, tx.lat, rx.lon, rx.lat, quality), tx, rx, shared, sensitivity);
+}
+
 // One matrix link (LinkResult shape). Never throws for a single pair: a failure is recorded as
 // error + viable:false so one bad pair can't abort the matrix.
 export function computeLink(
@@ -131,17 +145,19 @@ export function computeLink(
   return link;
 }
 
-// Single point-to-point profile (ProfileResult shape) for the bottom strip chart.
-export function computeProfile(
+// Single point-to-point profile (ProfileResult shape) for the bottom strip chart, from an already-
+// sampled terrain profile. The profile path samples the corridor on the main thread
+// (sampleProfileCorridor) and hands the ProfileSample straight in, so no heightmap crosses to the
+// worker; the matrix's shared square heightmap is untouched.
+export function computeProfileFromSample(
   mod: ItmModule,
-  hm: Heightmap,
+  sample: ProfileSample,
   tx: SimNode,
   rx: SimNode,
   shared: SimShared,
   sensitivity: number,
-  quality: ProfileOptions = {},
 ): ProfileResult {
-  const e = evaluate(mod, hm, tx, rx, shared, sensitivity, quality);
+  const e = evaluateSample(mod, sample, tx, rx, shared, sensitivity);
   const rxSignal = e.rxPower + rx.rx_gain;
   return {
     distance_km: round3(e.distanceKm),

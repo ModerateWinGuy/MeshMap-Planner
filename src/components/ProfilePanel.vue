@@ -36,6 +36,7 @@
                 <div class="text-end profile-right">
                     <div class="fw-bold text-info">{{ toNode?.transmitter.name || 'Point B' }}</div>
                     <div class="text-muted">{{ toCoord }} · {{ toNode?.transmitter.tx_height ?? '?' }} m AGL</div>
+                    <div class="text-muted" v-if="reverseBearing !== null">← {{ reverseBearing.toFixed(1) }}°</div>
                     <div class="text-muted" v-if="fromNode">{{ fromNode.transmitter.tx_freq }} MHz</div>
                 </div>
             </div>
@@ -53,7 +54,7 @@
                     <!-- x grid + labels -->
                     <g v-for="t in chart.xTicks" :key="'x' + t.v">
                         <line :x1="t.x" :y1="PAD_T" :x2="t.x" :y2="VB_H - PAD_B + 13" stroke="#ffffff10" stroke-width="1" />
-                        <text :x="t.x" :y="VB_H - PAD_B + 30" text-anchor="middle" class="axis-label">{{ t.v }}</text>
+                        <text :x="t.x" :y="VB_H - PAD_B + 24" text-anchor="middle" class="axis-label">{{ t.v }}</text>
                     </g>
 
                     <!-- terrain -->
@@ -104,16 +105,27 @@ const toCoord = computed(() =>
     toNode.value ? `${toNode.value.transmitter.tx_lat.toFixed(4)}, ${toNode.value.transmitter.tx_lon.toFixed(4)}` : ''
 )
 
-const bearing = computed<number | null>(() => {
-    const a = fromNode.value, b = toNode.value
-    if (!a || !b) return null
+function bearingDeg(lat1d: number, lon1d: number, lat2d: number, lon2d: number): number {
     const toRad = (d: number) => (d * Math.PI) / 180
     const toDeg = (rad: number) => (rad * 180) / Math.PI
-    const lat1 = toRad(a.transmitter.tx_lat), lat2 = toRad(b.transmitter.tx_lat)
-    const dLon = toRad(b.transmitter.tx_lon - a.transmitter.tx_lon)
+    const lat1 = toRad(lat1d), lat2 = toRad(lat2d)
+    const dLon = toRad(lon2d - lon1d)
     const y = Math.sin(dLon) * Math.cos(lat2)
     const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon)
     return (toDeg(Math.atan2(y, x)) + 360) % 360
+}
+
+const bearing = computed<number | null>(() => {
+    const a = fromNode.value, b = toNode.value
+    if (!a || !b) return null
+    return bearingDeg(a.transmitter.tx_lat, a.transmitter.tx_lon, b.transmitter.tx_lat, b.transmitter.tx_lon)
+})
+
+// Back-azimuth B→A — not simply forward+180° on a great circle.
+const reverseBearing = computed<number | null>(() => {
+    const a = fromNode.value, b = toNode.value
+    if (!a || !b) return null
+    return bearingDeg(b.transmitter.tx_lat, b.transmitter.tx_lon, a.transmitter.tx_lat, a.transmitter.tx_lon)
 })
 
 // Path fraction (0..1) under the pointer. The chart's x-axis is linear in fraction, so the x-pixel

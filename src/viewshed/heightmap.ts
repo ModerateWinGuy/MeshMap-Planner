@@ -279,3 +279,259 @@ export async function getHeightmap(
   cachePut(sourceKey, hm);
   return hm;
 }
+
+// ── Corridor fetch (profile-only) ────────────────────────────────────────────────────────────────
+// The terrain profile reads a 1-D line across the square mosaic, yet getHeightmap fetches a whole
+// square and coarsens its zoom once a long link's square blows past MAX_TILES — flattening the very
+// ridges the profile cares about. The corridor path instead fetches ONLY the tiles the great-circle
+// line crosses (plus a 1-ring margin for bilinear neighbours), which grows linearly with length, so a
+// long link stays at full z14. The sampling happens on the main thread (sampleProfileCorridor in
+// profile.ts) and only the resulting ProfileSample crosses to the worker — the shared square Heightmap
+// path is untouched.
+
+const DEG2RAD = Math.PI / 180;
+const RAD2DEG = 180 / Math.PI;
+const EARTH_RADIUS_M = 6371000.0; // matches the curvature constant used across the sim
+
+// Local copies of the two great-circle helpers profile.ts also defines. profile.ts imports from this
+// module, so importing them back the other way would close an import cycle; a local copy (like the
+// slippy math above) keeps this file self-contained.
+function haversineM(lon1: number, lat1: number, lon2: number, lat2: number): number {
+  const φ1 = lat1 * DEG2RAD;
+  const φ2 = lat2 * DEG2RAD;
+  const dφ = (lat2 - lat1) * DEG2RAD;
+  const dλ = (lon2 - lon1) * DEG2RAD;
+  const a = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+function interpGreatCircle(
+  lon1: number, lat1: number, lon2: number, lat2: number, f: number,
+): [number, number] {
+  const φ1 = lat1 * DEG2RAD, λ1 = lon1 * DEG2RAD;
+  const φ2 = lat2 * DEG2RAD, λ2 = lon2 * DEG2RAD;
+  const dφ = φ2 - φ1, dλ = λ2 - λ1;
+  const hav = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
+  const δ = 2 * Math.asin(Math.min(1, Math.sqrt(hav)));
+  if (δ < 1e-9) {
+    return [lon1, lat1];
+  }
+  const A = Math.sin((1 - f) * δ) / Math.sin(δ);
+  const B = Math.sin(f * δ) / Math.sin(δ);
+  const x = A * Math.cos(φ1) * Math.cos(λ1) + B * Math.cos(φ2) * Math.cos(λ2);
+  const y = A * Math.cos(φ1) * Math.sin(λ1) + B * Math.cos(φ2) * Math.sin(λ2);
+  const z = A * Math.sin(φ1) + B * Math.sin(φ2);
+  const φ = Math.atan2(z, Math.hypot(x, y));
+  const λ = Math.atan2(y, x);
+  return [λ * RAD2DEG, φ * RAD2DEG];
+}
+
+// Tile budget for the corridor (vs the square's MAX_TILES=64). At z14 a corridor stays full-detail up
+// to ~120 km before dropping one zoom; even coarsened it's 4× finer than the square path today. Tunable.
+const CORRIDOR_BUDGET = 192;
+
+export interface CorridorRequest {
+  urlTemplate: string; // the AWS Terrarium baseline {z}/{x}/{y} template (composited from, not meshdem://)
+  overlays: OverlaySpec[]; // higher-detail overlays composited over the baseline (LINZ when on; [] = off)
+  maxzoom: number; // served cap; never request finer (overzoom past it just 404s/redirects)
+  txLon: number;
+  txLat: number;
+  rxLon: number;
+  rxLat: number;
+}
+
+// The sparse tiles a corridor fetch produced: a zoom and the composited Terrarium RGBA per covered
+// tile, keyed "x,y". A missing key reads as the 0 m sea sentinel (the square pre-fills rgb(128,0,0)
+// for the same reason), so a failed/timed-out tile is flat sea, never NaN.
+export interface CorridorTiles {
+  z: number;
+  tiles: Map<string, Uint8ClampedArray>;
+}
+
+// The tiles the TX->RX great circle crosses at zoom z, dilated by a 1-ring (Moore) margin so bilinear
+// sampling at any tile edge still has all four neighbour texels present.
+function corridorTiles(txLon: number, txLat: number, rxLon: number, rxLat: number, z: number): Set<string> {
+  const distanceM = haversineM(txLon, txLat, rxLon, rxLat);
+  const midLat = (txLat + rxLat) / 2;
+  const tileM = (EQUATOR_MPP_Z0 * TILE * Math.max(0.01, Math.cos(midLat * DEG2RAD))) / 2 ** z;
+  const steps = Math.max(1, Math.ceil((distanceM / tileM) * 4)); // ≈¼-tile walk so no crossing is skipped
+  const max = 2 ** z - 1;
+  const core = new Set<string>();
+  for (let i = 0; i <= steps; i++) {
+    const [lon, lat] = interpGreatCircle(txLon, txLat, rxLon, rxLat, i / steps);
+    const tx = Math.floor(lonToTileX(lon, z));
+    const ty = Math.floor(latToTileY(lat, z));
+    core.add(`${tx},${ty}`);
+  }
+  // Dilate by the 1-ring so the bilinear sampler's four neighbours always exist (avoids edge holes).
+  const out = new Set<string>();
+  for (const key of core) {
+    const [cx, cy] = key.split(',').map(Number);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x >= 0 && x <= max && y >= 0 && y <= max) {
+          out.add(`${x},${y}`);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// Pick the corridor zoom: start at the served maxzoom and drop a zoom (recomputing the set) whenever
+// it exceeds CORRIDOR_BUDGET, so a very long link degrades gracefully — mirrors coverTiles for the
+// square. Returns the chosen zoom and its dilated tile set.
+function corridorTilesCapped(req: CorridorRequest): { z: number; tiles: Set<string> } {
+  let z = Math.max(0, req.maxzoom);
+  for (;;) {
+    const tiles = corridorTiles(req.txLon, req.txLat, req.rxLon, req.rxLat, z);
+    if (tiles.size <= CORRIDOR_BUDGET || z <= 0) {
+      return { z, tiles };
+    }
+    z -= 1;
+  }
+}
+
+// Per-tile LRU of composited Terrarium tiles, keyed by template+overlays+zoom+tile. Profiling nearby
+// links reuses the recomposite (the browser HTTP cache only saves the network round-trip, not the
+// per-pixel overlay composite), and a superseded fetch still warms it for the next one.
+const tileCache = new Map<string, Uint8ClampedArray>();
+const TILE_CACHE_MAX = 256;
+function tileCacheGet(key: string): Uint8ClampedArray | undefined {
+  const hit = tileCache.get(key);
+  if (hit) {
+    tileCache.delete(key); // LRU bump
+    tileCache.set(key, hit);
+  }
+  return hit;
+}
+function tileCachePut(key: string, tile: Uint8ClampedArray): void {
+  tileCache.set(key, tile);
+  while (tileCache.size > TILE_CACHE_MAX) {
+    const oldest = tileCache.keys().next().value as string | undefined;
+    if (oldest === undefined) {
+      break;
+    }
+    tileCache.delete(oldest);
+  }
+}
+
+// Fetch the corridor's tiles via the same bounded pool as getHeightmap (FETCH_CONCURRENCY workers, a
+// per-tile AbortController+TILE_TIMEOUT_MS, throttled onProgress + forced final emit, a failed counter
+// and one console.warn). Unlike getHeightmap this threads the outer `signal`, so a superseded profile
+// actually stops fetching mid-flight rather than running every tile to completion.
+export async function getCorridor(
+  req: CorridorRequest,
+  onProgress?: (loaded: number, total: number) => void,
+  signal?: AbortSignal,
+): Promise<CorridorTiles> {
+  const { z, tiles: keys } = corridorTilesCapped(req);
+  const overlayKey = req.overlays.map((o) => o.urlTemplate).join(',');
+
+  const jobs = Array.from(keys, (key) => {
+    const [x, y] = key.split(',').map(Number);
+    return [x, y] as [number, number];
+  });
+  const tiles = new Map<string, Uint8ClampedArray>();
+  const total = jobs.length;
+  let next = 0;
+  let done = 0;
+  let failed = 0;
+  let lastEmit = 0;
+  const emit = (force: boolean): void => {
+    if (!onProgress) {
+      return;
+    }
+    const now = perfNow();
+    if (!force && now - lastEmit < PROGRESS_MS) {
+      return;
+    }
+    lastEmit = now;
+    onProgress(done, total);
+  };
+  const worker = async (): Promise<void> => {
+    while (next < jobs.length) {
+      const [x, y] = jobs[next++];
+      const cacheKey = `${req.urlTemplate}|${overlayKey}|${z}|${x},${y}`;
+      const cached = tileCacheGet(cacheKey);
+      if (cached) {
+        tiles.set(`${x},${y}`, cached);
+        done++;
+        emit(false);
+        continue;
+      }
+      // Chain the per-tile timeout to the outer signal so a cancelled profile aborts in-flight fetches.
+      const ctrl = new AbortController();
+      const onAbort = (): void => ctrl.abort();
+      signal?.addEventListener('abort', onAbort);
+      const timer = setTimeout(() => ctrl.abort(), TILE_TIMEOUT_MS);
+      try {
+        const rgba = await composeTerrariumTileRGBA(z, x, y, req.urlTemplate, req.overlays, ctrl.signal);
+        if (rgba) {
+          tiles.set(`${x},${y}`, rgba);
+          tileCachePut(cacheKey, rgba);
+        } else {
+          failed++; // nothing fetched: absent key reads as the 0 m sea sentinel
+        }
+      } catch {
+        failed++; // network/decode failure, timeout, or outer abort: absent key reads as sea
+      } finally {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+      }
+      done++;
+      emit(false);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, jobs.length) }, worker));
+  if (failed) {
+    console.warn(
+      `profile: ${failed}/${total} corridor terrain tiles failed or timed out at z${z} (read as sea). ` +
+        `Cold LINZ elevation tiles are a live COG render and can be slow on first request; ` +
+        `pan/zoom over the area once to warm them, then recompute.`,
+    );
+  }
+  emit(true);
+  return { z, tiles };
+}
+
+// Decode one Terrarium texel of a sparse corridor tile to metres: h = (R*256 + G + B/256) - 32768.
+// A missing tile (or an out-of-tile index) is the 0 m sea sentinel — identical to the square's fill.
+function decodeCorridorTexel(c: CorridorTiles, gx: number, gy: number): number {
+  const tx = Math.floor(gx / TILE);
+  const ty = Math.floor(gy / TILE);
+  const tile = c.tiles.get(`${tx},${ty}`);
+  if (!tile) {
+    return 0;
+  }
+  const px = gx - tx * TILE;
+  const py = gy - ty * TILE;
+  const i = (py * TILE + px) * 4;
+  return tile[i] * 256 + tile[i + 1] + tile[i + 2] / 256 - 32768;
+}
+
+// Bilinearly sample the corridor (m ASL) at a lon/lat, using the SAME half-pixel offsets as
+// sampleHeightAt but in GLOBAL tile-pixel coords (so a texel resolves into whichever sparse tile holds
+// it). Algebraically equals sampleHeightAt for the same bytes, so short links agree to floating point.
+export function sampleCorridorHeightAt(c: CorridorTiles, lon: number, lat: number): number {
+  const gx = lonToTileX(lon, c.z) * TILE;
+  const gy = latToTileY(lat, c.z) * TILE;
+  const x0 = Math.floor(gx - 0.5);
+  const y0 = Math.floor(gy - 0.5);
+  const fx = gx - 0.5 - x0;
+  const fy = gy - 0.5 - y0;
+  const h00 = decodeCorridorTexel(c, x0, y0);
+  const h10 = decodeCorridorTexel(c, x0 + 1, y0);
+  const h01 = decodeCorridorTexel(c, x0, y0 + 1);
+  const h11 = decodeCorridorTexel(c, x0 + 1, y0 + 1);
+  const top = h00 + (h10 - h00) * fx;
+  const bot = h01 + (h11 - h01) * fx;
+  return top + (bot - top) * fy;
+}
+
+// Corridor ground resolution (metres per tile pixel) at a latitude — the default profile spacing when
+// sampling a corridor, mirroring mosaicMetresPerPixel for the square.
+export function corridorMetresPerPixel(c: CorridorTiles, lat: number): number {
+  return (EQUATOR_MPP_Z0 * Math.max(0.01, Math.cos(lat * DEG2RAD))) / 2 ** c.z;
+}

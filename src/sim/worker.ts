@@ -5,10 +5,10 @@
 
 import type { Heightmap } from '../viewshed/heightmap.ts';
 import type { LinkResult } from '../types.ts';
-import { haversineM } from './profile.ts';
+import { haversineM, type ProfileSample } from './profile.ts';
 import { loadItm, type ItmModule } from './itm/index.ts';
 import {
-  computeLink, computeProfile, groundElevationM, radioHorizonKm,
+  computeLink, computeProfileFromSample, groundElevationM, radioHorizonKm,
   type SimNode, type SimShared,
 } from './links.ts';
 import { computeCoverage } from './coverage.ts';
@@ -53,15 +53,22 @@ interface MatrixMsg {
   quality: ProfileOptions;
   filterHorizon: boolean;
 }
-interface ProfileMsg {
-  type: 'profile';
+// The profile path samples the corridor on the MAIN thread (sampleProfileCorridor), so only the
+// resulting ProfileSample crosses here — no heightmap. heightsBuffer is the Float64Array's transferred
+// backing buffer (rebuilt below); terrain rides along as a plain array.
+interface ProfileSampleMsg {
+  type: 'profile-sample';
   reqId: number;
-  heightmap: WireHeightmap;
+  sample: {
+    heightsBuffer: ArrayBuffer;
+    spacingM: number;
+    distanceM: number;
+    terrain: Array<[number, number]>;
+  };
   tx: SimNode;
   rx: SimNode;
   shared: SimShared;
   sensitivity: number;
-  quality: ProfileOptions;
 }
 // opts carries the output bbox + grid size + rxHeight (NOT the heightmap, which travels separately
 // so its buffer can be transferred independently of the small opts object).
@@ -85,7 +92,7 @@ interface RelayMsg {
   opts: CoverageOptions;
   params: RelayParams;
 }
-type InMsg = MatrixMsg | ProfileMsg | CoverageMsg | RelayMsg;
+type InMsg = MatrixMsg | ProfileSampleMsg | CoverageMsg | RelayMsg;
 
 let modPromise: Promise<ItmModule> | null = null;
 const getMod = (): Promise<ItmModule> => (modPromise ??= loadItm());
@@ -130,14 +137,23 @@ async function handleMatrix(msg: MatrixMsg): Promise<void> {
   ctx.postMessage({ type: 'matrix-done', reqId, links, done: total, total });
 }
 
-async function handleProfile(msg: ProfileMsg): Promise<void> {
+// Rebuild the ProfileSample from the wire form (heights as a view over the transferred buffer) and run
+// ITM. Posts the SAME profile-done/profile-error as the old heightmap path, so simClient's response
+// routing is unchanged.
+async function handleProfileSample(msg: ProfileSampleMsg): Promise<void> {
   const mod = await getMod();
-  const hm = rebuild(msg.heightmap);
+  const { sample, tx, rx, shared, sensitivity, reqId } = msg;
+  const profile: ProfileSample = {
+    heights: new Float64Array(sample.heightsBuffer),
+    spacingM: sample.spacingM,
+    distanceM: sample.distanceM,
+    terrain: sample.terrain,
+  };
   try {
-    const result = computeProfile(mod, hm, msg.tx, msg.rx, msg.shared, msg.sensitivity, msg.quality);
-    ctx.postMessage({ type: 'profile-done', reqId: msg.reqId, result });
+    const result = computeProfileFromSample(mod, profile, tx, rx, shared, sensitivity);
+    ctx.postMessage({ type: 'profile-done', reqId, result });
   } catch (err) {
-    ctx.postMessage({ type: 'profile-error', reqId: msg.reqId, error: err instanceof Error ? err.message : String(err) });
+    ctx.postMessage({ type: 'profile-error', reqId, error: err instanceof Error ? err.message : String(err) });
   }
 }
 
@@ -211,8 +227,8 @@ ctx.onmessage = (ev: MessageEvent<InMsg>) => {
   const msg = ev.data;
   if (msg.type === 'matrix') {
     void handleMatrix(msg);
-  } else if (msg.type === 'profile') {
-    void handleProfile(msg);
+  } else if (msg.type === 'profile-sample') {
+    void handleProfileSample(msg);
   } else if (msg.type === 'coverage') {
     void handleCoverage(msg);
   } else if (msg.type === 'relay') {

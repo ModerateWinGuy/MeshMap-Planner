@@ -5,9 +5,9 @@
 // The heightmap buffer is structured-cloned (not transferred) into the worker so getHeightmap's LRU
 // cache keeps an intact copy for the next call.
 
-import { getHeightmap, type Heightmap } from '../viewshed/heightmap.ts';
+import { getHeightmap, getCorridor, type Heightmap } from '../viewshed/heightmap.ts';
 import { type OverlaySpec } from '../terrain/demTiles.ts';
-import { haversineM } from './profile.ts';
+import { haversineM, sampleProfileCorridor } from './profile.ts';
 import type { ProfileOptions } from './profile.ts';
 import type { SimNode, SimShared } from './links.ts';
 import type { CoverageNode, CoverageGrid, CoverageOptions } from './coverageTypes.ts';
@@ -192,24 +192,43 @@ export function runMatrix(run: MatrixRun): { promise: Promise<LinkResult[]>; can
   return { promise, cancel };
 }
 
-// Run a single point-to-point profile.
+// Run a single point-to-point profile. Unlike the matrix/coverage paths, the profile reads terrain
+// only along the TX->RX line, so it fetches just the CORRIDOR of tiles that line crosses (at the
+// source's finest zoom — a long link stays detailed instead of coarsening a whole square) and samples
+// the line here on the main thread; only the resulting ProfileSample crosses to the worker for ITM.
 export function runProfile(run: ProfileRun): { promise: Promise<ProfileResult>; cancel: () => void } {
   const reqId = ++reqCounter;
-  const region = coveringRegion([{ lon: run.tx.lon, lat: run.tx.lat }, { lon: run.rx.lon, lat: run.rx.lat }]);
+  // Aborts the corridor fetch when the run is superseded (e.g. a node was dragged again), so it stops
+  // fetching mid-flight rather than running every tile to completion.
+  const ctrl = new AbortController();
   const promise = (async (): Promise<ProfileResult> => {
-    const hm = await getHeightmap(
-      { urlTemplate: run.source.urlTemplate, overlays: run.source.overlays, maxzoom: run.source.maxzoom, lon: region.lon, lat: region.lat, radiusM: region.radiusM, mapZoom: run.source.mapZoom },
-      run.onHeightmapProgress ? (p) => run.onHeightmapProgress!(p.loaded, p.total) : undefined,
+    const corridor = await getCorridor(
+      {
+        urlTemplate: run.source.urlTemplate, overlays: run.source.overlays, maxzoom: run.source.maxzoom,
+        txLon: run.tx.lon, txLat: run.tx.lat, rxLon: run.rx.lon, rxLat: run.rx.lat,
+      },
+      run.onHeightmapProgress ? (loaded, total) => run.onHeightmapProgress!(loaded, total) : undefined,
+      ctrl.signal,
     );
+    const sample = sampleProfileCorridor(corridor, run.tx.lon, run.tx.lat, run.rx.lon, run.rx.lat, run.quality ?? {});
     return new Promise<ProfileResult>((resolve, reject) => {
       profileHandlers.set(reqId, { resolve, reject });
-      getWorker().postMessage({
-        type: 'profile', reqId, heightmap: wire(hm),
-        tx: run.tx, rx: run.rx, shared: run.shared, sensitivity: run.sensitivity, quality: run.quality ?? {},
-      });
+      // Transfer the heights buffer (the worker rebuilds the Float64Array over it); terrain rides along.
+      getWorker().postMessage(
+        {
+          type: 'profile-sample', reqId,
+          sample: {
+            heightsBuffer: sample.heights.buffer,
+            spacingM: sample.spacingM, distanceM: sample.distanceM, terrain: sample.terrain,
+          },
+          tx: run.tx, rx: run.rx, shared: run.shared, sensitivity: run.sensitivity,
+        },
+        [sample.heights.buffer],
+      );
     });
   })();
   const cancel = (): void => {
+    ctrl.abort(); // stop the corridor fetch if it's still in flight
     const h = profileHandlers.get(reqId);
     if (h) {
       profileHandlers.delete(reqId);
