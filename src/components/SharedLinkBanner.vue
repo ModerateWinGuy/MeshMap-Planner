@@ -37,7 +37,13 @@ const message = computed(() => {
     return `Someone shared a link between “${s.n[0].name}” and “${s.n[1].name}”. Add both nodes to your map?`
   }
   const count = s.n.length
-  return `Someone shared a site with ${count} node${count === 1 ? '' : 's'}. Add ${count === 1 ? 'it' : 'them'} to your map?`
+  if (s.g) {
+    return `Someone shared the folder “${s.g}” with ${count} node${count === 1 ? '' : 's'}. Add ${count === 1 ? 'it' : 'them'} to your map?`
+  }
+  if (count === 1) {
+    return `Someone shared the node “${s.n[0].name}”. Add it to your map?`
+  }
+  return `Someone shared ${count} nodes. Add them to your map?`
 })
 </script>
 

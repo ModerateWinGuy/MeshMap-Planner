@@ -20,13 +20,16 @@ export interface SharedNode {
   rxl: number; // rx_loss (dB)
 }
 
-// The payload encoded into a #s=… share link: the sharer's whole set of nodes ('site'), or a node
-// pair whose link profile the recipient is offered ('link'). `lp` is the sharer's LoRa preset,
-// carried for context only — it never overrides the recipient's global radio settings.
+// The payload encoded into a #s=… share link: a set of nodes ('nodes' — one selected node, a folder,
+// or the whole site), or a node pair whose link profile the recipient is offered ('link'). `g` is an
+// optional destination folder name (set when sharing a folder, so the recipient gets them grouped).
+// `lp` is the sharer's LoRa preset, carried for context only — it never overrides the recipient's
+// global radio settings.
 export interface SharePayload {
   v: 1;
-  t: 'site' | 'link';
+  t: 'nodes' | 'link';
   n: SharedNode[];
+  g?: string;
   lp?: string;
 }
 
@@ -67,7 +70,10 @@ export function decodeShare(token: string): SharePayload | null {
     const bin = atob(b64);
     const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
     const obj = JSON.parse(new TextDecoder().decode(bytes));
-    if (!obj || obj.v !== 1 || (obj.t !== 'site' && obj.t !== 'link') || !Array.isArray(obj.n) || !obj.n.length) {
+    if (!obj || obj.v !== 1 || (obj.t !== 'nodes' && obj.t !== 'link') || !Array.isArray(obj.n) || !obj.n.length) {
+      return null;
+    }
+    if (obj.g != null && typeof obj.g !== 'string') {
       return null;
     }
     for (const n of obj.n) {

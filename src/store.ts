@@ -984,6 +984,11 @@ const useStore = defineStore('store', {
       const dt = defaultTransmitter();
       const dr = defaultReceiver();
       const fin = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+      // A folder share carries the folder name: drop new nodes into a folder of that name (reused if it
+      // already exists, like the contacts import), so the recipient gets them grouped.
+      const groupId = payload.g
+        ? (this.groups.find((gp) => gp.name === payload.g)?.id ?? this.addGroup(payload.g))
+        : undefined;
       const ids: string[] = [];
       for (const sn of payload.n) {
         const lat = Number(sn.lat.toFixed(6));
@@ -1015,6 +1020,7 @@ const useStore = defineStore('store', {
             rx_gain: fin(sn.rxg, dr.rx_gain),
             rx_loss: fin(sn.rxl, dr.rx_loss),
           },
+          groupId,
         };
         this.nodes.push(node);
         ids.push(node.id);

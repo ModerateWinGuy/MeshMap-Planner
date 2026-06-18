@@ -28,16 +28,40 @@
           </template>
         </div>
 
-        <!-- Share the whole set of nodes as one link. Right-aligned by the navbar container's
-             space-between; disabled until at least one node exists. -->
-        <ShareButton
-          :payload="siteSharePayload"
-          :disabled="!store.nodes.length"
-          class="btn-outline-light"
-          text="Share site"
-          title="Copy a link that shares all your nodes"
-          label="Share site"
-        />
+        <!-- Share menu: the selected node (primary), or the whole site. Folders share from their own
+             header in the node list. Right-aligned by the navbar container's space-between. -->
+        <div class="dropdown">
+          <button
+            type="button"
+            class="btn btn-sm btn-outline-light dropdown-toggle d-inline-flex align-items-center gap-1"
+            data-bs-toggle="dropdown"
+            aria-expanded="false"
+            :disabled="!store.nodes.length"
+            :title="shareCopied ? 'Link copied!' : 'Share nodes as a link'"
+          >
+            <component :is="shareCopied ? Check : Share2" :size="16" />
+            {{ shareCopied ? 'Copied!' : 'Share' }}
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end" data-bs-theme="dark">
+            <li>
+              <button
+                type="button"
+                class="dropdown-item d-flex align-items-center gap-2"
+                :disabled="!store.selectedNode"
+                @click="shareSelectedNode"
+              >
+                <RadioTower :size="15" />
+                <span class="text-truncate">Selected node<template v-if="store.selectedNode">: {{ store.selectedNode.transmitter.name }}</template></span>
+              </button>
+            </li>
+            <li><hr class="dropdown-divider" /></li>
+            <li>
+              <button type="button" class="dropdown-item d-flex align-items-center gap-2" @click="shareSite">
+                <MapIcon :size="15" /> Whole site ({{ store.nodes.length }})
+              </button>
+            </li>
+          </ul>
+        </div>
       </div>
     </nav>
 
@@ -160,23 +184,32 @@ import Terrain from "./components/Terrain.vue"
 import BasemapControl from "./components/BasemapControl.vue"
 import ContactImport from "./components/ContactImport.vue"
 import SharedLinkBanner from "./components/SharedLinkBanner.vue"
-import ShareButton from "./components/ShareButton.vue"
 import ProfilePanel from "./components/ProfilePanel.vue"
 import MapLoadingBar from "./components/MapLoadingBar.vue"
 import MeasurePanel from "./components/MeasurePanel.vue"
-import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical, ScanEye } from "@lucide/vue"
+import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical, ScanEye, Share2, Check } from "@lucide/vue"
 import type { Component } from "vue"
 
 import { useStore } from './store.ts'
 import { installKeyboardShortcuts } from './keyboard.ts'
-import { nodeToShared, type SharePayload } from './utils.ts'
+import { useShareLink } from './shareLink.ts'
+import { nodeToShared } from './utils.ts'
 import type { UiMode } from './types.ts'
 const store = useStore()
 
-// "Share site": all current nodes in one link. Built on click so it captures the latest map; returns
-// null when empty (the button is also disabled then).
-const siteSharePayload = (): SharePayload | null =>
-  store.nodes.length ? { v: 1, t: 'site', n: store.nodes.map(nodeToShared) } : null
+// Share-menu actions. `shareCopied` flips the toggle to a brief "Copied!" after any item copies.
+const { copied: shareCopied, share: shareLink } = useShareLink()
+function shareSelectedNode() {
+  const n = store.selectedNode
+  if (n) {
+    shareLink({ v: 1, t: 'nodes', n: [nodeToShared(n)] })
+  }
+}
+function shareSite() {
+  if (store.nodes.length) {
+    shareLink({ v: 1, t: 'nodes', n: store.nodes.map(nodeToShared) })
+  }
+}
 
 // Top-bar mode toggle. Order is the rough workflow: build nodes -> set radio params -> run coverage
 // -> analyse links -> map settings.

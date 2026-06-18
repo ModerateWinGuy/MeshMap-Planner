@@ -61,6 +61,13 @@
                             :aria-label="group.hidden ? 'Show folder' : 'Hide folder'"
                             :title="group.hidden ? 'Show all nodes in this folder' : 'Hide all nodes in this folder'"
                         ><EyeOff v-if="group.hidden" :size="16" /><Eye v-else :size="16" /></button>
+                        <ShareButton
+                            v-if="nodesInGroup(group.id).length"
+                            :payload="() => folderSharePayload(group)"
+                            title="Copy a link that shares this folder's nodes"
+                            :label="`Share folder ${group.name}`"
+                            :size="15"
+                        />
                         <button
                             type="button"
                             @click.stop="startRename(group)"
@@ -129,11 +136,23 @@
 import { computed, nextTick, ref } from 'vue';
 import { useStore } from '../store.ts';
 import type { NodeGroup } from '../types.ts';
+import { nodeToShared, type SharePayload } from '../utils.ts';
 import NodeRow from './NodeRow.vue';
+import ShareButton from './ShareButton.vue';
 import { ChevronDown, ChevronRight, Eye, EyeOff, Folder, FolderPlus, Pencil, Plus, Trash2 } from '@lucide/vue';
 import { dragKind, dragId, startDrag, endDrag, isOver, dropTarget } from './nodeDnd.ts';
 
 const store = useStore();
+
+// Share link for one folder: its nodes, tagged with the folder name so the recipient gets them
+// grouped under a folder of the same name. Null (button hidden) when the folder is empty.
+function folderSharePayload(group: NodeGroup): SharePayload | null {
+    const nodes = nodesInGroup(group.id);
+    if (!nodes.length) {
+        return null;
+    }
+    return { v: 1, t: 'nodes', g: group.name, n: nodes.map(nodeToShared) };
+}
 
 // Drive the bulk buttons off *effective* visibility (a node hidden by its folder counts as hidden).
 const anyHidden = computed(() => store.nodes.some((n) => store.nodeHidden(n)));
