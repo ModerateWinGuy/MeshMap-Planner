@@ -3,7 +3,7 @@
 // and decodes the terrain heightmap (that needs the DOM canvas, unavailable here) and transfers the
 // raw Terrarium buffer in; this worker reconstructs the Heightmap and computes links/profiles.
 
-import type { Heightmap } from '../viewshed/heightmap.ts';
+import type { Heightmap, LodHeightmap } from '../viewshed/heightmap.ts';
 import type { LinkResult } from '../types.ts';
 import { haversineM, type ProfileSample } from './profile.ts';
 import { loadItm, type ItmModule } from './itm/index.ts';
@@ -43,6 +43,22 @@ function rebuild(h: WireHeightmap): Heightmap {
   };
 }
 
+// The coverage LOD stack as it crosses the worker boundary: each level is a WireHeightmap plus the
+// inscribed radius the sampler picks levels by. Levels are finest-first, like LodHeightmap.
+export interface WireLodHeightmap {
+  levels: Array<WireHeightmap & { innerRadiusM: number }>;
+  lon: number;
+  lat: number;
+}
+
+function rebuildLod(wire: WireLodHeightmap): LodHeightmap {
+  return {
+    levels: wire.levels.map((l) => ({ hm: rebuild(l), innerRadiusM: l.innerRadiusM })),
+    lon: wire.lon,
+    lat: wire.lat,
+  };
+}
+
 interface MatrixMsg {
   type: 'matrix';
   reqId: number;
@@ -70,12 +86,13 @@ interface ProfileSampleMsg {
   shared: SimShared;
   sensitivity: number;
 }
-// opts carries the output bbox + grid size + rxHeight (NOT the heightmap, which travels separately
-// so its buffer can be transferred independently of the small opts object).
+// opts carries the output bbox + grid size + rxHeight (NOT the terrain, which travels separately as the
+// concentric LOD stack — high zoom near the TX, coarser outward — so the radial sweep samples up to the
+// DEM's resolution near the centre instead of one map-zoom square).
 interface CoverageMsg {
   type: 'coverage';
   reqId: number;
-  heightmap: WireHeightmap;
+  lod: WireLodHeightmap;
   tx: CoverageNode;
   shared: SimShared;
   opts: CoverageOptions;
@@ -159,13 +176,13 @@ async function handleProfileSample(msg: ProfileSampleMsg): Promise<void> {
 
 async function handleCoverage(msg: CoverageMsg): Promise<void> {
   const mod = await getMod();
-  const hm = rebuild(msg.heightmap);
+  const lod = rebuildLod(msg.lod);
   const { reqId } = msg;
   // computeCoverage emits once per completed row; the grid can be hundreds of rows, so gate the
   // cross-thread posts to ~once per 200ms (same throttle as the matrix handler) to keep the
   // main-thread progress updates cheap.
   let lastEmit = 0;
-  const grid = computeCoverage(mod, hm, msg.tx, msg.shared, msg.opts, (done, total) => {
+  const grid = computeCoverage(mod, lod, msg.tx, msg.shared, msg.opts, (done, total) => {
     const now = performance.now();
     if (now - lastEmit >= PROGRESS_MS) {
       lastEmit = now;

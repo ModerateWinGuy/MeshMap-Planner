@@ -5,7 +5,7 @@
 // The heightmap buffer is structured-cloned (not transferred) into the worker so getHeightmap's LRU
 // cache keeps an intact copy for the next call.
 
-import { getHeightmap, getCorridor, type Heightmap } from '../viewshed/heightmap.ts';
+import { getHeightmap, getCorridor, getLodHeightmap, type Heightmap, type LodHeightmap } from '../viewshed/heightmap.ts';
 import { type OverlaySpec } from '../terrain/demTiles.ts';
 import { haversineM, sampleProfileCorridor } from './profile.ts';
 import type { ProfileOptions } from './profile.ts';
@@ -13,7 +13,7 @@ import type { SimNode, SimShared } from './links.ts';
 import type { CoverageNode, CoverageGrid, CoverageOptions } from './coverageTypes.ts';
 import type { RelayParams } from './relay.ts';
 import type { LinkResult, ProfileResult, RelayResult } from '../types.ts';
-import type { WireHeightmap } from './worker.ts';
+import type { WireHeightmap, WireLodHeightmap } from './worker.ts';
 
 // The active terrain tile source, resolved by the store from the map's zoom + overlay state.
 export interface SimSource {
@@ -149,6 +149,16 @@ function wire(hm: Heightmap): WireHeightmap {
   };
 }
 
+// Wire the coverage LOD stack: each level is a wired Heightmap plus its inscribed radius (the sampler's
+// level-pick key). Buffers are cloned, not transferred (no transfer list on the postMessage), so each
+// level's getHeightmap LRU copy stays intact for the next run — same trade-off as the single square.
+function wireLod(lod: LodHeightmap): WireLodHeightmap {
+  return {
+    levels: lod.levels.map((l) => ({ ...wire(l.hm), innerRadiusM: l.innerRadiusM })),
+    lon: lod.lon, lat: lod.lat,
+  };
+}
+
 // Square fetch region (centre + half-extent metres) covering a set of points, with a floor so a
 // tight cluster still fetches a usable mosaic. getHeightmap pads this further (FETCH_PAD).
 function coveringRegion(pts: Array<{ lon: number; lat: number }>): { lon: number; lat: number; radiusM: number } {
@@ -259,14 +269,17 @@ export function runCoverage(run: CoverageRun): { promise: Promise<CoverageGrid>;
     radiusM: run.radiusM, azimuths: run.azimuths, rangeSteps: run.rangeSteps,
   };
   const promise = (async (): Promise<CoverageGrid> => {
-    const hm = await getHeightmap(
-      { urlTemplate: run.source.urlTemplate, overlays: run.source.overlays, maxzoom: run.source.maxzoom, lon: run.tx.lon, lat: run.tx.lat, radiusM: run.radiusM, mapZoom: run.source.mapZoom },
-      run.onHeightmapProgress ? (p) => run.onHeightmapProgress!(p.loaded, p.total) : undefined,
+    // Concentric LOD stack (z-max near the TX, coarser outward; see getLodHeightmap) instead of one
+    // map-zoom square. mapZoom is intentionally dropped here — coverage terrain detail is no longer
+    // tied to the map's current zoom, so a zoomed-out map no longer flattens the sweep's terrain.
+    const lod = await getLodHeightmap(
+      { urlTemplate: run.source.urlTemplate, overlays: run.source.overlays, maxzoom: run.source.maxzoom, lon: run.tx.lon, lat: run.tx.lat, radiusM: run.radiusM },
+      run.onHeightmapProgress ? (loaded, total) => run.onHeightmapProgress!(loaded, total) : undefined,
     );
     return new Promise<CoverageGrid>((resolve, reject) => {
       coverageHandlers.set(reqId, { onProgress: run.onProgress, resolve, reject });
       getWorker().postMessage({
-        type: 'coverage', reqId, heightmap: wire(hm),
+        type: 'coverage', reqId, lod: wireLod(lod),
         tx: run.tx, shared: run.shared, opts,
       });
     });

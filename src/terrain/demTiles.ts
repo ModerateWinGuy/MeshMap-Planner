@@ -5,10 +5,12 @@
 // is Mapbox-encoded and marks out-of-coverage pixels as transparent. The composite is normalised to
 // Terrarium encoding so every downstream decoder (the GPU viewshed shader, profile.ts) is unchanged.
 //
-// Two consumers share `composeTerrariumTileRGBA`:
+// Two consumers share the surface, both through `composeTerrariumTileRGBACached`:
 //   - the map, via `registerDemProtocol` (MapLibre addProtocol → re-encodes the RGBA to a PNG); and
 //   - the sim/viewshed, via heightmap.ts (writes the RGBA straight into its mosaic, no PNG round-trip).
-// Both fetch the same underlying AWS/LINZ URLs, so the browser HTTP cache stays warm across them.
+// They fetch the same underlying AWS/LINZ URLs (so the browser HTTP cache is shared) AND go through the
+// same composited-tile cache here — so a sim run leaves the map's 3D terrain warm, and a map pan warms
+// the sim, with neither side redoing the other's per-pixel composite.
 
 // AWS Terrarium — the global bare-earth baseline. Already carries LINZ 8 m DEM over NZ + 30 m SRTM
 // elsewhere. This is also the exact URL the map uses directly when the overlay is OFF, so toggling the
@@ -159,6 +161,68 @@ export async function composeTerrariumTileRGBA(
   return anyData ? out : null;
 }
 
+// ── Shared composited-tile cache ───────────────────────────────────────────────────────────────────
+// ONE per-tile LRU of composited Terrarium RGBA, shared by every consumer of the surface: the map's
+// meshdem:// protocol handler AND the sim's heightmap fetches (heightmap.ts). The win is twofold —
+// neither side re-does the expensive fetch+decode+per-pixel composite the other already did, and a sim
+// run leaves the map's 3D terrain warm (the handler reuses what the sim composited, and vice versa).
+// Keyed by base template + overlay templates + z/x/y, so DEM (.../elevation/...), DSM
+// (.../elevation-dsm/...) and overlay-off (empty overlay segment) never collide — a model switch is a
+// clean miss, never a wrong-surface hit. The browser HTTP cache only saves the network round-trip; the
+// recomposite is what this avoids.
+// Sized to hold a full coverage LOD stack (~384 tiles, fetched finest-first) plus a map viewport
+// without evicting the inner z14 ring the 3D view shows zoomed to the TX. ~128 MB at 256×256×4 B/tile;
+// drop no lower than ~450 (inner-ring eviction during a max-radius coverage), raise toward 768 only if
+// a profile corridor (~192) and a full coverage stack must stay warm at once.
+const TILE_CACHE_MAX = 512;
+const compositeCache = new Map<string, RgbaBytes>();
+function cacheKey(baseTemplate: string, overlays: OverlaySpec[], z: number, x: number, y: number): string {
+  return `${baseTemplate}|${overlays.map((o) => o.urlTemplate).join(',')}|${z}|${x},${y}`;
+}
+function compositeCacheGet(key: string): RgbaBytes | undefined {
+  const hit = compositeCache.get(key);
+  if (hit) {
+    compositeCache.delete(key); // LRU bump
+    compositeCache.set(key, hit);
+  }
+  return hit;
+}
+function compositeCachePut(key: string, tile: RgbaBytes): void {
+  compositeCache.set(key, tile);
+  while (compositeCache.size > TILE_CACHE_MAX) {
+    const oldest = compositeCache.keys().next().value as string | undefined;
+    if (oldest === undefined) {
+      break;
+    }
+    compositeCache.delete(oldest);
+  }
+}
+
+// Cached front door to composeTerrariumTileRGBA — what all callers should use. A cache HIT returns the
+// shared array instantly (without touching `signal`, so an already-aborted run still gets a free tile);
+// a MISS composites under `signal` and stores only a non-null full result, so a timed-out/aborted tile
+// is never cached and stays retryable next run. The returned array is SHARED BY REFERENCE and must be
+// treated READ-ONLY (clone before mutating); every current consumer only reads it.
+export async function composeTerrariumTileRGBACached(
+  z: number,
+  x: number,
+  y: number,
+  baseTemplate: string,
+  overlays: OverlaySpec[],
+  signal?: AbortSignal,
+): Promise<RgbaBytes | null> {
+  const key = cacheKey(baseTemplate, overlays, z, x, y);
+  const hit = compositeCacheGet(key);
+  if (hit) {
+    return hit;
+  }
+  const rgba = await composeTerrariumTileRGBA(z, x, y, baseTemplate, overlays, signal);
+  if (rgba) {
+    compositeCachePut(key, rgba);
+  }
+  return rgba;
+}
+
 // Re-encode composited RGBA to a PNG ArrayBuffer for MapLibre to consume as a raster-dem tile.
 async function rgbaToPng(rgba: RgbaBytes): Promise<ArrayBuffer> {
   const cv = new OffscreenCanvas(TILE, TILE);
@@ -185,7 +249,7 @@ export function registerDemProtocol(
     const z = +m[2];
     const x = +m[3];
     const y = +m[4];
-    const rgba = await composeTerrariumTileRGBA(
+    const rgba = await composeTerrariumTileRGBACached(
       z, x, y, AWS_TERRARIUM_TEMPLATE, [linzOverlaySpec(model)], abortController.signal,
     );
     if (!rgba) throw new Error(`no terrain data for ${z}/${x}/${y}`);

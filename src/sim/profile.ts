@@ -10,7 +10,7 @@
 // whatever terrain (DEM/DSM/SRTM, at the map's zoom) is currently displayed.
 
 import {
-  type Heightmap, type CorridorTiles,
+  type Heightmap, type CorridorTiles, type LodHeightmap,
   lngLatToMosaicPixel, mosaicMetresPerPixel,
   sampleCorridorHeightAt, corridorMetresPerPixel,
 } from '../viewshed/heightmap.ts';
@@ -92,6 +92,21 @@ export function sampleHeightAt(hm: Heightmap, lon: number, lat: number): number 
   const top = h00 + (h10 - h00) * fx;
   const bot = h01 + (h11 - h01) * fx;
   return top + (bot - top) * fy;
+}
+
+// Sample a concentric LOD stack (m ASL) at a lon/lat sitting distM metres from the TX. Picks the
+// FINEST level whose data actually reaches distM (levels are finest-first; innerRadiusM is each level's
+// trusted extent) and bilinear-samples it via sampleHeightAt — so near the TX you read the z-max inner
+// mosaic and far out the coarse outer ring, matching the radial sweep's own falling resolution.
+export function sampleLodHeightAt(lod: LodHeightmap, lon: number, lat: number, distM: number): number {
+  for (const level of lod.levels) {
+    if (distM <= level.innerRadiusM) {
+      return sampleHeightAt(level.hm, lon, lat);
+    }
+  }
+  // Past every level's inscribed extent (only right at the rim): fall back to the coarsest level, which
+  // still covers the full requested radius after FETCH_PAD.
+  return sampleHeightAt(lod.levels[lod.levels.length - 1].hm, lon, lat);
 }
 
 // Walk the TX->RX great circle at uniform spacing, reading each point's ground height from `height`.

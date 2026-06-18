@@ -11,7 +11,7 @@
 // so rows are evenly spaced in mercator Y. (Contrast the lat-spaced coverage grid, which store.ts
 // has to mercatorWarp before draping.)
 
-import { composeTerrariumTileRGBA, type OverlaySpec } from '../terrain/demTiles.ts';
+import { composeTerrariumTileRGBACached, type OverlaySpec } from '../terrain/demTiles.ts';
 
 // Web-mercator slippy-tile math. A local copy keeps this module self-contained and free of any
 // import cycle with the store, and it needs the inverse (tile→lng/lat) the store doesn't have.
@@ -115,8 +115,10 @@ export function mosaicMetresPerPixel(hm: Heightmap, lat: number): number {
 
 // Small LRU so live-dragging within an already-fetched area never refetches. Keyed by the resolved
 // template + zoom + tile range, so switching terrain source (a new template) misses → refetches.
+// Sized for a coverage LOD stack (up to LOD_MAX_LEVELS concentric mosaics) plus the matrix/relay
+// square coexisting without thrashing — each level keys independently, so re-runs reuse warm rings.
 const cache = new Map<string, Heightmap>();
-const CACHE_MAX = 4;
+const CACHE_MAX = 12;
 function cacheGet(key: string): Heightmap | undefined {
   const hit = cache.get(key);
   if (hit) {
@@ -161,18 +163,22 @@ function coverTiles(req: HeightmapRequest, west: number, east: number, south: nu
   }
 }
 
+// Padded square bbox (degrees) around a centre: half-extent radiusM widened by FETCH_PAD, with the
+// longitude span growing toward the poles (the cos floor keeps the divisor finite). Shared by
+// getHeightmap and heightmapTileCount so a planned tile count always matches the actual fetch.
+function coverBbox(lon: number, lat: number, radiusM: number): { west: number; east: number; south: number; north: number } {
+  const r = radiusM * FETCH_PAD;
+  const dLat = r / 111320;
+  const dLon = r / (111320 * Math.max(0.01, Math.cos((lat * Math.PI) / 180)));
+  return { west: lon - dLon, east: lon + dLon, south: lat - dLat, north: lat + dLat };
+}
+
 export async function getHeightmap(
   req: HeightmapRequest,
   onProgress?: (p: HeightmapProgress) => void,
 ): Promise<Heightmap> {
   // Padded square bbox around the node (degrees).
-  const r = req.radiusM * FETCH_PAD;
-  const dLat = r / 111320;
-  const dLon = r / (111320 * Math.max(0.01, Math.cos((req.lat * Math.PI) / 180)));
-  const west = req.lon - dLon;
-  const east = req.lon + dLon;
-  const south = req.lat - dLat;
-  const north = req.lat + dLat;
+  const { west, east, south, north } = coverBbox(req.lon, req.lat, req.radiusM);
 
   const { z, x0, y0, x1, y1 } = coverTiles(req, west, east, south, north);
   const nx = x1 - x0 + 1;
@@ -246,11 +252,12 @@ export async function getHeightmap(
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), TILE_TIMEOUT_MS);
       try {
-        // composeTerrariumTileRGBA fetches the AWS baseline and overlays the active higher-detail
-        // sources (LINZ when on) per pixel, returning Terrarium-encoded RGBA — the SAME surface the map
-        // draws via the meshdem:// protocol. putImageData writes the bytes verbatim (no colour
-        // management), so the elevation encoding stays byte-exact for the GPU decode.
-        const rgba = await composeTerrariumTileRGBA(z, x, y, req.urlTemplate, req.overlays, ctrl.signal);
+        // composeTerrariumTileRGBACached fetches the AWS baseline and overlays the active higher-detail
+        // sources (LINZ when on) per pixel, returning Terrarium-encoded RGBA — the SAME surface, drawn
+        // from the SAME shared composited-tile cache, the map draws via the meshdem:// protocol, so this
+        // fetch also warms the 3D terrain. putImageData writes the bytes verbatim (no colour management),
+        // so the elevation encoding stays byte-exact for the GPU decode.
+        const rgba = await composeTerrariumTileRGBACached(z, x, y, req.urlTemplate, req.overlays, ctrl.signal);
         if (rgba) {
           ctx.putImageData(new ImageData(rgba, TILE, TILE), (x - x0) * TILE, (y - y0) * TILE);
         } else {
@@ -393,30 +400,6 @@ function corridorTilesCapped(req: CorridorRequest): { z: number; tiles: Set<stri
   }
 }
 
-// Per-tile LRU of composited Terrarium tiles, keyed by template+overlays+zoom+tile. Profiling nearby
-// links reuses the recomposite (the browser HTTP cache only saves the network round-trip, not the
-// per-pixel overlay composite), and a superseded fetch still warms it for the next one.
-const tileCache = new Map<string, Uint8ClampedArray>();
-const TILE_CACHE_MAX = 256;
-function tileCacheGet(key: string): Uint8ClampedArray | undefined {
-  const hit = tileCache.get(key);
-  if (hit) {
-    tileCache.delete(key); // LRU bump
-    tileCache.set(key, hit);
-  }
-  return hit;
-}
-function tileCachePut(key: string, tile: Uint8ClampedArray): void {
-  tileCache.set(key, tile);
-  while (tileCache.size > TILE_CACHE_MAX) {
-    const oldest = tileCache.keys().next().value as string | undefined;
-    if (oldest === undefined) {
-      break;
-    }
-    tileCache.delete(oldest);
-  }
-}
-
 // Fetch the corridor's tiles via the same bounded pool as getHeightmap (FETCH_CONCURRENCY workers, a
 // per-tile AbortController+TILE_TIMEOUT_MS, throttled onProgress + forced final emit, a failed counter
 // and one console.warn). Unlike getHeightmap this threads the outer `signal`, so a superseded profile
@@ -427,7 +410,6 @@ export async function getCorridor(
   signal?: AbortSignal,
 ): Promise<CorridorTiles> {
   const { z, tiles: keys } = corridorTilesCapped(req);
-  const overlayKey = req.overlays.map((o) => o.urlTemplate).join(',');
 
   const jobs = Array.from(keys, (key) => {
     const [x, y] = key.split(',').map(Number);
@@ -453,24 +435,18 @@ export async function getCorridor(
   const worker = async (): Promise<void> => {
     while (next < jobs.length) {
       const [x, y] = jobs[next++];
-      const cacheKey = `${req.urlTemplate}|${overlayKey}|${z}|${x},${y}`;
-      const cached = tileCacheGet(cacheKey);
-      if (cached) {
-        tiles.set(`${x},${y}`, cached);
-        done++;
-        emit(false);
-        continue;
-      }
       // Chain the per-tile timeout to the outer signal so a cancelled profile aborts in-flight fetches.
       const ctrl = new AbortController();
       const onAbort = (): void => ctrl.abort();
       signal?.addEventListener('abort', onAbort);
       const timer = setTimeout(() => ctrl.abort(), TILE_TIMEOUT_MS);
       try {
-        const rgba = await composeTerrariumTileRGBA(z, x, y, req.urlTemplate, req.overlays, ctrl.signal);
+        // composeTerrariumTileRGBACached shares one composited-tile cache with getHeightmap and the map's
+        // meshdem:// handler: a hit returns instantly (a superseded profile still gets warm tiles), and
+        // this fetch warms the map's 3D terrain in turn.
+        const rgba = await composeTerrariumTileRGBACached(z, x, y, req.urlTemplate, req.overlays, ctrl.signal);
         if (rgba) {
           tiles.set(`${x},${y}`, rgba);
-          tileCachePut(cacheKey, rgba);
         } else {
           failed++; // nothing fetched: absent key reads as the 0 m sea sentinel
         }
@@ -534,4 +510,116 @@ export function sampleCorridorHeightAt(c: CorridorTiles, lon: number, lat: numbe
 // sampling a corridor, mirroring mosaicMetresPerPixel for the square.
 export function corridorMetresPerPixel(c: CorridorTiles, lat: number): number {
   return (EQUATOR_MPP_Z0 * Math.max(0.01, Math.cos(lat * DEG2RAD))) / 2 ** c.z;
+}
+
+// ── Concentric LOD fetch (coverage-only) ───────────────────────────────────────────────────────────
+// The coverage radial sweep's effective ground resolution FALLS with distance from the TX: adjacent
+// rays diverge, so the cross-ray arc (≈ d·2π/azimuths) grows with distance d. A single uniform-zoom
+// square (getHeightmap) therefore either wastes tiles at the rim or — as it did — coarsens the WHOLE
+// disc to fit MAX_TILES, flattening the terrain near the TX where the sweep is densest and tied to the
+// map's current zoom besides. getLodHeightmap instead fetches a STACK of square mosaics centred on the
+// TX: the innermost at the served maxzoom over a small disc, each outer ring doubling its radius and
+// dropping one zoom (so tiles-per-level stays ≈ constant). sampleLodHeightAt (profile.ts) reads each
+// sample from the finest level whose data reaches it. Every level is a plain Heightmap fetched by
+// getHeightmap, so all the tile fetch/composite/cache machinery is reused unchanged.
+
+const LOD_BASE_RING_M = 4000; // innermost disc radius, fetched at maxzoom; ≤ this radius ⇒ one z-max mosaic
+const LOD_RING_GROWTH = 2; // each outer ring doubles its radius and drops one zoom (≈ constant tiles/level)
+const LOD_MIN_Z = 8; // never coarsen a ring below this
+const LOD_MAX_LEVELS = 6; // bound the stack (6 levels reach a 100 km radius from z14)
+
+export interface LodLevel {
+  hm: Heightmap;
+  innerRadiusM: number; // largest TX-centred disc fully inside this level's mosaic — its trusted extent
+}
+
+// A finest-first stack of concentric Heightmaps for one coverage disc. levels[0] is the highest-zoom
+// inner mosaic; the sampler walks outward to the first level whose innerRadiusM reaches the sample.
+export interface LodHeightmap {
+  levels: LodLevel[];
+  lon: number;
+  lat: number;
+}
+
+// A coverage LOD request: a HeightmapRequest WITHOUT mapZoom — decoupling the terrain zoom from the
+// map's is the whole point, so each ring's zoom comes from the ladder instead.
+export interface LodRequest {
+  urlTemplate: string;
+  overlays: OverlaySpec[];
+  maxzoom: number;
+  lon: number;
+  lat: number;
+  radiusM: number;
+}
+
+// The (zoom, radius) rungs of the LOD stack, finest first: start at maxzoom over LOD_BASE_RING_M and
+// double the radius / drop a zoom until the rings reach radiusM (or the bounds run out); the outermost
+// rung is stretched to radiusM so the whole disc is always covered.
+export function buildLodLadder(maxzoom: number, radiusM: number): Array<{ z: number; rM: number }> {
+  let z = Math.max(0, maxzoom);
+  let rM = Math.min(radiusM, LOD_BASE_RING_M);
+  const rungs = [{ z, rM }];
+  while (rM < radiusM && z > LOD_MIN_Z && rungs.length < LOD_MAX_LEVELS) {
+    z -= 1;
+    rM = Math.min(radiusM, rM * LOD_RING_GROWTH);
+    rungs.push({ z, rM });
+  }
+  const last = rungs[rungs.length - 1];
+  if (last.rM < radiusM) {
+    last.rM = radiusM; // outermost ring reaches the rim even if the bounds capped the ladder early
+  }
+  return rungs;
+}
+
+// The number of tiles getHeightmap WOULD fetch for a request — bbox + coverTiles, exactly as the fetch
+// computes it (no duplicated math), so the LOD progress denominator matches the tiles that actually land.
+function heightmapTileCount(req: HeightmapRequest): number {
+  const { west, east, south, north } = coverBbox(req.lon, req.lat, req.radiusM);
+  const { x0, y0, x1, y1 } = coverTiles(req, west, east, south, north);
+  return (x1 - x0 + 1) * (y1 - y0 + 1);
+}
+
+// The largest TX-centred disc fully inside a fetched mosaic (metres) — its trustworthy sampling extent.
+// The mosaic is tile-edge aligned, so the TX isn't exactly centred; take the min half-span to the four
+// edges so a sample within it never reads past the level's real data into the sea-sentinel border.
+function inscribedRadiusM(hm: Heightmap, lon: number, lat: number): number {
+  const mPerDegLat = 111320;
+  const mPerDegLon = 111320 * Math.max(0.01, Math.cos(lat * DEG2RAD));
+  return Math.min(
+    (hm.east - lon) * mPerDegLon,
+    (lon - hm.west) * mPerDegLon,
+    (hm.north - lat) * mPerDegLat,
+    (lat - hm.south) * mPerDegLat,
+  );
+}
+
+// Fetch the concentric LOD stack for a coverage disc. Each rung is a normal getHeightmap call with
+// mapZoom pinned to the rung's zoom (pickZoom = min(maxzoom, round(mapZoom)), and the rung's z ≤ maxzoom,
+// so this yields exactly z; coverTiles may coarsen a big rung further, which only helps). Rungs fetch
+// finest-first and sequentially so the inner detail lands first; progress sums across the whole stack
+// (the per-rung count is deterministic, so "loaded/total" reads as whole tiles and the fraction is
+// monotonic with a fixed denominator).
+export async function getLodHeightmap(
+  req: LodRequest,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<LodHeightmap> {
+  const reqs: HeightmapRequest[] = buildLodLadder(req.maxzoom, req.radiusM).map((rung) => ({
+    urlTemplate: req.urlTemplate, overlays: req.overlays, maxzoom: req.maxzoom,
+    lon: req.lon, lat: req.lat, radiusM: rung.rM, mapZoom: rung.z,
+  }));
+  const counts = reqs.map(heightmapTileCount);
+  const grandTotal = counts.reduce((sum, n) => sum + n, 0);
+
+  const levels: LodLevel[] = [];
+  let loadedBase = 0;
+  for (let k = 0; k < reqs.length; k++) {
+    const hm = await getHeightmap(
+      reqs[k],
+      onProgress ? (p) => onProgress(loadedBase + p.loaded, grandTotal) : undefined,
+    );
+    loadedBase += counts[k];
+    levels.push({ hm, innerRadiusM: inscribedRadiusM(hm, req.lon, req.lat) });
+  }
+  onProgress?.(grandTotal, grandTotal); // getHeightmap has no forced final emit; finish the terrain bar
+  return { levels, lon: req.lon, lat: req.lat };
 }

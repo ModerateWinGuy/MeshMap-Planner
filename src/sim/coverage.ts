@@ -14,9 +14,9 @@
 //   - receiver gain is NOT included here; relay forms margins by adding the relay rx gain per cell
 //   - clutter_height is added to interior terrain points (not the antenna sites), as SPLAT's -gc does
 
-import type { Heightmap } from '../viewshed/heightmap.ts';
+import type { Heightmap, LodHeightmap } from '../viewshed/heightmap.ts';
 import { type ItmModule, itmP2P } from './itm/index.ts';
-import { sampleHeightAt } from './profile.ts';
+import { sampleLodHeightAt } from './profile.ts';
 import { climateCode, polarizationCode } from './itmParams.ts';
 import type { SimShared } from './links.ts';
 import type { CoverageNode, CoverageOptions, CoverageGrid } from './coverageTypes.ts';
@@ -36,9 +36,16 @@ const freeSpaceLossDb = (distM: number, freqMhz: number): number => {
   return 32.45 + 20 * Math.log10(freqMhz) + 20 * Math.log10(distKm);
 };
 
+// Relay (and any caller still handing in a plain square) is wrapped into a single-level stack so the
+// sweep below has one sampling path. A single level covers the whole disc, so the sampler never falls
+// to a coarser ring — innerRadiusM only has to exceed every sample's distance, which radiusM does.
+function wrapSingle(hm: Heightmap, radiusM: number): LodHeightmap {
+  return { levels: [{ hm, innerRadiusM: radiusM }], lon: 0, lat: 0 };
+}
+
 export function computeCoverage(
   mod: ItmModule,
-  hm: Heightmap,
+  hm: Heightmap | LodHeightmap,
   tx: CoverageNode,
   shared: SimShared,
   opts: CoverageOptions,
@@ -52,6 +59,10 @@ export function computeCoverage(
   const rangeSteps = opts.rangeSteps ?? 256;
   const radiusM = opts.radiusM ?? ((opts.north - opts.south) / 2) * 111320;
   const rangeStepM = radiusM / rangeSteps; // range step k sits at distance (k+1)*rangeStepM
+
+  // Coverage hands in an LOD stack (high zoom near the TX, coarser outward); relay still passes a single
+  // square, which we wrap so the per-sample level pick is uniform. distM drives the level selection.
+  const lod: LodHeightmap = 'levels' in hm ? hm : wrapSingle(hm, radiusM);
 
   // ERP basis, computed once: the receiver-gain-free transmit term subtracted by ITM path loss.
   const erpDbm = tx.tx_power + tx.tx_gain - tx.system_loss;
@@ -77,12 +88,12 @@ export function computeCoverage(
 
     // Sample the ray's terrain once. Local equirectangular offset (coverage radius ≤100 km, so the
     // great circle isn't worth its trig here): northing = d·cosθ, easting = d·sinθ.
-    rayH[0] = sampleHeightAt(hm, tx.lon, tx.lat); // TX ground
+    rayH[0] = sampleLodHeightAt(lod, tx.lon, tx.lat, 0); // TX ground (finest level)
     for (let s = 1; s <= rangeSteps; s++) {
       const d = s * rangeStepM;
       const lat = tx.lat + (d * cosT) / 111320;
       const lon = tx.lon + (d * sinT) / (111320 * cosLat);
-      rayH[s] = sampleHeightAt(hm, lon, lat);
+      rayH[s] = sampleLodHeightAt(lod, lon, lat, d); // coarsens with distance, matching the sweep
     }
 
     // Uniform ground clutter on interior ray points only (the antennas sit on bare ground), matching
