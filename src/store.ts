@@ -6,7 +6,8 @@ import maplibregl from 'maplibre-gl';
 import { type Site, type SplatParams, type Node, type NodeGroup, type MatrixResult, type LinkResult, type RelayResult, type ProfileResult, type UiMode } from './types.ts';
 import { cloneObject, escapeHtml } from './utils.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
-import { createElement, Ruler } from 'lucide';
+import { createElement, Ruler, Keyboard } from 'lucide';
+import { Popover } from 'bootstrap';
 import { Links3DLayer, buildLinkGeometry, setLinkColorFn, type LinkPick } from './links3d.ts';
 import { getHeightmap, type Heightmap } from './viewshed/heightmap.ts';
 import {
@@ -115,6 +116,9 @@ const RELAY_BEFORE = 'relay-top';
 // inserted before COVERAGE_BEFORE so it sits above the basemap/hillshade but under the vector overlays.
 const VIEWSHED_ID = 'viewshed';
 const EMPTY_FC = { type: 'FeatureCollection', features: [] };
+
+// Cap for the node-move undo stack (Ctrl+Z). Bounds memory; oldest entries drop first.
+const NODE_MOVE_HISTORY_LIMIT = 100;
 
 // Conservative floor for gl.MAX_TEXTURE_SIZE across GPUs; a coverage canvas larger than this on
 // either axis is downsampled before upload so it never silently fails to render. Also the default
@@ -391,6 +395,9 @@ let measureControl: MeasureControl | null = null;
 let measureFinished = false;
 // Measure vertex being dragged, or -1 when none.
 let measureDragIndex = -1;
+// Last pointer position over the map (lng/lat), so the "A" hotkey can drop a node under the cursor.
+// Null while the pointer is off the canvas, so the shortcut falls back to the map centre then.
+let lastMapCursor: maplibregl.LngLat | null = null;
 // Keys of tiles currently loading across all sources, for the bottom loading bar. Module-scoped (not
 // in reactive state) so updating a hot Set per tile event doesn't churn Vue's proxy; its size is
 // mirrored into store.mapTiles.inFlight. Reset on map teardown.
@@ -465,6 +472,49 @@ class MeasureControl implements maplibregl.IControl {
   setActive(active: boolean): void {
     this.button.classList.toggle('measure-ctrl-active', active);
     this.button.setAttribute('aria-pressed', String(active));
+  }
+}
+
+// A native MapLibre control (like MeasureControl) so it stacks bottom-left above the measure tool. A
+// keyboard icon whose hover/focus popover documents the app's keyboard shortcuts.
+class HotkeyHelpControl implements maplibregl.IControl {
+  private container!: HTMLElement;
+  private button!: HTMLButtonElement;
+  private popover: Popover | null = null;
+  onAdd(): HTMLElement {
+    this.container = document.createElement('div');
+    this.container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    this.button = document.createElement('button');
+    this.button.type = 'button';
+    this.button.className = 'hotkey-help-btn';
+    this.button.setAttribute('aria-label', 'Keyboard shortcuts');
+    const svg = createElement(Keyboard);
+    svg.setAttribute('width', '18');
+    svg.setAttribute('height', '18');
+    this.button.appendChild(svg);
+    this.container.appendChild(this.button);
+    // container:'body' so the map's overflow can't clip it; placement:'top' since it sits at the
+    // screen bottom. Disposed in onRemove so the body-appended element doesn't leak on teardown/HMR.
+    this.popover = new Popover(this.button, {
+      html: true,
+      title: 'Keyboard shortcuts',
+      content:
+        '<dl class="hotkey-help-list mb-0">' +
+        '<dt>A</dt><dd>Add a node at the cursor</dd>' +
+        '<dt>Ctrl + Z</dt><dd>Undo last node move</dd>' +
+        '<dt>H</dt><dd>Hide / show selected node</dd>' +
+        '<dt>C</dt><dd>Calculate coverage for selected node</dd>' +
+        '</dl>',
+      trigger: 'hover focus',
+      placement: 'top',
+      container: 'body',
+    });
+    return this.container;
+  }
+  onRemove(): void {
+    this.popover?.dispose();
+    this.popover = null;
+    this.container.remove();
   }
 }
 
@@ -560,6 +610,10 @@ const useStore = defineStore('store', {
       // the panel's "Loading terrain… N/M tiles" indicator so a slow LINZ fetch never looks frozen.
       viewshedProgress: null as { loaded: number; total: number } | null,
       nodes: useLocalStorage<Node[]>('nodes', [seedNode()]),
+      // Undo stack for node coordinate changes — marker drags and panel lat/lon edits. Each entry is
+      // the position BEFORE a change; Ctrl+Z pops and restores it (see undoNodeMove + keyboard.ts).
+      // In-memory only: undo across reloads would be surprising.
+      nodeMoveHistory: [] as { nodeId: string; lat: number; lon: number }[],
       // User-created folders for the node list (single-level). Display order = array order; a node's
       // membership lives on the node (Node.groupId). Empty by default; persisted across reloads.
       groups: useLocalStorage<NodeGroup[]>('nodeGroups', []),
@@ -687,16 +741,18 @@ const useStore = defineStore('store', {
     },
   },
   actions: {
-    addNode() {
+    // Add a node, copying the selected node's radio settings. Drops at `at` when given (the "A"
+    // hotkey passes the cursor position), else the map centre.
+    addNode(at?: { lat: number; lng: number }) {
       const base = this.selectedNode;
-      const center = this.map ? this.map.getCenter() : { lat: DEFAULT_LAT, lng: DEFAULT_LON };
+      const pos = at ?? (this.map ? this.map.getCenter() : { lat: DEFAULT_LAT, lng: DEFAULT_LON });
       const node: Node = {
         id: crypto.randomUUID(),
         transmitter: {
           ...(base ? cloneObject(base.transmitter) : defaultTransmitter()),
           name: randanimalSync(),
-          tx_lat: Number(center.lat.toFixed(6)),
-          tx_lon: Number(center.lng.toFixed(6))
+          tx_lat: Number(pos.lat.toFixed(6)),
+          tx_lon: Number(pos.lng.toFixed(6))
         },
         receiver: base ? cloneObject(base.receiver) : defaultReceiver(),
         // Join the selected node's folder so adding nodes while building out a group keeps them
@@ -707,6 +763,11 @@ const useStore = defineStore('store', {
       this.selectedNodeId = node.id;
       this.renderNodeMarkers();
       this.redrawLinks(); // selection changed → re-filter the selected node's non-viable links
+    },
+    // Add a node under the pointer (the "A" hotkey). Falls back to the map centre when the pointer is
+    // off the map (lastMapCursor null), matching addNode's default.
+    addNodeAtCursor() {
+      this.addNode(lastMapCursor ?? undefined);
     },
     selectNode(id: string) {
       this.clearPairTarget(); // a pending pair is relative to the old selection; drop it
@@ -785,6 +846,39 @@ const useStore = defineStore('store', {
       node.hidden = !node.hidden;
       this.renderNodeMarkers(); // drop or restore this node's marker
       this.redrawLinks();       // re-filter the links touching it (2D + 3D)
+    },
+    // Record a node's position BEFORE a coordinate change so Ctrl+Z can restore it. Called from the
+    // marker dragstart (pre-drag position) and the panel lat/lon edit commit (pre-edit position).
+    pushNodeMove(nodeId: string, lat: number, lon: number) {
+      this.nodeMoveHistory.push({ nodeId, lat, lon });
+      if (this.nodeMoveHistory.length > NODE_MOVE_HISTORY_LIMIT) {
+        this.nodeMoveHistory.shift();
+      }
+    },
+    // Undo the most recent node move by writing the saved coords back. Entries whose node was since
+    // deleted are discarded. The coordinate write triggers the nodes watcher (initMap), which refreshes
+    // markers/links/matrix/viewshed/profile; redrawPairLink keeps an active pair preview attached.
+    // Returns whether a move was actually undone, so the key handler can preventDefault.
+    undoNodeMove(): boolean {
+      while (this.nodeMoveHistory.length) {
+        const entry = this.nodeMoveHistory.pop()!;
+        const node = this.nodes.find((n) => n.id === entry.nodeId);
+        if (!node) {
+          continue; // node deleted since this move was recorded — skip it
+        }
+        node.transmitter.tx_lat = entry.lat;
+        node.transmitter.tx_lon = entry.lon;
+        this.redrawPairLink();
+        return true;
+      }
+      return false;
+    },
+    // Hide/show the selected node (H shortcut). The node keeps its selection while hidden, so a second
+    // press restores it. No-op when nothing is selected.
+    toggleSelectedNodeVisibility() {
+      if (this.selectedNodeId) {
+        this.toggleNodeVisibility(this.selectedNodeId);
+      }
     },
     // Bulk hide/show, behind the node list's "Hide all" / "Show all" buttons. No-op (no redraw) when
     // nothing actually changes, so a redundant click doesn't churn the markers/links. "Show all" also
@@ -976,6 +1070,9 @@ const useStore = defineStore('store', {
           );
           marker.on('dragstart', () => {
             this.dragging = true;
+            // Record the pre-drag position for Ctrl+Z. dragstart fires only on a real drag (not a
+            // plain click), and before any 'drag' event mutates the coords, so this is the true origin.
+            this.pushNodeMove(node.id, node.transmitter.tx_lat, node.transmitter.tx_lon);
           });
           marker.on('drag', () => {
             // Live viewshed: track the selected node continuously while it's dragged (throttled to one
@@ -1432,6 +1529,8 @@ const useStore = defineStore('store', {
       this.map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-right');
       measureControl = new MeasureControl(() => this.toggleMeasure());
       this.map.addControl(measureControl, 'bottom-left');
+      // Added last: MapLibre prepends bottom-corner controls, so this lands above the measure tool.
+      this.map.addControl(new HotkeyHelpControl(), 'bottom-left');
 
       if (!this.selectedNodeId && this.nodes[0]) {
         this.selectedNodeId = this.nodes[0].id;
@@ -1695,6 +1794,10 @@ const useStore = defineStore('store', {
           this.showLinkPopupAt(hit.a, hit.b, e.lngLat);
         }
       });
+      // Track the pointer's lng/lat so the "A" hotkey can drop a node under the cursor; cleared on
+      // mouseout so it can't reuse a stale position once the pointer leaves the map (see addNodeAtCursor).
+      map.on('mousemove', (e: any) => { lastMapCursor = e.lngLat; });
+      map.on('mouseout', () => { lastMapCursor = null; });
       // Hover cursor, throttled to one pick per frame so mousemove doesn't reproject every link.
       let hoverScheduled = false;
       map.on('mousemove', (e: any) => {

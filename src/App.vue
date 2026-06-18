@@ -152,6 +152,7 @@ import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, Slide
 import type { Component } from "vue"
 
 import { useStore } from './store.ts'
+import { installKeyboardShortcuts } from './keyboard.ts'
 import type { UiMode } from './types.ts'
 const store = useStore()
 
@@ -168,14 +169,18 @@ const MODES = [
 
 // The map belongs to the app shell, not any one panel — init/destroy here so switching modes (which
 // only toggles panel visibility via v-show) never tears the map down.
+let removeKeyboardShortcuts: (() => void) | null = null
 onMounted(() => {
   store.initMap()
+  removeKeyboardShortcuts = installKeyboardShortcuts(store)
 })
 onUnmounted(() => {
   // Tear the map down on unmount so a remount (Vite HMR) can't leave the old map's layers subscribed
   // to its handlers — that orphaned state is what throws "map is null" and drifts layers on the next
   // interaction.
   store.destroyMap()
+  removeKeyboardShortcuts?.()
+  removeKeyboardShortcuts = null
 })
 
 const buttonText = () => {

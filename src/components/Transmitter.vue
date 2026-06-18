@@ -10,12 +10,12 @@
         <div class="row g-2">
             <div class="col-6">
                 <label for="tx_lat" class="form-label">Latitude (degrees)</label>
-                <input v-model="transmitter.tx_lat" type="number" class="form-control form-control-sm" id="tx_lat" required min="-90" max="90" step="0.000001" data-bs-toggle="tooltip" title="Transmitter latitude in degrees (-90 to 90)." />
+                <input v-model="transmitter.tx_lat" @focus="onCoordFocus" @change="onCoordChange" type="number" class="form-control form-control-sm" id="tx_lat" required min="-90" max="90" step="0.000001" data-bs-toggle="tooltip" title="Transmitter latitude in degrees (-90 to 90)." />
                 <div class="invalid-feedback">Please enter a valid latitude (-90 to 90).</div>
             </div>
             <div class="col-6">
                 <label for="tx_lon" class="form-label">Longitude (degrees)</label>
-                <input v-model="transmitter.tx_lon" type="number" class="form-control form-control-sm" id="tx_lon" required min="-180" max="180" step="0.000001" data-bs-toggle="tooltip" title="Transmitter longitude in degrees (-180 to 180)." />
+                <input v-model="transmitter.tx_lon" @focus="onCoordFocus" @change="onCoordChange" type="number" class="form-control form-control-sm" id="tx_lon" required min="-180" max="180" step="0.000001" data-bs-toggle="tooltip" title="Transmitter longitude in degrees (-180 to 180)." />
                 <div class="invalid-feedback">Please enter a valid longitude (-180 to 180).</div>
             </div>
         </div>
@@ -65,6 +65,27 @@
     import { computed, onMounted, ref, watch } from 'vue';
     const store = useStore();
     const transmitter = computed(() => store.selectedNode?.transmitter);
+
+    // Snapshot the node's coords when a lat/lon field gains focus, so a committed edit pushes ONE undo
+    // entry (the live v-model would otherwise change per keystroke). Compared on change; pushed only if
+    // the value actually moved. Number() guards the lat/lon v-model holding a string on type="number".
+    const coordSnapshot = ref<{ lat: number; lon: number } | null>(null);
+    const onCoordFocus = () => {
+        const tx = transmitter.value;
+        coordSnapshot.value = tx ? { lat: Number(tx.tx_lat), lon: Number(tx.tx_lon) } : null;
+    };
+    const onCoordChange = () => {
+        const tx = transmitter.value;
+        const snap = coordSnapshot.value;
+        const node = store.selectedNode;
+        coordSnapshot.value = null;
+        if (!tx || !snap || !node) {
+            return;
+        }
+        if (Number(tx.tx_lat) !== snap.lat || Number(tx.tx_lon) !== snap.lon) {
+            store.pushNodeMove(node.id, snap.lat, snap.lon);
+        }
+    };
 
     // Power can be entered in watts or dBm; the two stay in sync (30 dBm = 1 W).
     // The dBm field holds its own text while focused so that round-trip rounding

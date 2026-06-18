@@ -152,6 +152,27 @@ body {
   background-color: var(--accent-red-hover);
 }
 
+/* Hotkey help control — match the plain MapLibre control button look (Lucide SVG = currentColor). */
+.maplibregl-ctrl button.hotkey-help-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+}
+/* Two-column shortcut list inside the Bootstrap popover. */
+.hotkey-help-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+}
+.hotkey-help-list dt {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.hotkey-help-list dd {
+  margin: 0;
+}
+
 /* Top-bar mode toggle, styled as an iOS-style segmented control: a rounded translucent track with
    the active segment shown as a solid white pill. These rules override Bootstrap's btn-group
    borders/dividers and square inner corners so the group reads as one unified pill. */
