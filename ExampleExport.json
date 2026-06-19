@@ -1,0 +1,112 @@
+{
+  "contacts": [
+    {
+      "type": 2,
+      "name": "MWG-ARPO",
+      "custom_name": null,
+      "public_key": "5b9559d50b2f35ca611b200f1a7e4a4386995bec49f133fcf4aa5fbccd0b48f5",
+      "flags": 7,
+      "latitude": "-40.879391",
+      "longitude": "175.046875",
+      "last_advert": 1781764079,
+      "last_modified": 1781764060,
+      "out_path_list": ""
+    },
+    {
+      "type": 2,
+      "name": "MWG-HTAK",
+      "custom_name": null,
+      "public_key": "c3dc9338d14636b0ad38fe7a3399dc4880c85ea5afb7a966130c7a5d719bc368",
+      "flags": 1,
+      "latitude": "-40.879436",
+      "longitude": "175.046783",
+      "last_advert": 1781758453,
+      "last_modified": 1781758427,
+      "out_path_list": ""
+    },
+    {
+      "type": 2,
+      "name": "WAIK Repeater",
+      "custom_name": null,
+      "public_key": "7e017e7ba39f170cb26301ff75f5e1b8032f79cae9e61127edd7319eee0d358b",
+      "flags": 3,
+      "latitude": "-40.87527",
+      "longitude": "175.00968",
+      "last_advert": 1781765267,
+      "last_modified": 1781765264,
+      "out_path_list": null
+    },
+    {
+      "type": 1,
+      "name": "WAIK",
+      "custom_name": null,
+      "public_key": "d7da58b4661a0e4d29c70cf5ea1c576d58fae6f50eff1509ac58132c395a1076",
+      "flags": 0,
+      "latitude": "0.0",
+      "longitude": "0.0",
+      "last_advert": 1780723494,
+      "last_modified": 1780723497,
+      "out_path_list": null
+    },
+    {
+      "type": 2,
+      "name": "MWG-ATLN",
+      "custom_name": null,
+      "public_key": "e80f9e04e5462959a111c529ed4d23e347692c61e2eed40f0c3c6344349b3e91",
+      "flags": 1,
+      "latitude": "-40.87942",
+      "longitude": "175.04696",
+      "last_advert": 1781764761,
+      "last_modified": 1781764741,
+      "out_path_list": ""
+    },
+    {
+      "type": 2,
+      "name": "MWG-PLDJPR",
+      "custom_name": null,
+      "public_key": "acbf1733ac37a0d92d274904059de693a7a19c6cf040da96ec737ac1756362b7",
+      "flags": 1,
+      "latitude": "-40.879387",
+      "longitude": "175.046601",
+      "last_advert": 1781764334,
+      "last_modified": 1781764334,
+      "out_path_list": ""
+    },
+    {
+      "type": 1,
+      "name": "MWG-Ingest",
+      "custom_name": null,
+      "public_key": "f921aad791328e819701173ad9d7fef161392f159a5829dccafa0dd44cb51348",
+      "flags": 0,
+      "latitude": "0.0",
+      "longitude": "0.0",
+      "last_advert": 1781728959,
+      "last_modified": 1781728941,
+      "out_path_list": ""
+    },
+    {
+      "type": 1,
+      "name": "MWG-SG2",
+      "custom_name": null,
+      "public_key": "5e3bf0d59cbc44f1cd3aeeec373a588450564404ff377b03f23b1c30c2000a63",
+      "flags": 1,
+      "latitude": "0.0",
+      "longitude": "0.0",
+      "last_advert": 1780954765,
+      "last_modified": 1780954765,
+      "out_path_list": null
+    },
+    {
+      "type": 1,
+      "name": "🌟MWG-SG3",
+      "custom_name": null,
+      "public_key": "d72d0de6942ede60701304884a14f9bed36962f80e1b19a19fd8e7cb3589f4d4",
+      "flags": 0,
+      "latitude": "0.0",
+      "longitude": "0.0",
+      "last_advert": 1781404106,
+      "last_modified": 1781404106,
+      "out_path_list": null
+    }
+  ]
+}

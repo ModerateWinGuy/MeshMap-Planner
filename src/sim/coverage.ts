@@ -24,18 +24,6 @@ import type { CoverageNode, CoverageOptions, CoverageGrid } from './coverageType
 // ITM conf/rel must sit in (0,1); qerfi blows up at the ends. Clamp like links.ts clampFrac does.
 const clampFrac = (pct: number): number => Math.min(0.999, Math.max(0.001, pct / 100));
 
-// Below this TX->cell distance ITM (Longley-Rice) is unreliable: at very short range it can wildly
-// over-attenuate (it's a beyond-horizon/terrain model, not a near-field one), which made cells right
-// around the node read far weaker than reality. Within NEAR_FIELD_M we substitute plain free-space
-// path loss, which is the correct close-in behaviour and reads strong as expected.
-const NEAR_FIELD_M = 300;
-
-// Free-space path loss (dB) for a distance and frequency. 32.45 is the constant for km + MHz.
-const freeSpaceLossDb = (distM: number, freqMhz: number): number => {
-  const distKm = Math.max(distM, 1) / 1000; // floor avoids log10(0) at the TX's own cell
-  return 32.45 + 20 * Math.log10(freqMhz) + 20 * Math.log10(distKm);
-};
-
 // Relay (and any caller still handing in a plain square) is wrapped into a single-level stack so the
 // sweep below has one sampling path. A single level covers the whole disc, so the sampler never falls
 // to a coarser ring — innerRadiusM only has to exceed every sample's distance, which radiusM does.
@@ -106,16 +94,7 @@ export function computeCoverage(
     }
 
     for (let k = 0; k < rangeSteps; k++) {
-      const distM = (k + 1) * rangeStepM;
       const idx = a * rangeSteps + k;
-
-      // Near-field: ITM (Longley-Rice, a beyond-horizon/terrain model) over-attenuates at short
-      // range, so substitute plain free-space loss close in — the correct near-site behaviour. This
-      // also covers k=0 (the cell nearest the TX), which would otherwise read far too weak.
-      if (distM < NEAR_FIELD_M) {
-        polar[idx] = erpDbm - freeSpaceLossDb(distM, tx.frequency_mhz);
-        continue;
-      }
 
       try {
         // Prefix profile rayH[0..k+1] = k+2 points. Pass a subarray VIEW (itmP2P reads .length and
