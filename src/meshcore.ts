@@ -9,7 +9,7 @@ export const MESHCORE_TYPE_LABELS: Record<number, string> = {
 
 // The contact types we turn into nodes: repeaters and room servers (fixed infrastructure that
 // advertises a location). Companions (type 1) are person-carried and usually report no fix.
-const IMPORTABLE_TYPES = new Set([2, 3]);
+export const IMPORTABLE_TYPES = new Set([2, 3]);
 
 export interface ContactCandidate {
   name: string;
@@ -29,7 +29,7 @@ export interface ParsedContacts {
 
 // Dedupe key at the same 6-dp precision the store rounds coords to (see addNode), so a re-import of
 // an already-placed contact keys identically and is flagged.
-function dedupeKey(name: string, lat: number, lon: number): string {
+export function dedupeKey(name: string, lat: number, lon: number): string {
   return `${name}|${lat.toFixed(6)}|${lon.toFixed(6)}`;
 }
 

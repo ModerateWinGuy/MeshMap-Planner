@@ -343,6 +343,9 @@ function fitCoverageCanvas(canvas: HTMLCanvasElement, maxTexture = MAX_TEXTURE):
 
 // Folder that bulk-imported MeshCore contacts land in; reused across re-imports (see importContacts).
 const IMPORTED_FOLDER_NAME = 'Imported';
+// Folder that public-map sync (MeshCore/MeshMapper) drops nodes into; reused across re-syncs (see
+// importPublicMapNodes).
+const PUBLIC_MAP_FOLDER_NAME = 'Public MeshCore';
 
 function defaultTransmitter(): SplatParams['transmitter'] {
   return {
@@ -951,6 +954,42 @@ const useStore = defineStore('store', {
           },
           receiver: defaultReceiver(),
           groupId
+        };
+        this.nodes.push(node);
+      }
+      this.renderNodeMarkers();
+      this.redrawLinks();
+      return rows.length;
+    },
+    // Bulk-create nodes from a public-map sync (MeshCore/MeshMapper), all dropped into a single
+    // "Public MeshCore" folder (reused across re-syncs). Rows are already clipped to the view and
+    // deduped by the sync orchestrator (src/sources). Mirrors importContacts, but carries the node's
+    // real frequency when the source provided one, and stores its public key (meshKey) for exact
+    // re-sync/cross-source dedupe. Returns how many were added.
+    importPublicMapNodes(
+      rows: Array<{ name: string; lat: number; lon: number; freq: number | null; meshKey: string | null }>
+    ): number {
+      if (!rows.length) {
+        return 0;
+      }
+      const groupId =
+        this.groups.find((g) => g.name === PUBLIC_MAP_FOLDER_NAME)?.id ?? this.addGroup(PUBLIC_MAP_FOLDER_NAME);
+      for (const row of rows) {
+        const transmitter = {
+          ...defaultTransmitter(),
+          name: row.name,
+          tx_lat: Number(row.lat.toFixed(6)),
+          tx_lon: Number(row.lon.toFixed(6))
+        };
+        if (row.freq != null && Number.isFinite(row.freq)) {
+          transmitter.tx_freq = row.freq;
+        }
+        const node: Node = {
+          id: crypto.randomUUID(),
+          transmitter,
+          receiver: defaultReceiver(),
+          groupId,
+          ...(row.meshKey ? { meshKey: row.meshKey } : {})
         };
         this.nodes.push(node);
       }

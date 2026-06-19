@@ -1,7 +1,7 @@
 import type { CoverageGrid } from './sim/coverageTypes.ts'; // type-only: erased at compile, no runtime cycle
 
 // Which task-focused panel the sidebar shows; persisted to localStorage as the active UI mode.
-export type UiMode = 'nodes' | 'radio' | 'coverage' | 'linkfinder' | 'viewshed' | 'settings';
+export type UiMode = 'nodes' | 'import' | 'radio' | 'coverage' | 'linkfinder' | 'viewshed' | 'settings';
 
 export interface Site {
     params: SplatParams;
@@ -26,6 +26,10 @@ export interface Node {
     // Id of the folder this node belongs to, or absent for an ungrouped (top-level) node. Folders are
     // single-level — a node is in at most one. Absent on nodes persisted before folders existed.
     groupId?: string;
+    // Public key (lowercased hex) for nodes pulled from a public map source (MeshCore/MeshMapper).
+    // Lets repeated/cross-source syncs dedupe exactly instead of by name+coords. Absent on hand-placed
+    // and file-imported nodes.
+    meshKey?: string;
 }
 
 // A user-created folder grouping nodes in the list. Single-level: folders never nest. Order in the

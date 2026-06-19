@@ -135,9 +135,19 @@
             <RelayFinder />
           </div>
 
-          <div v-show="store.activeMode === 'settings'">
+          <div v-show="store.activeMode === 'import'">
+            <!-- These importers are MeshCore-specific: a MeshCore contacts export, or live nodes from
+                 the MeshCore public maps. Spelled out here so users don't expect other mesh networks. -->
+            <p class="small text-secondary mb-3">
+              Import nodes from <strong>MeshCore</strong> — from a contacts export file, or pulled live
+              from the public maps for your current view.
+            </p>
             <ContactImport />
             <hr />
+            <PublicMapSync />
+          </div>
+
+          <div v-show="store.activeMode === 'settings'">
             <Terrain />
           </div>
         </div>
@@ -183,11 +193,12 @@ import Viewshed from "./components/Viewshed.vue"
 import Terrain from "./components/Terrain.vue"
 import BasemapControl from "./components/BasemapControl.vue"
 import ContactImport from "./components/ContactImport.vue"
+import PublicMapSync from "./components/PublicMapSync.vue"
 import SharedLinkBanner from "./components/SharedLinkBanner.vue"
 import ProfilePanel from "./components/ProfilePanel.vue"
 import MapLoadingBar from "./components/MapLoadingBar.vue"
 import MeasurePanel from "./components/MeasurePanel.vue"
-import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical, ScanEye, Share2, Check } from "@lucide/vue"
+import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical, ScanEye, Share2, Check, FolderInput } from "@lucide/vue"
 import type { Component } from "vue"
 
 import { useStore } from './store.ts'
@@ -215,6 +226,7 @@ function shareSite() {
 // -> analyse links -> map settings.
 const MODES = [
   { id: 'nodes', label: 'Nodes', icon: RadioTower },
+  { id: 'import', label: 'Import', icon: FolderInput },
   { id: 'coverage', label: 'Coverage', icon: MapIcon },
   { id: 'viewshed', label: 'Viewshed', icon: ScanEye },
   { id: 'linkfinder', label: 'Link Finder', icon: Link },
