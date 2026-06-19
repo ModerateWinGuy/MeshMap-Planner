@@ -408,6 +408,11 @@ let lastMapCursor: maplibregl.LngLat | null = null;
 // in reactive state) so updating a hot Set per tile event doesn't churn Vue's proxy; its size is
 // mirrored into store.mapTiles.inFlight. Reset on map teardown.
 const mapTileInflight = new Set<string>();
+// Ids of node markers currently attached to the map. MapLibre rewrites every attached marker's DOM
+// transform on each pan frame, so 300 off-screen pins would jank panning; cullMarkers() keeps only
+// the in-view subset attached. Module-scoped (not Pinia state) so per-pan toggling never churns Vue's
+// proxy. Cleared on map teardown.
+const attachedMarkers = new Set<string>();
 // The on-map popup offering to compute a shift-clicked node pair. Module-scoped (like the Map) so
 // Vue never proxies the GL popup; only one is ever open at a time.
 let pairPopup: maplibregl.Popup | null = null;
@@ -1230,6 +1235,7 @@ const useStore = defineStore('store', {
         if (!node || isHidden(node)) {
           this.nodeMarkers[id].remove();
           delete this.nodeMarkers[id];
+          attachedMarkers.delete(id);
         }
       }
       const selectedId = this.selectedNode?.id;
@@ -1242,6 +1248,14 @@ const useStore = defineStore('store', {
         let marker = this.nodeMarkers[node.id];
         if (!marker) {
           const el = makePinElement(selected, node.transmitter.name);
+          // MapLibre's marker drag is bound to the map's mousedown and fires on ANY button, so a
+          // right-click meant to rotate the map would instead drag the node. Swallow non-left
+          // mousedowns before they bubble to the map container so only left-drag moves a pin.
+          el.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) {
+              e.stopPropagation();
+            }
+          });
           // MapLibre markers have no click event; listen on the element. stopPropagation keeps the
           // pin click from also firing the map click used by "Set with map".
           el.addEventListener('click', (e) => {
@@ -1261,7 +1275,7 @@ const useStore = defineStore('store', {
               .setLngLat(lngLat)
               // setText (not setHTML) so a node name can't inject HTML.
               .setPopup(new maplibregl.Popup({ offset: 30 }).setText(node.transmitter.name))
-              .addTo(map)
+            // no .addTo(map): cullMarkers() attaches only the in-view subset (see attachedMarkers).
           );
           marker.on('dragstart', () => {
             this.dragging = true;
@@ -1299,6 +1313,47 @@ const useStore = defineStore('store', {
           marker.setDraggable(!this.nodesLocked); // re-render is the only path that toggles the lock
           stylePinElement(marker.getElement(), selected, node.transmitter.name); // re-style in place; don't churn markers
           marker.getPopup()?.setText(node.transmitter.name);
+        }
+      }
+      this.cullMarkers(); // attach only the in-view subset of the now up-to-date marker cache
+    },
+    // Attach only markers near the current view; detach the rest. MapLibre rewrites every attached
+    // marker's DOM transform on each pan frame, so leaving 300 off-screen pins attached janks panning;
+    // detached pins cost nothing and their cached Marker (element/popup/handlers) survives addTo/remove.
+    // Tests padded lng/lat bounds, not project(): a point behind the camera or past the horizon
+    // (pitch/terrain) can project to a misleading on-screen pixel, but bounds containment stays correct.
+    cullMarkers() {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map) {
+        return;
+      }
+      // Pad the visible bounds by half its span each side, so a pan reveals already-attached neighbours
+      // before the next moveend culls — no visible pop-in at normal pan speeds.
+      const b = map.getBounds();
+      const padW = (b.getEast() - b.getWest()) * 0.5;
+      const padH = (b.getNorth() - b.getSouth()) * 0.5;
+      const west = b.getWest() - padW, east = b.getEast() + padW;
+      const south = b.getSouth() - padH, north = b.getNorth() + padH;
+      const wraps = west > east; // view straddling ±180
+      const inView = (lng: number, lat: number): boolean =>
+        lat >= south && lat <= north &&
+        (wraps ? (lng >= west || lng <= east) : (lng >= west && lng <= east));
+
+      // Always keep the selected node attached: it's the viewshed/link focus and the only live-drag
+      // target, so detaching its element under the pointer would abort a drag.
+      const selectedId = this.selectedNode?.id;
+
+      for (const [id, marker] of Object.entries(this.nodeMarkers)) {
+        const ll = marker.getLngLat();
+        const keep = id === selectedId || inView(ll.lng, ll.lat);
+        const attached = attachedMarkers.has(id);
+        if (keep && !attached) {
+          marker.addTo(map);
+          attachedMarkers.add(id);
+        } else if (!keep && attached) {
+          marker.getPopup()?.remove(); // don't leave a name popup floating after the pin detaches
+          marker.remove();
+          attachedMarkers.delete(id);
         }
       }
     },
@@ -1674,6 +1729,7 @@ const useStore = defineStore('store', {
       this.map.remove();
       this.map = undefined;
       this.nodeMarkers = {};
+      attachedMarkers.clear(); // map.remove() already detached the DOM; just forget our bookkeeping
     },
     initMap() {
       // Guard against re-initialising onto a live map: initMap runs from App's onMounted, which
@@ -1914,6 +1970,7 @@ const useStore = defineStore('store', {
       links3dLayer.setCurtainOpacity(this.linkCurtainOpacity);
       links3dLayer.setCurtainVisible(this.linkCurtainEnabled);
       map.on('moveend', () => this.rebuild3dLinks());
+      map.on('moveend', () => this.cullMarkers());
       map.on('moveend', () => {
         // The viewshed fetches at the map's zoom (to reuse its warm tiles), so follow a zoom change —
         // zooming in sharpens it against the map's now-finer tiles. Gate on the integer zoom changing
