@@ -13,10 +13,10 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
 }
 
-// Install the global keyboard shortcuts (A = add a node at the cursor, Ctrl/Cmd+Z = undo node move,
-// H = hide/show selected node, C = calculate coverage, L = compute the selected node's links). Returns a
-// cleanup function that removes the listener; App.vue calls it on unmount so an HMR remount can't stack
-// duplicate handlers.
+// Install the global keyboard shortcuts (A = add a node at the cursor, Ctrl/Cmd+Z = undo the last
+// node move or delete, H = hide/show selected node, C = calculate coverage, L = compute the
+// selected node's links, Delete = delete the selected node). Returns a cleanup function that
+// removes the listener; App.vue calls it on unmount so an HMR remount can't stack duplicate handlers.
 export function installKeyboardShortcuts(store: Store): () => void {
   const onKeydown = (e: KeyboardEvent) => {
     if (e.ctrlKey || e.metaKey) {
@@ -25,7 +25,7 @@ export function installKeyboardShortcuts(store: Store): () => void {
         if (isTypingTarget(e.target)) {
           return;
         }
-        if (store.undoNodeMove()) {
+        if (store.undoLastNodeChange()) {
           e.preventDefault();
         }
       }
@@ -50,6 +50,11 @@ export function installKeyboardShortcuts(store: Store): () => void {
       // Mirror the LinkMatrix "this node's links" button: only when idle and a node is selected.
       if (store.matrixState !== 'running' && store.selectedNode) {
         store.runNodeLinks();
+      }
+      e.preventDefault();
+    } else if (e.key === 'Delete') {
+      if (store.selectedNode) {
+        store.deleteNode(store.selectedNode.id);
       }
       e.preventDefault();
     }

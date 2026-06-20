@@ -117,8 +117,14 @@ const RELAY_BEFORE = 'relay-top';
 const VIEWSHED_ID = 'viewshed';
 const EMPTY_FC = { type: 'FeatureCollection', features: [] };
 
-// Cap for the node-move undo stack (Ctrl+Z). Bounds memory; oldest entries drop first.
-const NODE_MOVE_HISTORY_LIMIT = 100;
+// Cap for the node undo stack (Ctrl+Z). Bounds memory; oldest entries drop first.
+const NODE_HISTORY_LIMIT = 100;
+
+// One entry per undoable node change. 'move' restores a prior position (drag/edit); 'delete'
+// re-inserts a removed node at its original index and re-selects it if it was selected.
+type NodeHistoryEntry =
+  | { type: 'move'; nodeId: string; lat: number; lon: number }
+  | { type: 'delete'; node: Node; index: number; wasSelected: boolean };
 
 // Conservative floor for gl.MAX_TEXTURE_SIZE across GPUs; a coverage canvas larger than this on
 // either axis is downsampled before upload so it never silently fails to render. Also the default
@@ -512,10 +518,11 @@ class HotkeyHelpControl implements maplibregl.IControl {
       content:
         '<dl class="hotkey-help-list mb-0">' +
         '<dt>A</dt><dd>Add a node at the cursor</dd>' +
-        '<dt>Ctrl + Z</dt><dd>Undo last node move</dd>' +
+        '<dt>Ctrl + Z</dt><dd>Undo last node change</dd>' +
         '<dt>H</dt><dd>Hide / show selected node</dd>' +
         '<dt>L</dt><dd>Calulate links for selected node</dd>' +
         '<dt>C</dt><dd>Calculate coverage for selected node</dd>' +
+        '<dt>Delete</dt><dd>Delete selected node</dd>' +
         '</dl>',
       trigger: 'hover focus',
       placement: 'top',
@@ -626,10 +633,10 @@ const useStore = defineStore('store', {
       // the panel's "Loading terrain… N/M tiles" indicator so a slow LINZ fetch never looks frozen.
       viewshedProgress: null as { loaded: number; total: number } | null,
       nodes: useLocalStorage<Node[]>('nodes', [seedNode()]),
-      // Undo stack for node coordinate changes — marker drags and panel lat/lon edits. Each entry is
-      // the position BEFORE a change; Ctrl+Z pops and restores it (see undoNodeMove + keyboard.ts).
-      // In-memory only: undo across reloads would be surprising.
-      nodeMoveHistory: [] as { nodeId: string; lat: number; lon: number }[],
+      // Undo stack for node changes — marker drags, panel lat/lon edits, and node deletion. Ctrl+Z
+      // pops and reverses the most recent entry (see undoLastNodeChange + keyboard.ts). In-memory
+      // only: undo across reloads would be surprising.
+      nodeHistory: [] as NodeHistoryEntry[],
       // User-created folders for the node list (single-level). Display order = array order; a node's
       // membership lives on the node (Node.groupId). Empty by default; persisted across reloads.
       groups: useLocalStorage<NodeGroup[]>('nodeGroups', []),
@@ -878,25 +885,41 @@ const useStore = defineStore('store', {
     // Record a node's position BEFORE a coordinate change so Ctrl+Z can restore it. Called from the
     // marker dragstart (pre-drag position) and the panel lat/lon edit commit (pre-edit position).
     pushNodeMove(nodeId: string, lat: number, lon: number) {
-      this.nodeMoveHistory.push({ nodeId, lat, lon });
-      if (this.nodeMoveHistory.length > NODE_MOVE_HISTORY_LIMIT) {
-        this.nodeMoveHistory.shift();
+      this.pushNodeHistory({ type: 'move', nodeId, lat, lon });
+    },
+    // Shared push for the Ctrl+Z stack (moves + deletes), capping its size.
+    pushNodeHistory(entry: NodeHistoryEntry) {
+      this.nodeHistory.push(entry);
+      if (this.nodeHistory.length > NODE_HISTORY_LIMIT) {
+        this.nodeHistory.shift();
       }
     },
-    // Undo the most recent node move by writing the saved coords back. Entries whose node was since
-    // deleted are discarded. The coordinate write triggers the nodes watcher (initMap), which refreshes
-    // markers/links/matrix/viewshed/profile; redrawPairLink keeps an active pair preview attached.
-    // Returns whether a move was actually undone, so the key handler can preventDefault.
-    undoNodeMove(): boolean {
-      while (this.nodeMoveHistory.length) {
-        const entry = this.nodeMoveHistory.pop()!;
-        const node = this.nodes.find((n) => n.id === entry.nodeId);
-        if (!node) {
-          continue; // node deleted since this move was recorded — skip it
+    // Undo the most recent node change (move or delete). A move entry whose node was since deleted is
+    // discarded and the next entry is tried. The coordinate/array write triggers the nodes watcher
+    // (initMap), which refreshes markers/links/matrix/viewshed/profile; redrawPairLink keeps an active
+    // pair preview attached. Returns whether something was actually undone, so the key handler can
+    // preventDefault.
+    undoLastNodeChange(): boolean {
+      while (this.nodeHistory.length) {
+        const entry = this.nodeHistory.pop()!;
+        if (entry.type === 'move') {
+          const node = this.nodes.find((n) => n.id === entry.nodeId);
+          if (!node) {
+            continue; // node deleted since this move was recorded — skip it
+          }
+          node.transmitter.tx_lat = entry.lat;
+          node.transmitter.tx_lon = entry.lon;
+          this.redrawPairLink();
+          return true;
         }
-        node.transmitter.tx_lat = entry.lat;
-        node.transmitter.tx_lon = entry.lon;
-        this.redrawPairLink();
+        // 'delete' — re-insert the node at its original index and restore selection/markers/links.
+        const insertIdx = Math.min(entry.index, this.nodes.length);
+        this.nodes.splice(insertIdx, 0, entry.node);
+        if (entry.wasSelected) {
+          this.selectedNodeId = entry.node.id;
+        }
+        this.renderNodeMarkers();
+        this.redrawLinks();
         return true;
       }
       return false;
@@ -1213,11 +1236,13 @@ const useStore = defineStore('store', {
       if (idx === -1) {
         return;
       }
-      this.nodes.splice(idx, 1);
+      const wasSelected = this.selectedNodeId === id;
+      const [node] = this.nodes.splice(idx, 1);
+      this.pushNodeHistory({ type: 'delete', node, index: idx, wasSelected });
       if (this.pairTargetId === id) {
         this.clearPairTarget(); // the pending pair's target just vanished
       }
-      if (this.selectedNodeId === id) {
+      if (wasSelected) {
         this.selectedNodeId = this.nodes[0]?.id ?? null;
       }
       this.renderNodeMarkers();
