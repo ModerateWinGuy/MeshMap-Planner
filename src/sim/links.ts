@@ -10,7 +10,7 @@
 import type { Heightmap } from '../viewshed/heightmap.ts';
 import type { LinkResult, ProfileResult } from '../types.ts';
 import { type ItmModule, itmP2P } from './itm/index.ts';
-import { sampleProfile, sampleHeightAt, type ProfileOptions, type ProfileSample } from './profile.ts';
+import { sampleHeightAt, type ProfileSample } from './profile.ts';
 import { fresnelClearancePct } from './fresnel.ts';
 import { climateCode, polarizationCode } from './itmParams.ts';
 
@@ -56,11 +56,11 @@ export function groundElevationM(hm: Heightmap, node: SimNode): number {
   return sampleHeightAt(hm, node.lon, node.lat);
 }
 
-// Core ITM evaluation shared by link and profile, given an ALREADY-sampled terrain profile. Applies
-// clutter, runs ITM, and derives the link-budget figures from a resolved sensitivity (dBm). Split out
-// of evaluate() so the profile path can sample the corridor on the main thread (sampleProfileCorridor)
-// and hand the resulting ProfileSample straight in, with no heightmap crossing to the worker. Sampling
-// quality (ProfileOptions) is applied at sample time, so it isn't a parameter here.
+// Core ITM evaluation shared by the link matrix and the profile, given an ALREADY-sampled terrain
+// profile. Applies clutter, runs ITM, and derives the link-budget figures from a resolved sensitivity
+// (dBm). Both callers sample the TX->RX corridor on the main thread (sampleProfileCorridor) and hand the
+// resulting ProfileSample straight in, so no heightmap crosses to the worker. Sampling quality
+// (ProfileOptions) is applied at sample time, so it isn't a parameter here.
 function evaluateSample(
   mod: ItmModule,
   profile: ProfileSample,
@@ -101,30 +101,18 @@ function evaluateSample(
   return { profile, itm, distanceKm, rxPower, margin, fresnel };
 }
 
-// Core ITM evaluation from a heightmap: sample the TX->RX profile, then evaluate it. The matrix path
-// (computeLink) samples its many pairs from one shared square heightmap, so it stays here unchanged.
-function evaluate(
+// One link from an already-sampled corridor profile — the per-pair matrix path. Sampling each pair's
+// TX->RX corridor at full zoom (the same terrain the line profile reads) makes a matrix link's margin
+// match its profile's, instead of reading one coarse square covering every node. Mirrors
+// computeProfileFromSample's split, returning the lighter LinkResult shape. Never throws for a single
+// pair: a failure is recorded as error + viable:false so one bad pair can't abort the matrix.
+export function computeLinkFromSample(
   mod: ItmModule,
-  hm: Heightmap,
+  sample: ProfileSample,
   tx: SimNode,
   rx: SimNode,
   shared: SimShared,
   sensitivity: number,
-  quality: ProfileOptions,
-) {
-  return evaluateSample(mod, sampleProfile(hm, tx.lon, tx.lat, rx.lon, rx.lat, quality), tx, rx, shared, sensitivity);
-}
-
-// One matrix link (LinkResult shape). Never throws for a single pair: a failure is recorded as
-// error + viable:false so one bad pair can't abort the matrix.
-export function computeLink(
-  mod: ItmModule,
-  hm: Heightmap,
-  tx: SimNode,
-  rx: SimNode,
-  shared: SimShared,
-  sensitivity: number,
-  quality: ProfileOptions = {},
 ): LinkResult {
   const link: LinkResult = {
     a: tx.id, b: rx.id,
@@ -132,7 +120,7 @@ export function computeLink(
     fresnel_pct: null, margin_db: null, viable: false, error: null,
   };
   try {
-    const e = evaluate(mod, hm, tx, rx, shared, sensitivity, quality);
+    const e = evaluateSample(mod, sample, tx, rx, shared, sensitivity);
     link.distance_km = round3(e.distanceKm);
     link.path_loss_db = round2(e.itm.pathLossDb);
     link.rx_power_dbm = round2(e.rxPower);

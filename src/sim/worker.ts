@@ -4,17 +4,15 @@
 // raw Terrarium buffer in; this worker reconstructs the Heightmap and computes links/profiles.
 
 import type { Heightmap, LodHeightmap } from '../viewshed/heightmap.ts';
-import type { LinkResult } from '../types.ts';
-import { haversineM, type ProfileSample } from './profile.ts';
+import type { ProfileSample } from './profile.ts';
 import { loadItm, type ItmModule } from './itm/index.ts';
 import {
-  computeLink, computeProfileFromSample, groundElevationM, radioHorizonKm,
+  computeLinkFromSample, computeProfileFromSample,
   type SimNode, type SimShared,
 } from './links.ts';
 import { computeCoverage } from './coverage.ts';
 import { relayOverlap, type RelayParams } from './relay.ts';
 import type { CoverageNode, CoverageOptions } from './coverageTypes.ts';
-import type { ProfileOptions } from './profile.ts';
 
 const ctx: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobalScope;
 
@@ -59,15 +57,23 @@ function rebuildLod(wire: WireLodHeightmap): LodHeightmap {
   };
 }
 
-interface MatrixMsg {
-  type: 'matrix';
-  reqId: number;
-  heightmap: WireHeightmap;
-  nodes: SimNode[];
+// One matrix link, computed per pair so links stream in as their terrain lands on the main thread (the
+// pipeline there fetches near-field discs + a coarse base, samples, and posts each pair here). `id` routes
+// the result back to the awaiting main-thread promise. Mirrors handleProfileSample, but returns the
+// lighter LinkResult (no terrain polyline) since the matrix only needs the budget figures.
+interface MatrixLinkMsg {
+  type: 'matrix-link';
+  id: number;
+  sample: {
+    heightsBuffer: ArrayBuffer; // the pair's ProfileSample heights (transferred Float64 backing buffer)
+    spacingM: number;
+    distanceM: number;
+    terrain: Array<[number, number]>;
+  };
+  tx: SimNode;
+  rx: SimNode;
   shared: SimShared;
   sensitivity: number;
-  quality: ProfileOptions;
-  filterHorizon: boolean;
 }
 // The profile path samples the corridor on the MAIN thread (sampleProfileCorridor), so only the
 // resulting ProfileSample crosses here — no heightmap. heightsBuffer is the Float64Array's transferred
@@ -109,49 +115,24 @@ interface RelayMsg {
   opts: CoverageOptions;
   params: RelayParams;
 }
-type InMsg = MatrixMsg | ProfileSampleMsg | CoverageMsg | RelayMsg;
+type InMsg = MatrixLinkMsg | ProfileSampleMsg | CoverageMsg | RelayMsg;
 
 let modPromise: Promise<ItmModule> | null = null;
 const getMod = (): Promise<ItmModule> => (modPromise ??= loadItm());
 
-const PROGRESS_MS = 200; // throttle progressive matrix emits
+const PROGRESS_MS = 200; // throttle progressive coverage/relay emits
 
-async function handleMatrix(msg: MatrixMsg): Promise<void> {
+// Compute one matrix link from its already-sampled profile and post it straight back. computeLinkFromSample
+// never throws (it records a per-pair error on the LinkResult), so a bad pair can't wedge the worker.
+async function handleMatrixLink(msg: MatrixLinkMsg): Promise<void> {
   const mod = await getMod();
-  const hm = rebuild(msg.heightmap);
-  const { nodes, shared, sensitivity, quality, filterHorizon, reqId } = msg;
-
-  // Ground elevations (for the radio-horizon pre-filter) sampled once per node from this heightmap.
-  const ground = filterHorizon ? nodes.map((n) => groundElevationM(hm, n)) : null;
-
-  // Unordered pairs, pre-filtered by the LOS radio horizon when requested.
-  const pairs: Array<[number, number]> = [];
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i + 1; j < nodes.length; j++) {
-      if (ground) {
-        const distKm = haversineM(nodes[i].lon, nodes[i].lat, nodes[j].lon, nodes[j].lat) / 1000;
-        const horizon = radioHorizonKm(ground[i] + nodes[i].height, ground[j] + nodes[j].height);
-        if (distKm > horizon) {
-          continue;
-        }
-      }
-      pairs.push([i, j]);
-    }
-  }
-
-  const links: LinkResult[] = [];
-  const total = pairs.length;
-  let lastEmit = 0;
-  for (let k = 0; k < pairs.length; k++) {
-    const [i, j] = pairs[k];
-    links.push(computeLink(mod, hm, nodes[i], nodes[j], shared, sensitivity, quality));
-    const now = performance.now();
-    if (now - lastEmit >= PROGRESS_MS) {
-      lastEmit = now;
-      ctx.postMessage({ type: 'matrix-progress', reqId, links: links.slice(), done: k + 1, total });
-    }
-  }
-  ctx.postMessage({ type: 'matrix-done', reqId, links, done: total, total });
+  const { sample, tx, rx, shared, sensitivity, id } = msg;
+  const profile: ProfileSample = {
+    heights: new Float64Array(sample.heightsBuffer),
+    spacingM: sample.spacingM, distanceM: sample.distanceM, terrain: sample.terrain,
+  };
+  const link = computeLinkFromSample(mod, profile, tx, rx, shared, sensitivity);
+  ctx.postMessage({ type: 'matrix-link-done', id, link });
 }
 
 // Rebuild the ProfileSample from the wire form (heights as a view over the transferred buffer) and run
@@ -242,8 +223,8 @@ async function handleRelay(msg: RelayMsg): Promise<void> {
 
 ctx.onmessage = (ev: MessageEvent<InMsg>) => {
   const msg = ev.data;
-  if (msg.type === 'matrix') {
-    void handleMatrix(msg);
+  if (msg.type === 'matrix-link') {
+    void handleMatrixLink(msg);
   } else if (msg.type === 'profile-sample') {
     void handleProfileSample(msg);
   } else if (msg.type === 'coverage') {

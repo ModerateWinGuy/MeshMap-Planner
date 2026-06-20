@@ -7,9 +7,9 @@
 
 import { getHeightmap, getCorridor, getLodHeightmap, type Heightmap, type LodHeightmap } from '../viewshed/heightmap.ts';
 import { type OverlaySpec } from '../terrain/demTiles.ts';
-import { haversineM, sampleProfileCorridor } from './profile.ts';
+import { haversineM, sampleProfileCorridor, sampleProfileLod, type ProfileSample } from './profile.ts';
 import type { ProfileOptions } from './profile.ts';
-import type { SimNode, SimShared } from './links.ts';
+import { groundElevationM, radioHorizonKm, type SimNode, type SimShared } from './links.ts';
 import type { CoverageNode, CoverageGrid, CoverageOptions } from './coverageTypes.ts';
 import type { RelayParams } from './relay.ts';
 import type { LinkResult, ProfileResult, RelayResult } from '../types.ts';
@@ -30,8 +30,14 @@ export interface MatrixRun {
   sensitivity: number;
   filterHorizon: boolean;
   quality?: ProfileOptions;
-  onProgress?: (links: LinkResult[], done: number, total: number) => void;
-  onHeightmapProgress?: (loaded: number, total: number) => void;
+  // When set, compute only the pairs touching this node, with it as TX (the line-profile direction) — the
+  // fast interactive path. When omitted, the full N² matrix is computed.
+  sourceNodeId?: string;
+  // Hard distance cap (km) applied to the FULL matrix only (ignored when sourceNodeId is set). 0/undefined
+  // = no cap. Lets a dense map skip long, marginal pairs the horizon would otherwise allow.
+  maxDistanceKm?: number;
+  // Fired once per link as it lands, so the store can merge it into the matrix and redraw progressively.
+  onLink?: (link: LinkResult, done: number, total: number) => void;
 }
 
 export interface ProfileRun {
@@ -73,7 +79,10 @@ export interface RelayRun {
 
 let worker: Worker | null = null;
 let reqCounter = 0;
-const matrixHandlers = new Map<number, { onProgress?: MatrixRun['onProgress']; resolve: (l: LinkResult[]) => void; reject: (e: unknown) => void }>();
+// Per-LINK request map: each pipelined matrix link posts a `matrix-link` to the worker keyed by a fresh
+// id and resolves here on `matrix-link-done` (mirrors profileHandlers, one entry per pair in flight).
+let linkSeq = 0;
+const matrixLinkHandlers = new Map<number, (link: LinkResult) => void>();
 const profileHandlers = new Map<number, { resolve: (r: ProfileResult) => void; reject: (e: unknown) => void }>();
 const coverageHandlers = new Map<number, { onProgress?: CoverageRun['onProgress']; resolve: (g: CoverageGrid) => void; reject: (e: unknown) => void }>();
 const relayHandlers = new Map<number, { onProgress?: RelayRun['onProgress']; resolve: (r: RelayResult) => void; reject: (e: unknown) => void }>();
@@ -84,13 +93,10 @@ function getWorker(): Worker {
     worker.onmessage = (ev: MessageEvent) => {
       const m = ev.data;
       switch (m.type) {
-        case 'matrix-progress':
-          matrixHandlers.get(m.reqId)?.onProgress?.(m.links, m.done, m.total);
-          break;
-        case 'matrix-done': {
-          const h = matrixHandlers.get(m.reqId);
-          matrixHandlers.delete(m.reqId);
-          h?.resolve(m.links);
+        case 'matrix-link-done': {
+          const resolve = matrixLinkHandlers.get(m.id);
+          matrixLinkHandlers.delete(m.id);
+          resolve?.(m.link);
           break;
         }
         case 'profile-done': {
@@ -173,31 +179,244 @@ function coveringRegion(pts: Array<{ lon: number; lat: number }>): { lon: number
   return { lon, lat, radiusM };
 }
 
-// Run a full link matrix. Returns a cancel handle: cancel() drops the result routing so a superseded
-// run (e.g. a node was dragged again) neither fires onProgress nor resolves.
-export function runMatrix(run: MatrixRun): { promise: Promise<LinkResult[]>; cancel: () => void } {
-  const reqId = ++reqCounter;
-  const region = coveringRegion(run.nodes);
-  const promise = (async (): Promise<LinkResult[]> => {
-    const hm = await getHeightmap(
-      { urlTemplate: run.source.urlTemplate, overlays: run.source.overlays, maxzoom: run.source.maxzoom, lon: region.lon, lat: region.lat, radiusM: region.radiusM, mapZoom: run.source.mapZoom },
-      run.onHeightmapProgress ? (p) => run.onHeightmapProgress!(p.loaded, p.total) : undefined,
+// Reorder nodes along a Z-order (Morton) curve so consecutive nodes are spatial neighbours: the O(N²)
+// matrix sweep then revisits each node's discs/tiles close in time, letting the disc/tile LRUs catch
+// reuse. Returns a new array (does not mutate the input). Quantizes normalized web-mercator coords to
+// 16 bits per axis and interleaves them into a 32-bit code.
+function spatialSort(nodes: SimNode[]): SimNode[] {
+  const MORTON_MAX_LAT = 85.05112878;
+  // Spread the low 16 bits of v across the even bit positions (so two such values OR together interleaved).
+  const part1by1 = (v: number): number => {
+    v &= 0xffff;
+    v = (v | (v << 8)) & 0x00ff00ff;
+    v = (v | (v << 4)) & 0x0f0f0f0f;
+    v = (v | (v << 2)) & 0x33333333;
+    v = (v | (v << 1)) & 0x55555555;
+    return v;
+  };
+  const morton = (n: SimNode): number => {
+    const r = (Math.max(-MORTON_MAX_LAT, Math.min(MORTON_MAX_LAT, n.lat)) * Math.PI) / 180;
+    const x = (n.lon + 180) / 360;
+    const y = (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2;
+    const qx = Math.max(0, Math.min(65535, Math.floor(x * 65535)));
+    const qy = Math.max(0, Math.min(65535, Math.floor(y * 65535)));
+    // >>> 0 keeps the result an unsigned 32-bit int (the high bit set by interleaving would read negative).
+    return ((part1by1(qx) | (part1by1(qy) << 1)) >>> 0);
+  };
+  return nodes
+    .map((n) => ({ n, code: morton(n) }))
+    .sort((a, b) => a.code - b.code)
+    .map((e) => e.n);
+}
+
+// Near-field radius (m): full detail within 1.5 km of each endpoint (where LOS clipping happens at the
+// antenna), coarse base square beyond. The disc stays at full zoom (the resolution that matters for
+// antenna-local obstructions); the radius is the primary accuracy↔speed tunable — tiles scale with
+// radius², so trimming it cuts each node's disc footprint sharply. A short link (< 2×) is all
+// near-field, so full detail end-to-end.
+const NEAR_R_M = 1500;
+// Per-run cache of hi-res endpoint discs, keyed by node id (stores the in-flight promise, so concurrent
+// pairs needing the same node share one fetch). The matrix sweep is spatially ordered (spatialSort), so
+// each node's spatial neighbourhood is processed close in time and a modest LRU now actually catches
+// reuse. Capped because each cached disc holds its full mosaic bytes (a few MB each).
+const DISC_CACHE_MAX = 64;
+// Links in flight (each: fetch ≤2 discs, sample, one worker ITM round-trip). The worker step is cheap, so
+// this mainly bounds concurrent disc tile fetches.
+const LINK_POOL = 6;
+
+// Run `fn` over `items` with at most `concurrency` in flight, preserving result order. Stops pulling new
+// work once `signal` aborts (in-flight calls settle on their own); the caller discards the partial
+// result. Local to the matrix — the only fan-out fetch that needs it.
+async function mapPool<T, R>(
+  items: T[], concurrency: number, signal: AbortSignal, fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      if (signal.aborted) {
+        return;
+      }
+      const idx = next++;
+      results[idx] = await fn(items[idx]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return results;
+}
+
+// One hi-res endpoint disc (full-zoom square ~NEAR_R_M around a node), cached per run by node id. The
+// cache holds the in-flight PROMISE so concurrent pairs needing the same node await a single fetch (the
+// composited-tile cache then dedupes shared tiles between neighbouring discs too).
+function getDisc(cache: Map<string, Promise<Heightmap>>, source: SimSource, node: SimNode): Promise<Heightmap> {
+  const cached = cache.get(node.id);
+  if (cached) {
+    cache.delete(node.id);
+    cache.set(node.id, cached); // LRU bump
+    return cached;
+  }
+  const p = getHeightmap({
+    urlTemplate: source.urlTemplate, overlays: source.overlays, maxzoom: source.maxzoom,
+    lon: node.lon, lat: node.lat, radiusM: NEAR_R_M, mapZoom: source.maxzoom, // mapZoom=maxzoom → full zoom
+  });
+  cache.set(node.id, p);
+  while (cache.size > DISC_CACHE_MAX) {
+    const oldest = cache.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+  return p;
+}
+
+// Compute one link in the worker from its already-sampled profile; resolves when the worker posts back.
+// The heights buffer is transferred (the worker rebuilds the Float64Array over it).
+function computeLinkInWorker(
+  sample: ProfileSample, tx: SimNode, rx: SimNode, shared: SimShared, sensitivity: number,
+): Promise<LinkResult> {
+  const id = ++linkSeq;
+  return new Promise<LinkResult>((resolve) => {
+    matrixLinkHandlers.set(id, resolve);
+    getWorker().postMessage(
+      {
+        type: 'matrix-link', id,
+        sample: {
+          heightsBuffer: sample.heights.buffer,
+          spacingM: sample.spacingM, distanceM: sample.distanceM, terrain: sample.terrain,
+        },
+        tx, rx, shared, sensitivity,
+      },
+      [sample.heights.buffer],
     );
-    return new Promise<LinkResult[]>((resolve, reject) => {
-      matrixHandlers.set(reqId, { onProgress: run.onProgress, resolve, reject });
-      getWorker().postMessage({
-        type: 'matrix', reqId, heightmap: wire(hm),
-        nodes: run.nodes, shared: run.shared, sensitivity: run.sensitivity,
-        quality: run.quality ?? {}, filterHorizon: run.filterHorizon,
-      });
+  });
+}
+
+// 20·log10(4π/c) with distance in km and frequency in MHz — the constant term of free-space path loss.
+const FSPL_KM_MHZ_CONST = 32.44778;
+// The farthest a tx->rx link could possibly close given its budget: FSPL is the FLOOR on path loss
+// (terrain/clutter only ever add to it), so beyond this range margin >= 0 is impossible and the pair is
+// dropped before any terrain fetch. Lossless — it never prunes a link that could actually close. A
+// missing/zero frequency can't be bounded, so it returns Infinity (no prune). Budget mirrors
+// evaluateSample: erp(tx) + rx_gain - sensitivity is the max path loss the link tolerates.
+function maxBudgetRangeKm(tx: SimNode, rx: SimNode, sensitivity: number): number {
+  if (!(tx.frequency_mhz > 0)) {
+    return Infinity;
+  }
+  const maxLossDb = tx.tx_power + tx.tx_gain - tx.system_loss + rx.rx_gain - sensitivity;
+  return 10 ** ((maxLossDb - 20 * Math.log10(tx.frequency_mhz) - FSPL_KM_MHZ_CONST) / 20);
+}
+
+// The viable node pairs for a run, pre-filtered so impossible links never reach the (expensive) terrain
+// fetch: a pair survives only if it's within both the geometric LOS horizon (when the base square is
+// available for ground elevation) AND its link budget's free-space range. The first index is always TX,
+// so both gates use the direction actually computed. With sourceNodeId set, only pairs touching that
+// node, with it as TX (the line-profile direction); otherwise every unordered pair. base=null skips just
+// the horizon gate (the budget gate is always lossless, so it still applies).
+function buildPairs(
+  nodes: SimNode[], sourceNodeId: string | undefined, base: Heightmap | null,
+  sensitivity: number, maxDistanceKm: number,
+): Array<[number, number]> {
+  const ground = base ? nodes.map((n) => groundElevationM(base, n)) : null;
+  // capKm: an extra hard distance gate, only meaningful for the full matrix; Infinity disables it.
+  const feasible = (t: number, r: number, capKm: number): boolean => {
+    const distKm = haversineM(nodes[t].lon, nodes[t].lat, nodes[r].lon, nodes[r].lat) / 1000;
+    if (distKm > capKm) {
+      return false;
+    }
+    if (ground && distKm > radioHorizonKm(ground[t] + nodes[t].height, ground[r] + nodes[r].height)) {
+      return false;
+    }
+    return distKm <= maxBudgetRangeKm(nodes[t], nodes[r], sensitivity);
+  };
+  const pairs: Array<[number, number]> = [];
+  if (sourceNodeId !== undefined) {
+    const s = nodes.findIndex((n) => n.id === sourceNodeId);
+    if (s < 0) {
+      return pairs;
+    }
+    // Per-node: exhaustive within horizon + budget (one node's links are cheap), so no distance cap.
+    for (let j = 0; j < nodes.length; j++) {
+      if (j !== s && feasible(s, j, Infinity)) {
+        pairs.push([s, j]); // s = TX
+      }
+    }
+  } else {
+    const capKm = maxDistanceKm > 0 ? maxDistanceKm : Infinity;
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        if (feasible(i, j, capKm)) {
+          pairs.push([i, j]);
+        }
+      }
+    }
+  }
+  return pairs;
+}
+
+// Run the link matrix as a streaming pipeline: build the viable pair list, then for each pair fetch its
+// two hi-res endpoint discs, sample TX->RX against those + the shared coarse base (full detail near the
+// ends, coarse in the middle), and run ITM — all bounded by LINK_POOL, so links land one-by-one
+// (run.onLink) as their terrain arrives instead of in one bulk fetch. With run.sourceNodeId set it
+// computes only that node's links (the fast interactive path). Returns a cancel handle: cancel() stops
+// launching new pairs and makes the promise reject, so a superseded run is dropped.
+export function runMatrix(run: MatrixRun): { promise: Promise<void>; cancel: () => void } {
+  const ctrl = new AbortController();
+  const discCache = new Map<string, Promise<Heightmap>>();
+  const promise = (async (): Promise<void> => {
+    // Spatially order the sweep once so neighbouring nodes are processed close in time (disc/tile reuse).
+    // Safe: each LinkResult carries its endpoint ids and the store upserts by id, so reordering only
+    // changes the order links stream in, not their identity or values. Per-node mode finds its source by
+    // id within this array.
+    const nodes = spatialSort(run.nodes);
+    // One coarse square covering all nodes: the span middle of every link AND the horizon-filter ground.
+    const region = coveringRegion(run.nodes);
+    const base = await getHeightmap({
+      urlTemplate: run.source.urlTemplate, overlays: run.source.overlays, maxzoom: run.source.maxzoom,
+      lon: region.lon, lat: region.lat, radiusM: region.radiusM, mapZoom: run.source.mapZoom,
     });
+    if (ctrl.signal.aborted) {
+      throw new DOMException('cancelled', 'AbortError');
+    }
+    const pairs = buildPairs(nodes, run.sourceNodeId, run.filterHorizon ? base : null, run.sensitivity, run.maxDistanceKm ?? 0);
+    const total = pairs.length;
+    if (total === 0) {
+      return;
+    }
+    let done = 0;
+    await mapPool(pairs, LINK_POOL, ctrl.signal, async ([i, j]) => {
+      const tx = nodes[i];
+      const rx = nodes[j];
+      let link: LinkResult | null = null;
+      try {
+        const [discA, discB] = await Promise.all([
+          getDisc(discCache, run.source, tx),
+          getDisc(discCache, run.source, rx),
+        ]);
+        if (ctrl.signal.aborted) {
+          return;
+        }
+        const sample = sampleProfileLod(discA, discB, base, tx.lon, tx.lat, rx.lon, rx.lat, NEAR_R_M, run.quality ?? {});
+        link = await computeLinkInWorker(sample, tx, rx, run.shared, run.sensitivity);
+      } catch (err) {
+        // One pair failing (e.g. a disc fetch error) must not abort the whole run.
+        if (!ctrl.signal.aborted) {
+          console.warn(`matrix: link ${tx.id}->${rx.id} failed; skipped`, err);
+        }
+      }
+      if (ctrl.signal.aborted) {
+        return;
+      }
+      done++;
+      if (link) {
+        run.onLink?.(link, done, total);
+      }
+    });
+    // Cancelled mid-run: reject so the store's superseded run is dropped (the new run owns the state).
+    if (ctrl.signal.aborted) {
+      throw new DOMException('cancelled', 'AbortError');
+    }
   })();
   const cancel = (): void => {
-    const h = matrixHandlers.get(reqId);
-    if (h) {
-      matrixHandlers.delete(reqId);
-      h.reject(new DOMException('cancelled', 'AbortError'));
-    }
+    ctrl.abort();
   };
   return { promise, cancel };
 }

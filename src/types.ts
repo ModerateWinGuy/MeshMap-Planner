@@ -44,6 +44,10 @@ export interface NodeGroup {
     // its own `hidden` flag — which is left untouched, so showing the folder restores each node's
     // prior per-node state. See the store's nodeHidden getter for the combined rule.
     hidden?: boolean;
+    // Hex colour ('#rrggbb') applied to this folder's node pins on the map, overriding the default
+    // red. Absent = use the default. Selection still overrides this with the orange highlight. See
+    // layers.stylePinElement and the store's renderNodeMarkers.
+    color?: string;
 }
 export interface SplatParams {
     transmitter: {
@@ -74,6 +78,11 @@ export interface SplatParams {
         time_fraction: number;
         simulation_extent: number;
         filter_radio_horizon: boolean;
+        // Hard cap (km) on link distance for the FULL matrix ("Compute all") only — pairs farther apart
+        // are skipped regardless of horizon/budget. 0 = off (unlimited). Per-node ("L") runs ignore it,
+        // since one node's links are cheap. May be absent on params persisted before it existed
+        // (mergeDefaults is shallow) — read with a default.
+        max_link_distance_km: number;
         // Browser-side sim fidelity preset (terrain-profile sampling detail vs speed). May be absent
         // on params persisted before it existed (mergeDefaults is shallow) — read with a default.
         quality: 'draft' | 'balanced' | 'high' | 'max';
@@ -109,6 +118,10 @@ export interface MatrixResult {
     preset: string | null;
     sensitivity_dbm: number;
     links: LinkResult[];
+    // Node ids for which every pair was actually attempted (full matrix, or that node as the
+    // per-node run's source) — so a missing link for one of these means genuinely out of range,
+    // not simply "never computed".
+    computedSourceIds: string[];
 }
 
 // A profile curve: a list of [distance_km, value_m] samples along the path.

@@ -176,6 +176,15 @@ export async function composeTerrariumTileRGBA(
 // a profile corridor (~192) and a full coverage stack must stay warm at once.
 const TILE_CACHE_MAX = 512;
 const compositeCache = new Map<string, RgbaBytes>();
+// In-flight composites keyed identically to compositeCache: concurrent callers for the same tile join
+// ONE shared composite instead of each re-running fetch+per-pixel composite (happens constantly during
+// a link-matrix run — overlapping endpoint discs share tiles — and between the sim and the meshdem://
+// handler). The shared run is detached from any one caller's signal and self-aborts on a timeout, so a
+// stuck backend tile clears its entry rather than wedging future callers awaiting it forever.
+const inflightComposites = new Map<string, Promise<RgbaBytes | null>>();
+// Mirrors heightmap.ts's TILE_TIMEOUT_MS: a stuck/slow backend tile must self-abort so its inflight
+// entry clears and later callers don't await it forever (a timed-out tile stays null → retryable).
+const COMPOSITE_TIMEOUT_MS = 15000;
 function cacheKey(baseTemplate: string, overlays: OverlaySpec[], z: number, x: number, y: number): string {
   return `${baseTemplate}|${overlays.map((o) => o.urlTemplate).join(',')}|${z}|${x},${y}`;
 }
@@ -216,11 +225,53 @@ export async function composeTerrariumTileRGBACached(
   if (hit) {
     return hit;
   }
-  const rgba = await composeTerrariumTileRGBA(z, x, y, baseTemplate, overlays, signal);
-  if (rgba) {
-    compositeCachePut(key, rgba);
+
+  // Join an existing in-flight composite for this tile, or start the one shared run.
+  let shared = inflightComposites.get(key);
+  if (!shared) {
+    shared = (async (): Promise<RgbaBytes | null> => {
+      // Detached from every caller's signal — other waiters may still need the result — so it runs under
+      // its OWN controller, aborted only by the timeout. A null/timed-out tile is never cached (stays
+      // retryable); the finally clears the inflight entry so nothing can wedge the map forever.
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), COMPOSITE_TIMEOUT_MS);
+      try {
+        const rgba = await composeTerrariumTileRGBA(z, x, y, baseTemplate, overlays, ctrl.signal);
+        if (rgba) {
+          compositeCachePut(key, rgba);
+        }
+        return rgba;
+      } catch {
+        return null;
+      } finally {
+        clearTimeout(timer);
+        inflightComposites.delete(key);
+      }
+    })();
+    inflightComposites.set(key, shared);
   }
-  return rgba;
+
+  // Honour this caller's own signal WITHOUT cancelling the shared work the other waiters depend on.
+  if (!signal) {
+    return shared;
+  }
+  if (signal.aborted) {
+    return null;
+  }
+  return new Promise<RgbaBytes | null>((resolve) => {
+    const onAbort = (): void => resolve(null); // callers treat null as the sea sentinel
+    signal.addEventListener('abort', onAbort);
+    void shared!.then(
+      (v) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(v);
+      },
+      () => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(null);
+      },
+    );
+  });
 }
 
 // Re-encode composited RGBA to a PNG ArrayBuffer for MapLibre to consume as a raster-dem tile.

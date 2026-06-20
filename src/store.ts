@@ -514,6 +514,7 @@ class HotkeyHelpControl implements maplibregl.IControl {
         '<dt>A</dt><dd>Add a node at the cursor</dd>' +
         '<dt>Ctrl + Z</dt><dd>Undo last node move</dd>' +
         '<dt>H</dt><dd>Hide / show selected node</dd>' +
+        '<dt>L</dt><dd>Calulate links for selected node</dd>' +
         '<dt>C</dt><dd>Calculate coverage for selected node</dd>' +
         '</dl>',
       trigger: 'hover focus',
@@ -659,6 +660,7 @@ const useStore = defineStore('store', {
           time_fraction: 95.0,
           simulation_extent: 30.0,
           filter_radio_horizon: true,
+          max_link_distance_km: 0, // off by default; applies to "Compute all" only
           quality: 'balanced',
           overlay_max_texture: 4096
         },
@@ -1118,6 +1120,15 @@ const useStore = defineStore('store', {
         group.name = name;
       }
     },
+    // Set (or clear, with null) the folder's map colour and re-style its pins in place.
+    setGroupColor(id: string, color: string | null) {
+      const group = this.groups.find((g) => g.id === id);
+      if (!group) {
+        return;
+      }
+      group.color = color ?? undefined;
+      this.renderNodeMarkers();
+    },
     // List-only toggle: collapse/expand a folder in the panel. Doesn't touch the map.
     toggleGroupCollapsed(id: string) {
       const group = this.groups.find((g) => g.id === id);
@@ -1239,15 +1250,18 @@ const useStore = defineStore('store', {
         }
       }
       const selectedId = this.selectedNode?.id;
+      // Folder → colour, so each pin can take its folder's colour without a per-node array scan.
+      const groupColors = new Map(this.groups.map((g) => [g.id, g.color]));
       for (const node of this.nodes) {
         if (isHidden(node)) {
           continue; // hidden nodes have no marker — they're excluded from the map and all links
         }
         const lngLat: [number, number] = [node.transmitter.tx_lon, node.transmitter.tx_lat];
         const selected = node.id === selectedId;
+        const color = node.groupId ? groupColors.get(node.groupId) : undefined;
         let marker = this.nodeMarkers[node.id];
         if (!marker) {
-          const el = makePinElement(selected, node.transmitter.name);
+          const el = makePinElement(selected, node.transmitter.name, color);
           // MapLibre's marker drag is bound to the map's mousedown and fires on ANY button, so a
           // right-click meant to rotate the map would instead drag the node. Swallow non-left
           // mousedowns before they bubble to the map container so only left-drag moves a pin.
@@ -1311,7 +1325,7 @@ const useStore = defineStore('store', {
         } else {
           marker.setLngLat(lngLat);
           marker.setDraggable(!this.nodesLocked); // re-render is the only path that toggles the lock
-          stylePinElement(marker.getElement(), selected, node.transmitter.name); // re-style in place; don't churn markers
+          stylePinElement(marker.getElement(), selected, node.transmitter.name, color); // re-style in place; don't churn markers
           marker.getPopup()?.setText(node.transmitter.name);
         }
       }
@@ -1773,6 +1787,10 @@ const useStore = defineStore('store', {
           // MSAA on the default framebuffer: smooths the terrain silhouette and, crucially, gives the
           // 3D link lines anti-aliased edges (LineMaterial.alphaToCoverage relies on multisampling).
           canvasContextAttributes: { antialias: true },
+          // Shift+drag box-zoom is unused here and steals every shift+left-click (even a zero-move
+          // click): on mouseup it unconditionally calls the internal DOM.suppressClick(), which kills
+          // the click event before it reaches a marker's own listener — breaking shift-click pairing.
+          boxZoom: false,
           maxPitch: 85, // unlocks tilt/rotate for reading hill elevation in 3D
           // A top-down view renders identically to flat (see toggleTerrain), so open tilted when 3D
           // is on to make the relief visible.
@@ -1852,29 +1870,38 @@ const useStore = defineStore('store', {
             }
           }
         ),
-        // Re-run the link matrix when anything that changes link viability is edited: the selected
-        // node's radio params + coordinates, the shared environment, and the lora preset. redrawLinks
-        // only re-draws stale margins from the existing matrixResult, so without this an edit (or even
-        // a move) would leave the displayed margins out of date. Mirrors the viewshed watcher: track a
-        // stringified tuple, debounce so a number-field keystroke burst is one run, and gate on
-        // matrixResult so it never auto-computes before the user has run a matrix, and on !dragging so
-        // it fires once on drop rather than per frame mid-drag.
+        // Recompute the SELECTED node's links (the fast per-node path) only when something that changes
+        // their viability is actually EDITED — the node's own radio params + coordinates, or a shared
+        // param (environment, lora preset). Selecting a DIFFERENT node does NOT recompute: its links are
+        // already in the matrix (or the user will compute them), so re-running on every click is wasted
+        // work. We tell the two apart via watch's old/new values: the node id is kept before the '|' in
+        // the key and the editable signature after it, so we fire only when the id is unchanged but the
+        // signature differs. redrawLinks alone can't help (it only re-draws existing margins). Gated on
+        // matrixResult (never auto-compute before the user has) and !dragging (fire once on drop, not per
+        // frame), debounced so a number-field keystroke burst is one run. (A shared-param edit refreshes
+        // only the selected node here; the rest stay until re-computed — the trade for cheap edits at
+        // scale.)
         watch(
           () => {
             const n = this.selectedNode;
             const t = n?.transmitter;
             const r = n?.receiver;
             const env = this.splatParams.environment;
-            return [
-              n?.id, t?.tx_lat, t?.tx_lon, t?.tx_power, t?.tx_gain, t?.tx_freq, t?.tx_height,
+            const sig = [
+              t?.tx_lat, t?.tx_lon, t?.tx_power, t?.tx_gain, t?.tx_freq, t?.tx_height,
               r?.rx_gain, r?.rx_loss,
               this.splatParams.lora?.preset,
               env.radio_climate, env.polarization, env.clutter_height,
               env.ground_dielectric, env.ground_conductivity, env.atmosphere_bending,
             ].join(':');
+            return `${n?.id ?? ''}|${sig}`;
           },
-          () => {
+          (newKey, oldKey) => {
             if (!this.matrixResult || this.dragging) {
+              return;
+            }
+            // Different node selected (id before the '|' changed) with no edit — don't recompute.
+            if (newKey.slice(0, newKey.indexOf('|')) !== oldKey.slice(0, oldKey.indexOf('|'))) {
               return;
             }
             if (matrixRecomputeTimer) {
@@ -1885,7 +1912,7 @@ const useStore = defineStore('store', {
               // Re-check the guards: the debounce window may have outlived the matrix being cleared or a
               // drag starting.
               if (this.matrixResult && !this.dragging) {
-                this.runMatrix();
+                this.runNodeLinks();
               }
             }, 300);
           }
@@ -2842,6 +2869,15 @@ const useStore = defineStore('store', {
           return { maxPoints: 1024 };
       }
     },
+    // Per-path fidelity for the ON-DEMAND single-line sims — the line profile and the per-pair corridor
+    // matrix. Both can afford far more samples than the bulk coverage sweep, so lift the cap well above
+    // the preset's (a long link then follows the DEM's own pixel detail instead of being vertex-limited)
+    // while keeping the preset's spacing, so Draft stays Draft. Sharing this between runMatrix and
+    // runProfile is what makes a link's matrix margin and its profile margin agree.
+    _simPathQuality(): ProfileOptions {
+      const q = this._simQuality();
+      return { ...q, maxPoints: Math.max(q.maxPoints ?? 0, 4096) };
+    },
     // Receiver sensitivity (dBm) from the shared LoRa preset; falls back to LongFast on a bad value.
     _simSensitivity(): number {
       const preset = this.splatParams.lora?.preset ?? 'LongFast';
@@ -2851,27 +2887,10 @@ const useStore = defineStore('store', {
         return receiverSensitivityDbm('LongFast');
       }
     },
-    // Compute the full link matrix in the browser (WASM ITM). The worker streams results pair-by-pair,
-    // so links fill in progressively.
-    async runMatrix() {
-      if (this.nodes.length < 2) {
-        console.warn('Need at least 2 nodes to compute a link matrix.');
-        return;
-      }
-      // Supersede any in-flight matrix so its now-stale results stop arriving.
-      matrixCancel?.();
-      matrixCancel = null;
-
-      this.matrixState = 'running';
-      // Clear the previous matrix so a new run starts from a blank map and fills in as links land.
-      this.matrixResult = null;
-      this.redrawLinks();
-
-      const preset = this.splatParams.lora?.preset ?? 'LongFast';
-      const sensitivity = this._simSensitivity();
-      const sensitivityRounded = Math.round(sensitivity * 100) / 100;
-      const nodeIds = this.nodes.map((n) => n.id);
-      const nodes: SimNode[] = this.nodes.map((n) => ({
+    // The SimNode payload (one per node) the link pipeline consumes (tx_power watts->dBm, the rest passed
+    // straight through). Shared by the full matrix and the per-node path.
+    _linkSimNodes(): SimNode[] {
+      return this.nodes.map((n) => ({
         id: n.id,
         lat: n.transmitter.tx_lat,
         lon: n.transmitter.tx_lon,
@@ -2882,33 +2901,75 @@ const useStore = defineStore('store', {
         frequency_mhz: n.transmitter.tx_freq,
         system_loss: n.receiver.rx_loss,
       }));
+    },
+    // Core link computation (browser WASM ITM), streamed pair-by-pair. With sourceNodeId set, only that
+    // node's links are computed and MERGED into the existing matrix (the fast interactive path); without
+    // it, the full N² matrix is computed fresh. Links land one at a time via onLink (upsert + throttled
+    // redraw) so they populate the map progressively as their terrain arrives.
+    async _runLinks(sourceNodeId?: string) {
+      if (this.nodes.length < 2) {
+        console.warn('Need at least 2 nodes to compute links.');
+        return;
+      }
+      // Supersede any in-flight run (full or per-node) so its now-stale results stop arriving.
+      matrixCancel?.();
+      matrixCancel = null;
 
-      const applyLinks = (links: LinkResult[]) => {
-        this.matrixResult = { nodes: nodeIds, preset, sensitivity_dbm: sensitivityRounded, links };
-        this.redrawLinks();
-      };
+      this.matrixState = 'running';
+      const preset = this.splatParams.lora?.preset ?? 'LongFast';
+      const sensitivity = this._simSensitivity();
+      const sensitivityRounded = Math.round(sensitivity * 100) / 100;
+
+      if (sourceNodeId === undefined || !this.matrixResult) {
+        // Full matrix, or the first per-node run: start from a blank result and fill in as links land.
+        this.matrixResult = { nodes: [], preset, sensitivity_dbm: sensitivityRounded, links: [], computedSourceIds: [] };
+      } else {
+        // Per-node into an existing matrix: keep the other nodes' links; the header reflects this run.
+        this.matrixResult.preset = preset;
+        this.matrixResult.sensitivity_dbm = sensitivityRounded;
+      }
+      this.redrawLinks();
 
       this.progress = { message: 'Fetching terrain…', fraction: 0 };
+      // Throttle the redraw so ~hundreds of upserts don't fire ~hundreds of full link redraws; a final
+      // redraw flushes the tail on completion.
+      let lastDraw = 0;
       const { promise, cancel } = runMatrixWorker({
         source: this._simSource(),
-        nodes,
+        nodes: this._linkSimNodes(),
         shared: this._simShared(),
         sensitivity,
-        quality: this._simQuality(),
+        // Same per-path quality the dedicated profile uses, so a matrix link stays close to its profile.
+        quality: this._simPathQuality(),
         // ?? true: mergeDefaults is shallow, so params stored before this key existed lack it.
         filterHorizon: this.splatParams.simulation.filter_radio_horizon ?? true,
-        onHeightmapProgress: (loaded, total) => {
-          this.progress = { message: `Loading terrain ${loaded}/${total}…`, fraction: total ? 0.5 * (loaded / total) : 0 };
-        },
-        onProgress: (links, done, total) => {
-          applyLinks(links);
-          this.progress = { message: `Analysing link ${done}/${total}…`, fraction: 0.5 + (total ? 0.5 * (done / total) : 0) };
+        sourceNodeId,
+        // Full-matrix-only distance cap; buildPairs ignores it for per-node runs. 0 = off.
+        maxDistanceKm: sourceNodeId === undefined ? (this.splatParams.simulation.max_link_distance_km ?? 0) : 0,
+        onLink: (link, done, total) => {
+          this.upsertMatrixLink(link);
+          this.progress = { message: `Computing links ${done}/${total}…`, fraction: total ? done / total : 0 };
+          const now = performance.now();
+          if (now - lastDraw >= 150) {
+            lastDraw = now;
+            this.redrawLinks();
+          }
         },
       });
       matrixCancel = cancel;
 
       try {
-        applyLinks(await promise);
+        await promise;
+        this.redrawLinks(); // flush the final batch of upserts
+        // Mark which node(s) this run actually attempted every pair for, so a still-missing link is
+        // known to be genuinely out of range rather than just not computed yet (see computedSourceIds).
+        if (this.matrixResult) {
+          if (sourceNodeId === undefined) {
+            this.matrixResult.computedSourceIds = this.nodes.map((n) => n.id);
+          } else if (!this.matrixResult.computedSourceIds.includes(sourceNodeId)) {
+            this.matrixResult.computedSourceIds.push(sourceNodeId);
+          }
+        }
         this.matrixState = 'completed';
         this.progress = null;
       } catch (error) {
@@ -2916,7 +2977,7 @@ const useStore = defineStore('store', {
         if (error instanceof DOMException && error.name === 'AbortError') {
           return;
         }
-        console.error('Matrix error:', error);
+        console.error('Link computation error:', error);
         this.matrixState = 'failed';
         this.progress = null;
       } finally {
@@ -2924,6 +2985,34 @@ const useStore = defineStore('store', {
           matrixCancel = null;
         }
       }
+    },
+    // Compute the FULL link matrix (every pair), replacing any existing result. The "Compute all" button.
+    async runMatrix() {
+      await this._runLinks(undefined);
+    },
+    // Compute only the SELECTED node's links (fast) and merge them into the existing matrix. Drives the
+    // primary LinkMatrix button, the L shortcut, and the on-edit auto-recompute.
+    async runNodeLinks(nodeId?: string) {
+      const id = nodeId ?? this.selectedNode?.id;
+      if (!id) {
+        console.warn('Select a node to compute its links.');
+        return;
+      }
+      await this._runLinks(id);
+    },
+    // Abort an in-flight link run (full or per-node) at the user's request. Whatever links already
+    // landed stay (they're upserted as they arrive); the run is NOT marked computed, so still-missing
+    // pairs read as "not yet calculated" rather than out of range. _runLinks's await rejects with an
+    // AbortError it swallows, so state is settled here instead of there.
+    cancelMatrix() {
+      if (!matrixCancel) {
+        return;
+      }
+      matrixCancel();
+      matrixCancel = null;
+      this.matrixState = this.matrixResult && this.matrixResult.links.length > 0 ? 'completed' : 'idle';
+      this.progress = null;
+      this.redrawLinks(); // flush any links that landed before the abort
     },
     // Run a point-to-point terrain/LOS profile between two nodes and show it in the bottom strip.
     // Called from the Check-LOS control and from the on-map link popup; the from node is the TX,
@@ -2993,11 +3082,9 @@ const useStore = defineStore('store', {
         rx,
         shared,
         sensitivity,
-        // The chart is one on-demand path, so it can afford many more samples than the bulk
-        // matrix/coverage (whose Draft/Balanced/High preset trades samples for speed). Lift the cap so
-        // the line follows the DEM's own pixel detail across longer links instead of being
-        // vertex-limited below the chart's width; keep the preset's spacing so Draft stays Draft.
-        quality: { ...this._simQuality(), maxPoints: Math.max(this._simQuality().maxPoints ?? 0, 4096) },
+        // Shared with the per-pair corridor matrix (_simPathQuality) so this pair's profile margin and
+        // its matrix margin are computed from the same terrain at the same density — they agree.
+        quality: this._simPathQuality(),
         onHeightmapProgress: (loaded, total) => {
           this.progress = { message: `Loading terrain ${loaded}/${total}…`, fraction: total ? 0.8 * (loaded / total) : 0 };
         },
@@ -3028,10 +3115,31 @@ const useStore = defineStore('store', {
         }
       }
     },
+    // Insert or replace one link in matrixResult by its unordered pair — matches LinkMatrix's lookup, so
+    // recomputing a pair updates it in place and the reverse direction never doubles up — and list both
+    // endpoints in matrixResult.nodes. Does NOT redraw: callers own the timing (immediate for a single
+    // profile merge, throttled for the streaming runs). matrixResult must already exist.
+    upsertMatrixLink(link: LinkResult) {
+      if (!this.matrixResult) {
+        return;
+      }
+      const links = this.matrixResult.links;
+      const idx = links.findIndex((l) => (l.a === link.a && l.b === link.b) || (l.a === link.b && l.b === link.a));
+      if (idx >= 0) {
+        links[idx] = link;
+      } else {
+        links.push(link);
+      }
+      for (const id of [link.a, link.b]) {
+        if (!this.matrixResult.nodes.includes(id)) {
+          this.matrixResult.nodes.push(id);
+        }
+      }
+    },
     // Persist the just-computed profile pair as a normal link on the map. A ProfileResult carries every
-    // LinkResult field, so convert it and upsert into matrixResult.links, then reuse redrawLinks (which
-    // also rebuilds the 3D links). The link then renders + is clickable like any matrix link and survives
-    // clearProfile (which only wipes the transient cyan slice), so it stays after the graph is closed.
+    // LinkResult field, so convert it and upsert into matrixResult.links, then redraw (which also rebuilds
+    // the 3D links). The link then renders + is clickable like any matrix link and survives clearProfile
+    // (which only wipes the transient cyan slice), so it stays after the graph is closed.
     mergeProfileLink() {
       const r = this.profileResult;
       const a = this.profileFromId;
@@ -3039,7 +3147,16 @@ const useStore = defineStore('store', {
       if (!r || !a || !b) {
         return;
       }
-      const link: LinkResult = {
+      if (!this.matrixResult) {
+        this.matrixResult = {
+          nodes: [],
+          preset: this.splatParams.lora?.preset ?? null,
+          sensitivity_dbm: r.sensitivity_dbm,
+          links: [],
+          computedSourceIds: [],
+        };
+      }
+      this.upsertMatrixLink({
         a,
         b,
         distance_km: r.distance_km,
@@ -3049,29 +3166,7 @@ const useStore = defineStore('store', {
         margin_db: r.margin_db,
         viable: r.viable,
         error: null,
-      };
-      if (!this.matrixResult) {
-        this.matrixResult = {
-          nodes: [],
-          preset: this.splatParams.lora?.preset ?? null,
-          sensitivity_dbm: r.sensitivity_dbm,
-          links: [],
-        };
-      }
-      // Upsert on the unordered pair (matches LinkMatrix's lookup) so re-profiling updates in place
-      // and we don't draw a duplicate line if the matrix already holds the reverse direction.
-      const links = this.matrixResult.links;
-      const idx = links.findIndex((l) => (l.a === a && l.b === b) || (l.a === b && l.b === a));
-      if (idx >= 0) {
-        links[idx] = link;
-      } else {
-        links.push(link);
-      }
-      for (const id of [a, b]) {
-        if (!this.matrixResult.nodes.includes(id)) {
-          this.matrixResult.nodes.push(id);
-        }
-      }
+      });
       this.redrawLinks();
     },
     redrawProfilePath() {

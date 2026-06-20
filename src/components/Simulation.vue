@@ -71,6 +71,27 @@
                 </div>
             </div>
         </div>
+        <div class="row mt-3">
+            <div class="col-12">
+                <div class="d-flex align-items-center mb-1">
+                    <label for="max_link_distance" class="form-label mb-0">Max link distance (km)</label>
+                    <InfoTip>
+                        Hard cap for “Compute all” only: skip node pairs farther apart than this, even if the
+                        horizon allows them. Useful on dense maps where hilltop nodes have very long horizons.
+                        0 = no limit. Computing a single node's links (L) always checks every node.
+                    </InfoTip>
+                </div>
+                <input
+                    v-model.number="simulation.max_link_distance_km"
+                    type="number"
+                    min="0"
+                    step="5"
+                    class="form-control form-control-sm"
+                    id="max_link_distance"
+                />
+                <div class="form-text">0 = no limit.</div>
+            </div>
+        </div>
     </form>
 </template>
 
@@ -82,4 +103,5 @@ const simulation = store.splatParams.simulation
 // mergeDefaults is shallow, so params persisted before this key existed lack it: backfill the
 // default so the Overlay Resolution select preselects correctly (the store also reads it defensively).
 if (simulation.overlay_max_texture == null) simulation.overlay_max_texture = 4096
+if (simulation.max_link_distance_km == null) simulation.max_link_distance_km = 0
 </script>

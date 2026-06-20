@@ -7,7 +7,7 @@
 // resolution (width×height, a cheap rasterization target) from the ITM budget (≈ az × rangeSteps²/2).
 //
 // Each ray IS the terrain profile, so unlike a per-cell grid this samples no per-path profile and
-// ignores opts.quality. Otherwise the ITM parameter assembly mirrors links.ts evaluate() exactly.
+// ignores opts.quality. Otherwise the ITM parameter assembly mirrors links.ts evaluateSample() exactly.
 // Pure given an ITM module + heightmap (no DOM / no I/O), so it runs unchanged inside the sim Web Worker.
 //
 //   - dbm = (tx_power + tx_gain - system_loss) - path_loss   (SPLAT's ERP-basis received power)
@@ -85,7 +85,7 @@ export function computeCoverage(
     }
 
     // Uniform ground clutter on interior ray points only (the antennas sit on bare ground), matching
-    // links.ts evaluate() and SPLAT's -gc. rayH[0] stays the TX site; each prefix's rx endpoint also
+    // links.ts evaluateSample() and SPLAT's -gc. rayH[0] stays the TX site; each prefix's rx endpoint also
     // getting clutter is a negligible approximation accepted to keep one shared height array per ray.
     if (shared.clutter_height > 0) {
       for (let s = 1; s < rangeSteps; s++) {

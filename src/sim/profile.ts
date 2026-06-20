@@ -173,3 +173,35 @@ export function sampleProfileCorridor(
     (lon, lat) => sampleCorridorHeightAt(c, lon, lat),
   );
 }
+
+// Sample the TX->RX profile for the link MATRIX: full detail near each endpoint — where terrain most
+// often breaks line-of-sight — and coarse in the span middle. Reads the TX/RX hi-res discs within nearR
+// of their node and the coarse base square beyond. Same uniform-spacing buildProfile walk and
+// ProfileSample shape as the corridor sampler (so ITM + Fresnel are unchanged); only the height SOURCE
+// varies with distance from the endpoints. The disc's fine pixel size drives the spacing, so the whole
+// line is sampled densely — the middle just reads the coarse base, smoothly interpolated. Far fewer tiles
+// than a full-zoom corridor on long links while keeping the near-field that dominates the result. (The
+// dedicated line profile still samples the whole line at full zoom; this trades the rarely-decisive
+// mid-span detail for speed.)
+export function sampleProfileLod(
+  discA: Heightmap, discB: Heightmap, base: Heightmap,
+  txLon: number, txLat: number,
+  rxLon: number, rxLat: number,
+  nearR: number,
+  opts: ProfileOptions = {},
+): ProfileSample {
+  const midLat = (txLat + rxLat) / 2;
+  return buildProfile(
+    txLon, txLat, rxLon, rxLat,
+    mosaicMetresPerPixel(discA, midLat), opts,
+    (lon, lat) => {
+      if (haversineM(lon, lat, txLon, txLat) <= nearR) {
+        return sampleHeightAt(discA, lon, lat);
+      }
+      if (haversineM(lon, lat, rxLon, rxLat) <= nearR) {
+        return sampleHeightAt(discB, lon, lat);
+      }
+      return sampleHeightAt(base, lon, lat);
+    },
+  );
+}

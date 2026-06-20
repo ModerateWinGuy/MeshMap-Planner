@@ -2,13 +2,33 @@
     <div>
         <div class="d-flex gap-2 mb-2 align-items-center">
             <button
-                :disabled="store.matrixState === 'running' || store.nodes.length < 2"
-                @click="store.runMatrix"
+                :disabled="store.matrixState === 'running' || store.nodes.length < 2 || !store.selectedNode"
+                @click="store.runNodeLinks()"
                 type="button"
-                class="btn btn-success btn-sm w-100"
+                class="btn btn-success btn-sm flex-grow-1"
+                title="Compute links from the selected node to every other node (fast). Shortcut: L"
             >
                 <span v-if="store.matrixState === 'running'" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                 {{ buttonText }}
+            </button>
+            <button
+                v-if="store.matrixState === 'running'"
+                @click="store.cancelMatrix()"
+                type="button"
+                class="btn btn-outline-danger btn-sm text-nowrap"
+                title="Stop the running link computation (keeps any links already computed)"
+            >
+                Cancel
+            </button>
+            <button
+                v-else
+                :disabled="store.nodes.length < 2"
+                @click="computeAll"
+                type="button"
+                class="btn btn-outline-success btn-sm text-nowrap"
+                title="Compute every node-to-node link (slower on large maps)"
+            >
+                Compute all
             </button>
         </div>
 
@@ -57,8 +77,9 @@
                     </template>
                 </p>
 
-                <!-- Per-node link list: selected node -> every other node. -->
-                <div v-if="store.matrixResult" class="mb-2" style="max-height: 38vh; overflow-y: auto; overflow-x: hidden;">
+                <!-- Per-node link list: selected node -> every other node. Always shown (even before
+                     any run) so the "not yet calculated" prompt below is the entry point to computing. -->
+                <div class="mb-2" style="max-height: 38vh; overflow-y: auto; overflow-x: hidden;">
                     <table class="table table-sm table-dark table-bordered text-center small mb-0 align-middle" style="table-layout: fixed; width: 100%;">
                         <thead>
                             <tr>
@@ -71,7 +92,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="other in otherNodes" :key="other.id">
+                            <tr v-for="other in inRangeNodes" :key="other.id">
                                 <th class="text-truncate text-start">{{ other.transmitter.name }}</th>
                                 <td :style="cellStyle(other.id)">{{ marginText(other.id) }}</td>
                                 <td>{{ fieldText(other.id, 'distance_km', ' km') }}</td>
@@ -89,10 +110,53 @@
                                     </button>
                                 </td>
                             </tr>
+                            <tr v-if="outOfRangeNodes.length">
+                                <td colspan="6" class="p-0">
+                                    <button
+                                        type="button"
+                                        class="btn btn-sm btn-outline-secondary w-100 my-1"
+                                        @click="showOutOfRange = !showOutOfRange"
+                                    >
+                                        {{ showOutOfRange ? 'Hide' : 'Show' }} {{ outOfRangeNodes.length }} node{{ outOfRangeNodes.length === 1 ? '' : 's' }} out of range
+                                    </button>
+                                </td>
+                            </tr>
+                            <tr v-if="uncalculatedNodes.length">
+                                <td colspan="6" class="p-0">
+                                    <button
+                                        type="button"
+                                        class="btn btn-sm btn-outline-warning w-100 my-1"
+                                        :disabled="store.matrixState === 'running'"
+                                        @click="store.runNodeLinks()"
+                                    >
+                                        <span v-if="store.matrixState === 'running'" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                        {{ uncalculatedNodes.length }} node{{ uncalculatedNodes.length === 1 ? '' : 's' }} not yet calculated - compute this node's links
+                                    </button>
+                                </td>
+                            </tr>
+                            <template v-if="showOutOfRange">
+                                <tr v-for="other in outOfRangeNodes" :key="other.id">
+                                    <th class="text-truncate text-start">{{ other.transmitter.name }}</th>
+                                    <td>{{ marginText(other.id) }}</td>
+                                    <td>{{ fieldText(other.id, 'distance_km', ' km') }}</td>
+                                    <td>{{ fieldText(other.id, 'path_loss_db', ' dB') }}</td>
+                                    <td>{{ fieldText(other.id, 'fresnel_pct', '%') }}</td>
+                                    <td>
+                                        <button
+                                            type="button"
+                                            class="btn btn-sm p-0 border-0 bg-transparent lh-1 text-info"
+                                            :disabled="store.profileState === 'running'"
+                                            title="Show line profile"
+                                            @click="store.runProfile(store.selectedNodeId, other.id)"
+                                        >
+                                            <Spline :size="16" />
+                                        </button>
+                                    </td>
+                                </tr>
+                            </template>
                         </tbody>
                     </table>
                 </div>
-                <p v-else class="text-muted small mb-2">Click "Compute Links" for margins, or check a single link below.</p>
 
                 <!-- Check LOS: draw the terrain/LOS profile to one chosen node. Independent of the
                      matrix, so it works before (or instead of) computing every pair. -->
@@ -122,7 +186,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Spline } from '@lucide/vue'
 import { useStore } from '../store.ts'
 import { type LinkResult, type Node } from '../types.ts'
@@ -130,11 +194,33 @@ import InfoTip from './InfoTip.vue'
 
 const store = useStore()
 
+// Out-of-range rows (no computed link, e.g. skipped beyond the radio horizon) are folded away by
+// default so a populated map doesn't bury the viable links under a wall of blank rows.
+const showOutOfRange = ref(false)
+watch(() => store.selectedNodeId, () => { showOutOfRange.value = false })
+
 const buttonText = computed(() => {
     if (store.matrixState === 'running') return 'Computing…'
     if (store.matrixState === 'failed') return 'Retry'
-    return 'Compute Links'
+    return "Calculate node's links"
 })
+
+// Full-matrix work grows ~O(N²); past this many nodes "Compute all" warrants a heads-up (the per-node
+// "L" path stays one click away). Tuned to where a full run starts taking real time / terrain bandwidth.
+const CONFIRM_NODE_COUNT = 75
+function computeAll() {
+    const n = store.nodes.length
+    if (
+        n >= CONFIRM_NODE_COUNT &&
+        !window.confirm(
+            `Computing every link between ${n} nodes can take a while and download a lot of terrain. ` +
+            `For a single node, use “Calculate node's links” (or press L) instead.\n\nCompute the full matrix anyway?`
+        )
+    ) {
+        return
+    }
+    store.runMatrix()
+}
 
 // Every node except the currently selected one — the rows/options of the "from selected node" view.
 // Hidden nodes are dropped so the table matches the map (their links aren't drawn). When "hide invalid
@@ -148,6 +234,25 @@ const otherNodes = computed<Node[]>(() =>
         const link = linkFor(n.id)
         return !link || link.viable
     })
+)
+
+// Whether the selected node has actually had every pair attempted (full matrix, or it was the
+// per-node run's source) — only then does a missing link mean genuinely out of range. Otherwise
+// it just hasn't been calculated yet, and folding it under "out of range" would be misleading.
+const selectedNodeComputed = computed(() => {
+    const sel = store.selectedNodeId
+    return !!sel && !!store.matrixResult?.computedSourceIds.includes(sel)
+})
+
+// Split into rows with a computed link, blank rows that are genuinely out of range, and blank rows
+// that simply haven't been calculated yet (e.g. just-selected a node that's never had its own run,
+// while an older matrix/other node's run is still showing).
+const inRangeNodes = computed<Node[]>(() => otherNodes.value.filter((n) => !!linkFor(n.id)))
+const outOfRangeNodes = computed<Node[]>(() =>
+    selectedNodeComputed.value ? otherNodes.value.filter((n) => !linkFor(n.id)) : []
+)
+const uncalculatedNodes = computed<Node[]>(() =>
+    selectedNodeComputed.value ? [] : otherNodes.value.filter((n) => !linkFor(n.id))
 )
 
 function linkFor(other: string): LinkResult | undefined {

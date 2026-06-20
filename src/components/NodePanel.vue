@@ -68,6 +68,15 @@
                             :label="`Share folder ${group.name}`"
                             :size="15"
                         />
+                        <input
+                            type="color"
+                            class="folder-color-swatch"
+                            :value="group.color ?? DEFAULT_PIN_COLOR"
+                            @click.stop
+                            @input="store.setGroupColor(group.id, ($event.target as HTMLInputElement).value)"
+                            aria-label="Set folder colour"
+                            title="Colour this folder's nodes on the map"
+                        />
                         <button
                             type="button"
                             @click.stop="startRename(group)"
@@ -135,6 +144,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
 import { useStore } from '../store.ts';
+import { DEFAULT_PIN_COLOR } from '../layers.ts';
 import type { NodeGroup } from '../types.ts';
 import { nodeToShared, type SharePayload } from '../utils.ts';
 import NodeRow from './NodeRow.vue';
@@ -292,6 +302,27 @@ function onUngroupedDrop(e: DragEvent) {
 }
 .empty-folder {
     cursor: default;
+}
+/* Strip the native colour input's chrome down to a small round swatch matching the icon buttons. */
+.folder-color-swatch {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 50%;
+    background: none;
+    cursor: pointer;
+}
+.folder-color-swatch::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+.folder-color-swatch::-webkit-color-swatch {
+    border: none;
+    border-radius: 50%;
+}
+.folder-color-swatch::-moz-color-swatch {
+    border: none;
+    border-radius: 50%;
 }
 /* While dragging a node, give the ungrouped list a visible target even when it's empty, so a node
    can be dragged out of a folder. */

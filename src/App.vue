@@ -75,6 +75,7 @@
       <div class="map-col">
         <div id="map" ref="map"></div>
         <MapLoadingBar />
+        <SimLoadingBar />
         <MeasurePanel v-if="store.measureActive" />
         <ProfilePanel v-if="store.profileResult || store.profileState === 'running' || store.profileState === 'failed'" />
       </div>
@@ -117,12 +118,8 @@
                 <span class="button-text">{{ buttonText() }}</span>
               </button>
             </div>
-            <div v-if="store.simulationState === 'running'" class="mt-2">
-              <small class="text-muted d-block mb-1">{{ store.progress?.message || 'Starting…' }}</small>
-              <div class="progress" role="progressbar" aria-label="Simulation progress" style="height: 6px;">
-                <div class="progress-bar progress-bar-striped progress-bar-animated" :style="{ width: progressWidth() }"></div>
-              </div>
-            </div>
+            <!-- Detailed coverage progress now rides the global SimLoadingBar (bottom of the map), so it
+                 stays visible from any tab / the C shortcut; the button spinner above is the in-panel cue. -->
           </div>
 
           <div v-show="store.activeMode === 'viewshed'">
@@ -197,6 +194,7 @@ import PublicMapSync from "./components/PublicMapSync.vue"
 import SharedLinkBanner from "./components/SharedLinkBanner.vue"
 import ProfilePanel from "./components/ProfilePanel.vue"
 import MapLoadingBar from "./components/MapLoadingBar.vue"
+import SimLoadingBar from "./components/SimLoadingBar.vue"
 import MeasurePanel from "./components/MeasurePanel.vue"
 import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical, ScanEye, Share2, Check, FolderInput } from "@lucide/vue"
 import type { Component } from "vue"
@@ -226,12 +224,12 @@ function shareSite() {
 // -> analyse links -> map settings.
 const MODES = [
   { id: 'nodes', label: 'Nodes', icon: RadioTower },
-  { id: 'import', label: 'Import', icon: FolderInput },
   { id: 'coverage', label: 'Coverage', icon: MapIcon },
-  { id: 'viewshed', label: 'Viewshed', icon: ScanEye },
   { id: 'linkfinder', label: 'Link Finder', icon: Link },
+  { id: 'viewshed', label: 'Viewshed', icon: ScanEye },
   { id: 'radio', label: 'Simulation Settings', icon: WifiCog },
   { id: 'settings', label: 'Settings', icon: SlidersVertical },
+  { id: 'import', label: 'Import', icon: FolderInput },
 ] as const satisfies ReadonlyArray<{ id: UiMode; label: string; icon: Component }>
 
 // The map belongs to the app shell, not any one panel — init/destroy here so switching modes (which
@@ -258,12 +256,6 @@ const buttonText = () => {
   } else {
     return 'Run Simulation'
   }
-}
-// Bar width: proportional when we have a fraction, else a full animated bar (the striped animation
-// reads as "working" while we have no estimate).
-const progressWidth = () => {
-  const f = store.progress?.fraction
-  return typeof f === 'number' ? `${Math.round(Math.min(Math.max(f, 0), 1) * 100)}%` : '100%'
 }
 </script>
 
