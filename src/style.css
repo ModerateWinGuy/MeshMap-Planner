@@ -25,8 +25,7 @@ body {
   --accent-red-active: #981f1f;
   --accent-red-rgb: 201, 42, 42;
 
-  /* Brighter orange for the brand mark and the selected node pin, so they stay
-     legible on the near-black navbar and over busy basemaps. */
+  /* Brighter orange for the brand mark, so it stays legible on the near-black navbar. */
   --accent-bright: #fd7e14;
 }
 
