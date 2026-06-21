@@ -209,7 +209,7 @@ function linkPopupHtml(link: LinkResult, aName: string, bName: string): string {
 function pairPopupHtml(aName: string, bName: string): string {
   return `<strong>${escapeHtml(aName)} ↔ ${escapeHtml(bName)}</strong>`
     + `<br><button type="button" class="pair-profile-btn btn btn-sm btn-primary mt-2 w-100">Calculate link &amp; show profile</button>`
-    + `<br><button type="button" class="pair-relay-btn btn btn-sm btn-outline-light mt-2 w-100">Find relay zone</button>`;
+    + `<br><button type="button" class="pair-relay-btn btn btn-sm btn-primary mt-2 w-100">Find relay zone</button>`;
 }
 
 // The active terrain overlays for a given linzOverlay state + surface model. Empty = AWS Terrarium

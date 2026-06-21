@@ -327,11 +327,11 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
     z-index: 2;
     color: #ccc;
 }
-/* Sits just left of the close button, sharing its top-right corner. */
+/* Sits below the close button, sharing its top-right corner. */
 .profile-share {
     position: absolute;
-    top: 4px;
-    right: 34px;
+    top: 28px;
+    right: 6px;
     z-index: 2;
     color: #ccc;
 }
