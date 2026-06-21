@@ -100,6 +100,9 @@ export interface SplatParams {
     };
     lora?: {
         preset: string;
+        spreadingFactor?: number;
+        bandwidthKhz?: number;
+        frequencyMhz?: number;
     };
 }
 export interface LinkResult {

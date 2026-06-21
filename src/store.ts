@@ -26,16 +26,10 @@ import type { SimNode, SimShared } from './sim/links.ts';
 import type { CoverageNode, CoverageOptions } from './sim/coverageTypes.ts';
 import type { RelayParams } from './sim/relay.ts';
 import { colorizeGrid } from './sim/colormap.ts';
-import { receiverSensitivityDbm } from './sim/linkBudget.ts';
+import { receiverSensitivityDbm, MESHTASTIC_PRESETS, DEFAULT_PRESET } from './sim/linkBudget.ts';
 
 const DEFAULT_LAT = -41.257053283864224;
 const DEFAULT_LON = 174.86568331718445;
-
-// Meshtastic LoRa modem presets; must match PRESET_TABLE in sim/linkBudget.ts.
-export const LORA_PRESETS = [
-  'ShortTurbo', 'ShortFast', 'ShortSlow', 'MediumFast',
-  'MediumSlow', 'LongFast', 'LongModerate', 'LongSlow'
-];
 
 // The switchable raster basemaps. Subdomained hosts go in the tiles[] array so MapLibre rotates
 // over them; single-host sources use one entry. Each carries its own attribution for the
@@ -354,13 +348,13 @@ const IMPORTED_FOLDER_NAME = 'Imported';
 // importPublicMapNodes).
 const PUBLIC_MAP_FOLDER_NAME = 'Public MeshCore';
 
-function defaultTransmitter(): SplatParams['transmitter'] {
+function defaultTransmitter(freqOverride?: number): SplatParams['transmitter'] {
   return {
     name: randanimalSync(),
     tx_lat: DEFAULT_LAT,
     tx_lon: DEFAULT_LON,
     tx_power: 0.1,
-    tx_freq: 907.0,
+    tx_freq: freqOverride ?? 907.0,
     tx_height: 2.0,
     tx_gain: 2.0
   };
@@ -653,7 +647,10 @@ const useStore = defineStore('store', {
       // shared / global params (per-node radio lives on the nodes themselves)
       splatParams: useLocalStorage('splatParams', {
         lora: {
-          preset: 'LongFast'
+          preset: DEFAULT_PRESET,
+          spreadingFactor: MESHTASTIC_PRESETS[DEFAULT_PRESET].spreadingFactor,
+          bandwidthKhz: MESHTASTIC_PRESETS[DEFAULT_PRESET].bandwidthKhz,
+          frequencyMhz: undefined as number | undefined
         },
         environment: {
           radio_climate: 'continental_temperate',
@@ -785,7 +782,7 @@ const useStore = defineStore('store', {
       const node: Node = {
         id: crypto.randomUUID(),
         transmitter: {
-          ...(base ? cloneObject(base.transmitter) : defaultTransmitter()),
+          ...(base ? cloneObject(base.transmitter) : defaultTransmitter(this.splatParams.lora?.frequencyMhz)),
           name: randanimalSync(),
           tx_lat: Number(pos.lat.toFixed(6)),
           tx_lon: Number(pos.lng.toFixed(6))
@@ -956,6 +953,17 @@ const useStore = defineStore('store', {
       }
       this.renderNodeMarkers();
       this.redrawLinks();
+    },
+    // Push the active preset's frequency onto every existing node (e.g. after switching MeshCore
+    // region presets). No-op when the active preset has no frequency (Meshtastic, or Custom).
+    applyLoraFrequencyToAllNodes() {
+      const freq = this.splatParams.lora?.frequencyMhz;
+      if (freq == null) {
+        return;
+      }
+      for (const node of this.nodes) {
+        node.transmitter.tx_freq = freq;
+      }
     },
     // Create a folder and return its id so the caller can drop the user straight into renaming it.
     // New folders start empty and expanded; nodes join via moveNodeToGroup / drag-and-drop.
@@ -2914,14 +2922,13 @@ const useStore = defineStore('store', {
       const q = this._simQuality();
       return { ...q, maxPoints: Math.max(q.maxPoints ?? 0, 4096) };
     },
-    // Receiver sensitivity (dBm) from the shared LoRa preset; falls back to LongFast on a bad value.
+    // Receiver sensitivity (dBm) from the shared LoRa SF/BW. Falls back to LongFast's values when
+    // missing — covers localStorage written before these fields existed (useLocalStorage's merge is
+    // shallow, so old `lora: { preset: 'LongFast' }` entries won't get them auto-filled).
     _simSensitivity(): number {
-      const preset = this.splatParams.lora?.preset ?? 'LongFast';
-      try {
-        return receiverSensitivityDbm(preset);
-      } catch {
-        return receiverSensitivityDbm('LongFast');
-      }
+      const sf = this.splatParams.lora?.spreadingFactor ?? MESHTASTIC_PRESETS[DEFAULT_PRESET].spreadingFactor;
+      const bw = this.splatParams.lora?.bandwidthKhz ?? MESHTASTIC_PRESETS[DEFAULT_PRESET].bandwidthKhz;
+      return receiverSensitivityDbm(sf, bw);
     },
     // The SimNode payload (one per node) the link pipeline consumes (tx_power watts->dBm, the rest passed
     // straight through). Shared by the full matrix and the per-node path.
@@ -3466,7 +3473,7 @@ const useStore = defineStore('store', {
       const node: Node = {
         id: crypto.randomUUID(),
         transmitter: {
-          ...(base ? cloneObject(base.transmitter) : defaultTransmitter()),
+          ...(base ? cloneObject(base.transmitter) : defaultTransmitter(this.splatParams.lora?.frequencyMhz)),
           name: name ?? randanimalSync(),
           tx_lat: Number(lat.toFixed(6)),
           tx_lon: Number(lon.toFixed(6))
