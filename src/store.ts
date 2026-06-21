@@ -203,12 +203,13 @@ function linkPopupHtml(link: LinkResult, aName: string, bName: string): string {
     + `<br><button type="button" class="link-profile-btn btn btn-sm btn-primary mt-2 w-100">Show line profile</button>`;
 }
 
-// The popup shown when a second node is shift-clicked: just the pair and a button to compute the
-// link + show its profile (wired to runProfile by showPairPopup). No metrics yet — they don't exist
-// until the link is calculated.
+// The popup shown when a second node is shift-clicked: the pair, a button to compute the link +
+// show its profile, and a button to search for a relay site between them (wired to runProfile /
+// runRelay by showPairPopup). No metrics yet — they don't exist until the link is calculated.
 function pairPopupHtml(aName: string, bName: string): string {
   return `<strong>${escapeHtml(aName)} ↔ ${escapeHtml(bName)}</strong>`
-    + `<br><button type="button" class="pair-profile-btn btn btn-sm btn-primary mt-2 w-100">Calculate link &amp; show profile</button>`;
+    + `<br><button type="button" class="pair-profile-btn btn btn-sm btn-primary mt-2 w-100">Calculate link &amp; show profile</button>`
+    + `<br><button type="button" class="pair-relay-btn btn btn-sm btn-outline-light mt-2 w-100">Find relay zone</button>`;
 }
 
 // The active terrain overlays for a given linzOverlay state + surface model. Empty = AWS Terrarium
@@ -2841,6 +2842,16 @@ const useStore = defineStore('store', {
         const to = this.pairTargetId;
         this.clearPairTarget(); // closes this popup; runProfile draws its own cyan profile path
         this.runProfile(from, to);
+      }, { once: true });
+      const relayBtn = popup.getElement()?.querySelector('.pair-relay-btn');
+      relayBtn?.addEventListener('click', () => {
+        const from = this.selectedNodeId;
+        const to = this.pairTargetId;
+        this.clearPairTarget(); // closes this popup
+        this.relayA = from;
+        this.relayB = to;
+        this.activeMode = 'linkfinder'; // surface the RelayFinder panel showing the run
+        this.runRelay(from!, to!);
       }, { once: true });
       // Dismissing the popup (its X or a click away) cancels the pending pair. Guarded by the ref
       // check so clearPairTarget's own remove() doesn't re-enter.
