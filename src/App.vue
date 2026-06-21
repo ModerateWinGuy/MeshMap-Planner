@@ -28,39 +28,53 @@
           </template>
         </div>
 
-        <!-- Share menu: the selected node (primary), or the whole site. Folders share from their own
-             header in the node list. Right-aligned by the navbar container's space-between. -->
-        <div class="dropdown">
-          <button
-            type="button"
-            class="btn btn-sm btn-outline-light dropdown-toggle d-inline-flex align-items-center gap-1"
-            data-bs-toggle="dropdown"
-            aria-expanded="false"
-            :disabled="!store.nodes.length"
-            :title="shareCopied ? 'Link copied!' : 'Share nodes as a link'"
+        <!-- Right-aligned group (navbar container's space-between): feedback link, then the share menu. -->
+        <div class="d-flex align-items-center gap-2">
+          <a
+            class="btn btn-sm btn-outline-light p-0 border-0 bg-transparent lh-1"
+            href="https://github.com/ModerateWinGuy/MeshMap-Planner/issues"
+            target="_blank"
+            rel="noopener"
+            title="Report an issue or give feedback on GitHub"
+            aria-label="Report an issue or give feedback on GitHub"
           >
-            <component :is="shareCopied ? Check : Share2" :size="16" />
-            {{ shareCopied ? 'Copied!' : 'Share' }}
-          </button>
-          <ul class="dropdown-menu dropdown-menu-end" data-bs-theme="dark">
-            <li>
-              <button
-                type="button"
-                class="dropdown-item d-flex align-items-center gap-2"
-                :disabled="!store.selectedNode"
-                @click="shareSelectedNode"
-              >
-                <RadioTower :size="15" />
-                <span class="text-truncate">Selected node<template v-if="store.selectedNode">: {{ store.selectedNode.transmitter.name }}</template></span>
-              </button>
-            </li>
-            <li><hr class="dropdown-divider" /></li>
-            <li>
-              <button type="button" class="dropdown-item d-flex align-items-center gap-2" @click="shareSite">
-                <MapIcon :size="15" /> Whole site ({{ store.nodes.length }})
-              </button>
-            </li>
-          </ul>
+            <Bug :size="18" />
+          </a>
+
+          <!-- Share menu: the selected node (primary), or the whole site. Folders share from their own
+               header in the node list. -->
+          <div class="dropdown">
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-light dropdown-toggle d-inline-flex align-items-center gap-1"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+              :disabled="!store.nodes.length"
+              :title="shareCopied ? 'Link copied!' : 'Share nodes as a link'"
+            >
+              <component :is="shareCopied ? Check : Share2" :size="16" />
+              {{ shareCopied ? 'Copied!' : 'Share' }}
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" data-bs-theme="dark">
+              <li>
+                <button
+                  type="button"
+                  class="dropdown-item d-flex align-items-center gap-2"
+                  :disabled="!store.selectedNode"
+                  @click="shareSelectedNode"
+                >
+                  <RadioTower :size="15" />
+                  <span class="text-truncate">Selected node<template v-if="store.selectedNode">: {{ store.selectedNode.transmitter.name }}</template></span>
+                </button>
+              </li>
+              <li><hr class="dropdown-divider" /></li>
+              <li>
+                <button type="button" class="dropdown-item d-flex align-items-center gap-2" @click="shareSite">
+                  <MapIcon :size="15" /> Whole site ({{ store.nodes.length }})
+                </button>
+              </li>
+            </ul>
+          </div>
         </div>
       </div>
     </nav>
@@ -196,7 +210,7 @@ import ProfilePanel from "./components/ProfilePanel.vue"
 import MapLoadingBar from "./components/MapLoadingBar.vue"
 import SimLoadingBar from "./components/SimLoadingBar.vue"
 import MeasurePanel from "./components/MeasurePanel.vue"
-import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical, ScanEye, Share2, Check, FolderInput } from "@lucide/vue"
+import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical, ScanEye, Share2, Check, FolderInput, Bug } from "@lucide/vue"
 import type { Component } from "vue"
 
 import { useStore } from './store.ts'
