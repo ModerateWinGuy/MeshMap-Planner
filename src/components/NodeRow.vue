@@ -13,7 +13,12 @@
     >
         <span class="d-flex align-items-center gap-1 text-truncate">
             <GripVertical :size="14" class="grip flex-shrink-0" />
-            <span class="text-truncate" :class="{ 'text-muted fst-italic': effectiveHidden }">{{ node.transmitter.name }}</span>
+            <span
+                class="text-truncate"
+                :class="{ 'text-muted fst-italic': effectiveHidden }"
+                title="Double-click to center map"
+                @dblclick.stop="centerMapOnNode"
+            >{{ node.transmitter.name }}</span>
         </span>
         <span class="d-flex align-items-center gap-2 flex-shrink-0">
             <button
@@ -72,6 +77,13 @@ function onDragOver(e: DragEvent) {
         e.dataTransfer.dropEffect = 'move';
     }
     dropTarget.value = { kind: 'before-node', id: props.node.id };
+}
+
+function centerMapOnNode() {
+    const tx = props.node.transmitter;
+    if (store.map && !isNaN(tx.tx_lat) && !isNaN(tx.tx_lon)) {
+        store.map.flyTo({ center: [tx.tx_lon, tx.tx_lat] }); // [lng, lat]; keeps current zoom
+    }
 }
 
 function onDrop(e: DragEvent) {
