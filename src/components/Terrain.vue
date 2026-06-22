@@ -14,46 +14,7 @@
 
     <div class="row mt-3">
       <div class="col-12">
-        <div class="form-check form-switch">
-          <input
-            class="form-check-input"
-            type="checkbox"
-            role="switch"
-            id="linz_overlay_enabled"
-            :checked="store.linzOverlay"
-            @change="store.toggleLinzOverlay()"
-          />
-          <label class="form-check-label" for="linz_overlay_enabled">High-detail NZ terrain (LINZ)</label>
-          <InfoTip>
-            Layers LINZ LIDAR elevation over the AWS Terrarium baseline wherever LINZ has it -
-            for areas where Terrarium is lacking detail. The baseline still fills the rest of New Zealand and the
-            world, so this only adds detail, never removes coverage. Feeds the 3D terrain, hillshade, and
-            the line-of-sight / coverage sims. NZ only; elevation © LINZ, CC&#8209;BY&nbsp;4.0.
-          </InfoTip>
-        </div>
-      </div>
-    </div>
-
-    <div class="row mt-2" v-if="store.linzOverlay">
-      <div class="col-12">
-        <div class="d-flex align-items-center mb-1">
-          <label class="form-label mb-0" for="linz_model">Surface model</label>
-          <InfoTip>
-            <strong>DEM</strong> is bare earth (ground only). <strong>DSM</strong> is the surface,
-            including buildings, vegetation and other objects — usually the better choice for
-            line-of-sight, since it models obstructions. Both are LINZ 1&nbsp;m LIDAR; areas without LINZ
-            data fall back to the AWS baseline either way.
-          </InfoTip>
-        </div>
-        <select
-          class="form-select form-select-sm"
-          id="linz_model"
-          :value="store.linzModel"
-          @change="store.setLinzModel(($event.target as HTMLSelectElement).value as 'dem' | 'dsm')"
-        >
-          <option value="dem">DEM — bare earth</option>
-          <option value="dsm">DSM — surface (buildings, trees)</option>
-        </select>
+        <DemProviders />
       </div>
     </div>
 
@@ -194,5 +155,6 @@
 <script setup lang="ts">
 import { useStore } from '../store.ts'
 import InfoTip from './InfoTip.vue'
+import DemProviders from './DemProviders.vue'
 const store = useStore()
 </script>
