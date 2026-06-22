@@ -11,6 +11,15 @@
         <button type="button" class="btn btn-sm p-0 border-0 bg-transparent lh-1 profile-close" aria-label="Close profile" title="Close" @click="store.clearProfile()">
             <X :size="20" />
         </button>
+        <button
+            type="button"
+            class="btn btn-sm p-0 border-0 bg-transparent lh-1 profile-refresh"
+            aria-label="Recalculate link profile"
+            title="Recalculate (after changing a node setting)"
+            @click="store.runProfile(store.profileFromId, store.profileToId)"
+        >
+            <RefreshCw :size="18" />
+        </button>
 
         <!-- Running / failed states replace the chart. -->
         <div v-if="store.profileState === 'running'" class="profile-status">
@@ -88,7 +97,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { X } from '@lucide/vue'
+import { X, RefreshCw } from '@lucide/vue'
 import { useStore } from '../store.ts'
 import { interpGreatCircle } from '../sim/profile.ts'
 import { nodeToShared, type SharePayload } from '../utils.ts'
@@ -331,6 +340,14 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
 .profile-share {
     position: absolute;
     top: 28px;
+    right: 6px;
+    z-index: 2;
+    color: #ccc;
+}
+/* Sits below the share button, same top-right stack. */
+.profile-refresh {
+    position: absolute;
+    top: 52px;
     right: 6px;
     z-index: 2;
     color: #ccc;
