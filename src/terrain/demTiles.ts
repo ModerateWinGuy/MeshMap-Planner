@@ -1,29 +1,34 @@
 // Browser-only DEM tile compositor. The app's terrain (3D mesh, hillshade) AND the client-side RF
-// sim/viewshed all read ONE raster-dem surface; this module produces it. The global baseline is AWS
-// Terrarium (free, whole-world, no key, Terrarium-encoded). On top of it we can layer higher-detail
-// overlays *where they have data* — first overlay is LINZ Basemaps elevation (NZ 1 m LIDAR DEM), which
-// is Mapbox-encoded and marks out-of-coverage pixels as transparent. The composite is normalised to
-// Terrarium encoding so every downstream decoder (the GPU viewshed shader, profile.ts) is unchanged.
+// sim/viewshed all read ONE raster-dem surface; this module produces it. The global baseline is
+// Mapterhorn (free, whole-world, no key, Terrarium-encoded). On top of it we can layer any number of
+// higher-detail overlay providers *where they have data* — built-in (LINZ Basemaps elevation, NZ 1 m
+// LIDAR) or user-added in Settings. Each overlay marks out-of-coverage pixels as transparent (alpha 0)
+// or is treated as no-data if it 404s; the composite is normalised to Terrarium encoding so every
+// downstream decoder (the GPU viewshed shader, profile.ts) is unchanged regardless of how many or which
+// overlays are active.
 //
 // Two consumers share the surface, both through `composeTerrariumTileRGBACached`:
 //   - the map, via `registerDemProtocol` (MapLibre addProtocol → re-encodes the RGBA to a PNG); and
 //   - the sim/viewshed, via heightmap.ts (writes the RGBA straight into its mosaic, no PNG round-trip).
-// They fetch the same underlying AWS/LINZ URLs (so the browser HTTP cache is shared) AND go through the
-// same composited-tile cache here — so a sim run leaves the map's 3D terrain warm, and a map pan warms
-// the sim, with neither side redoing the other's per-pixel composite.
+// They fetch the same underlying Mapterhorn/LINZ URLs (so the browser HTTP cache is shared) AND go
+// through the same composited-tile cache here — so a sim run leaves the map's 3D terrain warm, and a
+// map pan warms the sim, with neither side redoing the other's per-pixel composite.
 
-// AWS Terrarium — the global bare-earth baseline. Already carries LINZ 8 m DEM over NZ + 30 m SRTM
-// elsewhere. This is also the exact URL the map uses directly when the overlay is OFF, so toggling the
-// overlay reuses these tiles warm from the HTTP cache.
-export const AWS_TERRARIUM_TEMPLATE =
-  'https://elevation-tiles-prod.s3.amazonaws.com/v2/terrarium/{z}/{x}/{y}.png';
+// Mapterhorn — the global bare-earth baseline (https://mapterhorn.com/). Combines Copernicus GLO-30
+// worldwide with higher-resolution national LiDAR baked in (including NZ 1 m), kept current by upstream
+// rebuilds — unlike the AWS Terrarium mirror this replaces, which hasn't been updated in years. Served
+// as 512 px webp; fetchTileRGBA resamples it (nearest-neighbour, never blended — see there) onto this
+// module's 256 px compositing grid, so every downstream consumer is unchanged. This is also the exact
+// URL the map uses directly when the overlay is OFF, so toggling the overlay reuses these tiles warm
+// from the HTTP cache.
+export const MAPTERHORN_TEMPLATE = 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp';
 
 // LINZ Basemaps national 1 m LIDAR elevation, rendered live to Mapbox terrain-RGB PNGs.
 // `pipeline=terrain-rgb` selects the Mapbox encoding; out-of-coverage pixels come back transparent
-// (alpha 0), which is how we detect where to fall through to the AWS baseline. Two tilesets:
+// (alpha 0), which is how we detect where to fall through to the Mapterhorn baseline. Two tilesets:
 // `elevation` = DEM (bare earth) and `elevation-dsm` = DSM (surface — buildings, vegetation). Needs a
 // free, non-expiring LINZ Developer API key (email basemaps@linz.govt.nz) in VITE_LINZ_API_KEY — public by
-// design. Empty key just means LINZ fetches fail and the overlay degrades to the AWS baseline.
+// design. Empty key just means LINZ fetches fail and the overlay degrades to the Mapterhorn baseline.
 const VITE_LINZ_API_KEY = import.meta.env.VITE_LINZ_API_KEY ?? '';
 function linzTemplate(tileset: string): string {
   return `https://basemaps.linz.govt.nz/v1/tiles/${tileset}/WebMercatorQuad/{z}/{x}/{y}.png?pipeline=terrain-rgb&api=${VITE_LINZ_API_KEY}`;
@@ -31,29 +36,49 @@ function linzTemplate(tileset: string): string {
 export const LINZ_DEM_TEMPLATE = linzTemplate('elevation');
 export const LINZ_DSM_TEMPLATE = linzTemplate('elevation-dsm');
 
-// Capped at z14 (~7 m/px at NZ latitude, ≈ AWS's 8 m NZ data) on purpose: the win here is COMPLETENESS
-// (Terrarium renders real hills flat), not resolution. z14 is the cheapest deepest level that still
-// fixes the flatness; z15+ views overzoom the z14 composite (the LINZ correction still shows). It also
-// bounds the per-tile decode/composite/re-encode cost. AWS NZ data is only 8 m, so no real detail is
-// lost by not fetching z15.
-export const DEM_MAXZOOM = 14;
+// Capped at z15 (~4 m/px at NZ latitude) on purpose: the win here is COMPLETENESS (Terrarium renders
+// real hills flat), not resolution. z15 is the cheapest deepest level that still fixes the flatness;
+// z16+ views overzoom the z15 composite (the LINZ correction still shows). It also bounds the per-tile
+// decode/composite/re-encode cost — any finer native detail in the baseline (Mapterhorn bakes in 1 m
+// LiDAR over many regions, including NZ) is decimated away by this cap before it ever reaches a tile.
+export const DEM_MAXZOOM = 15;
 
 // Custom MapLibre protocol scheme for the composited terrain source (used only when an overlay is on).
 export const DEM_SCHEME = 'meshdem';
 
-// A terrain source/overlay and how its PNG bytes decode to metres. LINZ is 'mapbox'; the AWS baseline
-// is 'terrarium' (kept as-is, never re-encoded). A future overlay just needs its template + encoding.
+// A terrain source/overlay and how its PNG bytes decode to metres. LINZ is 'mapbox'; the Mapterhorn
+// baseline is 'terrarium' (kept as-is, never re-encoded). A future overlay just needs its template + encoding.
 export interface OverlaySpec {
   urlTemplate: string; // a {z}/{x}/{y} template
   encoding: 'mapbox' | 'terrarium';
 }
 
-// Which LINZ surface model the overlay draws: bare-earth DEM or surface DSM (buildings/vegetation).
-export type LinzModel = 'dem' | 'dsm';
+// One DEM/DSM overlay provider, built-in or user-added — the store's persisted, UI-facing shape.
+// `enabledOverlaySpecs` strips it down to the OverlaySpec the compositor actually needs.
+export interface DemProvider {
+  id: string;
+  name: string;
+  urlTemplate: string; // a {z}/{x}/{y} template; any API key is embedded in it by whoever added it
+  encoding: 'mapbox' | 'terrarium';
+  enabled: boolean;
+  builtin?: boolean; // true for LINZ rows: not editable/deletable in the UI, only toggleable
+}
 
-// The LINZ overlay spec for a surface model. Mapbox-encoded; the compositor normalises it to Terrarium.
-export function linzOverlaySpec(model: LinzModel): OverlaySpec {
-  return { urlTemplate: model === 'dsm' ? LINZ_DSM_TEMPLATE : LINZ_DEM_TEMPLATE, encoding: 'mapbox' };
+// Enabled providers, in list order, as the OverlaySpec[] the compositor already accepts. Composited
+// top-down (see composeTerrariumTileRGBA), so later entries win where they overlap.
+export function enabledOverlaySpecs(providers: DemProvider[]): OverlaySpec[] {
+  return providers.filter((p) => p.enabled).map((p) => ({ urlTemplate: p.urlTemplate, encoding: p.encoding }));
+}
+
+// The built-in LINZ rows. Always re-evaluated (never frozen into the store's persisted list) so a
+// future API key rotation or template fix here takes effect immediately for existing users. To add
+// another region's provider permanently for everyone, add an entry here and open a PR rather than
+// asking users to add it themselves.
+export function builtinDemProviders(): DemProvider[] {
+  return [
+    { id: 'builtin-linz-dem', name: 'LINZ DEM — bare earth (NZ)', urlTemplate: LINZ_DEM_TEMPLATE, encoding: 'mapbox', enabled: false, builtin: true },
+    { id: 'builtin-linz-dsm', name: 'LINZ DSM — surface, incl. buildings (NZ)', urlTemplate: LINZ_DSM_TEMPLATE, encoding: 'mapbox', enabled: false, builtin: true },
+  ];
 }
 
 const TILE = 256;
@@ -88,9 +113,15 @@ function encodeTerrarium(h: number, out: Uint8ClampedArray, i: number): void {
   out[i + 3] = 255;
 }
 
-// Fetch one tile and return its raw RGBA bytes (256×256×4), or null on 404 / network error / abort.
-// colorSpaceConversion:'none' + premultiplyAlpha:'none' keep the elevation-encoded bytes (and LINZ's
-// nodata alpha) byte-exact — no gamma/ICC shift, no alpha pre-multiply zeroing the RGB.
+// Fetch one tile and return its raw RGBA bytes resampled onto the TILE×TILE compositing grid, or null
+// on 404 / network error / abort. colorSpaceConversion:'none' + premultiplyAlpha:'none' keep the
+// elevation-encoded bytes (and LINZ's nodata alpha) byte-exact — no gamma/ICC shift, no alpha
+// pre-multiply zeroing the RGB. A source whose native size isn't TILE (Mapterhorn serves 512 px webp)
+// is nearest-neighbour resampled to fit: imageSmoothingEnabled is OFF because the RGB channels are
+// packed height bits, not colour — any blending across a pixel boundary (bilinear/etc.) would average
+// raw bytes instead of metres, which is wrong everywhere and can swing wildly right at a channel carry
+// (e.g. g 255→0, r+1). Nearest-neighbour just picks one source texel per output pixel, so every kept
+// value stays an exact, valid decode — it only ever subsamples, never corrupts.
 async function fetchTileRGBA(url: string, signal?: AbortSignal): Promise<RgbaBytes | null> {
   let res: Response;
   try {
@@ -106,7 +137,8 @@ async function fetchTileRGBA(url: string, signal?: AbortSignal): Promise<RgbaByt
     });
     const cv = new OffscreenCanvas(TILE, TILE);
     const cx = cv.getContext('2d', { willReadFrequently: true })!;
-    cx.drawImage(bmp, 0, 0);
+    cx.imageSmoothingEnabled = false;
+    cx.drawImage(bmp, 0, 0, TILE, TILE);
     bmp.close();
     // getImageData's buffer is a full TILE×TILE×4 ArrayBuffer at offset 0; re-view it as ArrayBuffer.
     return new Uint8ClampedArray(cx.getImageData(0, 0, TILE, TILE).data.buffer as ArrayBuffer);
@@ -119,7 +151,7 @@ function tileUrl(tpl: string, z: number, x: number, y: number): string {
   return tpl.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y));
 }
 
-// Compose one tile: AWS Terrarium baseline, with each overlay (top-down) overwriting the pixels where
+// Compose one tile: Mapterhorn baseline, with each overlay (top-down) overwriting the pixels where
 // it has valid data, re-encoded to Terrarium. Returns 256×256×4 Terrarium RGBA, or null if nothing
 // could be fetched (caller keeps its sea sentinel). An overlay marks no-data as transparent (alpha 0,
 // per LINZ), so alpha is the coverage mask.
@@ -148,7 +180,7 @@ export async function composeTerrariumTileRGBA(
       const r = tile[i];
       const g = tile[i + 1];
       const b = tile[i + 2];
-      // No overlay data here → keep what's below (the AWS baseline). LINZ marks out-of-coverage as
+      // No overlay data here → keep what's below (the Mapterhorn baseline). LINZ marks out-of-coverage as
       // transparent (alpha 0); we also defensively treat the terrain-rgb "background" cyan (1,134,160),
       // which is exactly 0 m, as no-data so an opaque-backed gap can't overwrite the baseline with sea.
       // (A genuine 0.0 m pixel is sea level too, so falling through to the baseline there is harmless.)
@@ -166,12 +198,11 @@ export async function composeTerrariumTileRGBA(
 // meshdem:// protocol handler AND the sim's heightmap fetches (heightmap.ts). The win is twofold —
 // neither side re-does the expensive fetch+decode+per-pixel composite the other already did, and a sim
 // run leaves the map's 3D terrain warm (the handler reuses what the sim composited, and vice versa).
-// Keyed by base template + overlay templates + z/x/y, so DEM (.../elevation/...), DSM
-// (.../elevation-dsm/...) and overlay-off (empty overlay segment) never collide — a model switch is a
-// clean miss, never a wrong-surface hit. The browser HTTP cache only saves the network round-trip; the
-// recomposite is what this avoids.
+// Keyed by base template + every active overlay's template + z/x/y, so any change to which overlays
+// are enabled (or their URLs) is a clean cache miss, never a wrong-surface hit. The browser HTTP cache
+// only saves the network round-trip; the recomposite is what this avoids.
 // Sized to hold a full coverage LOD stack (~384 tiles, fetched finest-first) plus a map viewport
-// without evicting the inner z14 ring the 3D view shows zoomed to the TX. ~128 MB at 256×256×4 B/tile;
+// without evicting the inner z15 ring the 3D view shows zoomed to the TX. ~128 MB at 256×256×4 B/tile;
 // drop no lower than ~450 (inner-ring eviction during a max-radius coverage), raise toward 768 only if
 // a profile corridor (~192) and a full coverage stack must stay warm at once.
 const TILE_CACHE_MAX = 512;
@@ -283,29 +314,78 @@ async function rgbaToPng(rgba: RgbaBytes): Promise<ArrayBuffer> {
   return blob.arrayBuffer();
 }
 
-const TILE_RE = new RegExp(`^${DEM_SCHEME}://(dem|dsm)/(\\d+)/(\\d+)/(\\d+)`);
+const TILE_RE = new RegExp(`^${DEM_SCHEME}://(\\d+)/(\\d+)/(\\d+)`);
 
-// Register the `meshdem://{model}/{z}/{x}/{y}` protocol (model = dem|dsm). The model lives in the URL,
-// not a closure, so the handler is stateless AND switching DEM↔DSM changes the tile URLs — setTiles
-// then reloads the source cleanly instead of serving stale cached tiles. Each tile is the LINZ model
-// composited over the AWS baseline, re-encoded to a Terrarium PNG. (The overlay-OFF map points the
-// source straight at the AWS URL, so this protocol only runs with the overlay on.)
+// Register the `meshdem://{z}/{x}/{y}` protocol. Stateless except for `getOverlays`, which is called
+// fresh on every tile request — not snapshotted — so a provider add/edit/delete/toggle is reflected on
+// the next fetch without re-registering the protocol. Each tile is every currently-enabled overlay
+// composited over the Mapterhorn baseline, re-encoded to a Terrarium PNG. (The no-overlay map state
+// points the source straight at the Mapterhorn URL, so this protocol only runs with at least one
+// overlay on.)
 export function registerDemProtocol(
   maplibregl: { addProtocol: (scheme: string, fn: AddProtocolFn) => void },
+  getOverlays: () => OverlaySpec[],
 ): void {
   maplibregl.addProtocol(DEM_SCHEME, async (params, abortController) => {
     const m = TILE_RE.exec(params.url);
     if (!m) throw new Error(`bad ${DEM_SCHEME} url: ${params.url}`);
-    const model = m[1] as LinzModel;
-    const z = +m[2];
-    const x = +m[3];
-    const y = +m[4];
+    const z = +m[1];
+    const x = +m[2];
+    const y = +m[3];
     const rgba = await composeTerrariumTileRGBACached(
-      z, x, y, AWS_TERRARIUM_TEMPLATE, [linzOverlaySpec(model)], abortController.signal,
+      z, x, y, MAPTERHORN_TEMPLATE, getOverlays(), abortController.signal,
     );
     if (!rgba) throw new Error(`no terrain data for ${z}/${x}/${y}`);
     return { data: await rgbaToPng(rgba) };
   });
+}
+
+// ── Provider testing ────────────────────────────────────────────────────────────────────────────────
+// Lets the settings UI fetch one real tile from a provider's URL before saving it, catching a bad
+// URL/key/CORS/encoding early instead of only finding out once it's composited into the live terrain.
+export interface ProviderTestResult {
+  ok: boolean;
+  message: string;
+}
+
+function lonLatToTileXY(lon: number, lat: number, z: number): { x: number; y: number } {
+  const n = 2 ** z;
+  const x = Math.floor(((lon + 180) / 360) * n);
+  const latRad = (lat * Math.PI) / 180;
+  const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n);
+  return { x: ((x % n) + n) % n, y: Math.max(0, Math.min(n - 1, y)) };
+}
+
+// Fetches the tile covering (lon, lat) — the map's current centre, passed in by the caller — at the
+// shared DEM_MAXZOOM, and sanity-checks its centre pixel decodes to a plausible elevation.
+export async function testProviderTile(
+  urlTemplate: string,
+  encoding: 'mapbox' | 'terrarium',
+  lon: number,
+  lat: number,
+): Promise<ProviderTestResult> {
+  if (!urlTemplate.includes('{z}') || !urlTemplate.includes('{x}') || !urlTemplate.includes('{y}')) {
+    return { ok: false, message: 'URL must contain {z}, {x} and {y}.' };
+  }
+  const { x, y } = lonLatToTileXY(lon, lat, DEM_MAXZOOM);
+  const tile = await fetchTileRGBA(tileUrl(urlTemplate, DEM_MAXZOOM, x, y));
+  if (!tile) {
+    return { ok: false, message: 'Fetch failed — check the URL, CORS, or API key.' };
+  }
+  const i = (128 * TILE + 128) * 4;
+  if (tile[i + 3] < 128) {
+    return {
+      ok: false,
+      message: 'Fetched, but the centre pixel is marked no-data here — try testing over an area this provider covers (pan the map first).',
+    };
+  }
+  const h = encoding === 'mapbox'
+    ? decodeMapbox(tile[i], tile[i + 1], tile[i + 2])
+    : decodeTerrarium(tile[i], tile[i + 1], tile[i + 2]);
+  if (!Number.isFinite(h) || h < -500 || h > 9000) {
+    return { ok: false, message: `Decoded an implausible elevation (${h.toFixed(0)} m) — double check the encoding setting.` };
+  }
+  return { ok: true, message: `Looks good — ${h.toFixed(0)} m at the map centre.` };
 }
 
 // MapLibre v5's AddProtocolAction shape, kept local so this module doesn't import maplibre types.

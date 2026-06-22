@@ -12,7 +12,7 @@ MeshMap Planner is a **static, browser-only single-page app** — there is no ba
 
 A hosted instance is published from `main` to GitHub Pages at **https://moderatewinguy.github.io/MeshMap-Planner/**. To run or modify your own copy, see [Building](#building) below.
 
-The terrain elevation tiles are streamed directly from AWS Open Data (https://registry.opendata.aws/terrain-tiles/), based on the NASA SRTM (Shuttle Radar Topography) dataset (https://www.earthdata.nasa.gov/data/instruments/srtm), with LINZ 8 m LiDAR baked in over New Zealand.
+The terrain elevation tiles are streamed directly from Mapterhorn (https://mapterhorn.com/), a global terrain dataset built on the Copernicus GLO-30 DEM with higher-resolution national LiDAR baked in over many regions, including New Zealand.
 
 ## Usage
 
@@ -30,7 +30,7 @@ Multiple radio sites can be added to the simulation by repeating these steps. Fo
 
 This tool runs a physics simulation that depends on several assumptions. The most important ones are:
 
-1. The terrain model is accurate to its source resolution — roughly 8 m over New Zealand (LINZ LiDAR, via the AWS terrain tiles) and ~30 m elsewhere (SRTM).
+1. The terrain model is accurate to its source resolution, capped at the app's own terrain zoom ceiling — roughly 7-8 m over New Zealand (LINZ LiDAR) and ~30 m elsewhere (Copernicus GLO-30).
 2. There are no obstructions besides terrain that attenuate radio signals — trees, buildings, and transient effects like precipitation are not modeled directly (they can be approximated with the clutter-height parameter).
 3. Antennas are isotropic in the horizontal plane (we do not account for directional antennas).
 4. Reflections from the upper atmosphere (skywave propagation) are negligible. This is less accurate when the signal frequency is low (less than approximately 50 MHz).
@@ -39,7 +39,7 @@ A detailed description of the model parameters and their recommended values is i
 
 ## Building
 
-There is no backend: the RF model is compiled to WebAssembly and runs in the browser, and terrain streams directly from AWS Open Data. Building produces a static bundle you can host anywhere.
+There is no backend: the RF model is compiled to WebAssembly and runs in the browser, and terrain streams directly from Mapterhorn. Building produces a static bundle you can host anywhere.
 
 Requirements:
 
