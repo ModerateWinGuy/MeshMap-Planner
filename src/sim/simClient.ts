@@ -17,7 +17,7 @@ import type { WireHeightmap, WireLodHeightmap } from './worker.ts';
 
 // The active terrain tile source, resolved by the store from the map's zoom + overlay state.
 export interface SimSource {
-  urlTemplate: string; // the AWS Terrarium baseline {z}/{x}/{y} template (composited from, not meshdem://)
+  urlTemplate: string; // the Mapterhorn baseline {z}/{x}/{y} template (composited from, not meshdem://)
   overlays: OverlaySpec[]; // higher-detail overlays composited over the baseline (LINZ when on; [] = off)
   maxzoom: number; // served cap for this source
   mapZoom: number; // the map's current zoom (tiles fetched here match what the map shows)

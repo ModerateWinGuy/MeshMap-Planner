@@ -3,7 +3,7 @@
         <div class="d-flex align-items-center mb-2">
             <span class="fw-medium">Terrain providers</span>
             <InfoTip>
-                Higher-detail elevation layered over the AWS Terrarium baseline wherever a provider has
+                Higher-detail elevation layered over the Mapterhorn baseline wherever a provider has
                 data — the baseline still fills the rest of the world, so enabling one only adds detail,
                 never removes coverage. Feeds the 3D terrain, hillshade, and the line-of-sight / coverage
                 sims. Where two providers overlap, the one lower in this list wins. <strong>LINZ</strong>

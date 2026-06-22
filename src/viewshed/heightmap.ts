@@ -1,6 +1,6 @@
 // Builds the elevation heightmap the WebGPU viewshed marches over (see ./gpu.ts) from the SAME surface
 // the map's `terrain-dem` source draws — so the line-of-sight result always matches whatever is draped
-// in the viewport. The store hands us the AWS Terrarium baseline template + the active overlays (LINZ
+// in the viewport. The store hands us the Mapterhorn baseline template + the active overlays (LINZ
 // when on) + the served maxzoom; we pick a zoom for the requested radius and, per covering XYZ tile,
 // call composeTerrariumTileRGBA (demTiles.ts) — which fetches the baseline, overlays the higher-detail
 // sources per pixel, and returns Terrarium-encoded RGBA — then blit that into one web-mercator-aligned
@@ -37,7 +37,7 @@ const TILE = 256;
 const MAX_TILES = 64;
 const FETCH_CONCURRENCY = 8;
 // Per-tile fetch cap. A cold LINZ DEM/DSM tile is a live COG warp on the backend and can take a few
-// seconds; the AWS Terrarium CDN (srtm) is fast. Without a cap, one slow/stuck backend tile leaves
+// seconds; the Mapterhorn CDN is fast. Without a cap, one slow/stuck backend tile leaves
 // the whole compute pending forever — which freezes the viewshed (it holds viewshedComputing open),
 // so it silently stops updating after switching to a LINZ source. A timed-out tile falls back to the
 // sea sentinel; the next run (tiles now warm in the backend/browser cache) fills it in.
@@ -84,7 +84,7 @@ export interface HeightmapProgress {
 }
 
 export interface HeightmapRequest {
-  urlTemplate: string; // the AWS Terrarium baseline {z}/{x}/{y} template (composited from, not meshdem://)
+  urlTemplate: string; // the Mapterhorn baseline {z}/{x}/{y} template (composited from, not meshdem://)
   overlays: OverlaySpec[]; // higher-detail overlays composited over the baseline (LINZ when on; [] = off)
   maxzoom: number; // served cap; never request finer (overzoom past it just 404s/redirects)
   lon: number;
@@ -252,7 +252,7 @@ export async function getHeightmap(
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), TILE_TIMEOUT_MS);
       try {
-        // composeTerrariumTileRGBACached fetches the AWS baseline and overlays the active higher-detail
+        // composeTerrariumTileRGBACached fetches the Mapterhorn baseline and overlays the active higher-detail
         // sources (LINZ when on) per pixel, returning Terrarium-encoded RGBA — the SAME surface, drawn
         // from the SAME shared composited-tile cache, the map draws via the meshdem:// protocol, so this
         // fetch also warms the 3D terrain. putImageData writes the bytes verbatim (no colour management),
@@ -292,7 +292,7 @@ export async function getHeightmap(
 // square and coarsens its zoom once a long link's square blows past MAX_TILES — flattening the very
 // ridges the profile cares about. The corridor path instead fetches ONLY the tiles the great-circle
 // line crosses (plus a 1-ring margin for bilinear neighbours), which grows linearly with length, so a
-// long link stays at full z14. The sampling happens on the main thread (sampleProfileCorridor in
+// long link stays at full z15. The sampling happens on the main thread (sampleProfileCorridor in
 // profile.ts) and only the resulting ProfileSample crosses to the worker — the shared square Heightmap
 // path is untouched.
 
@@ -332,12 +332,12 @@ function interpGreatCircle(
   return [λ * RAD2DEG, φ * RAD2DEG];
 }
 
-// Tile budget for the corridor (vs the square's MAX_TILES=64). At z14 a corridor stays full-detail up
-// to ~120 km before dropping one zoom; even coarsened it's 4× finer than the square path today. Tunable.
+// Tile budget for the corridor (vs the square's MAX_TILES=64). At z15 a corridor stays full-detail up
+// to ~60 km before dropping one zoom; even coarsened it's 4× finer than the square path today. Tunable.
 const CORRIDOR_BUDGET = 192;
 
 export interface CorridorRequest {
-  urlTemplate: string; // the AWS Terrarium baseline {z}/{x}/{y} template (composited from, not meshdem://)
+  urlTemplate: string; // the Mapterhorn baseline {z}/{x}/{y} template (composited from, not meshdem://)
   overlays: OverlaySpec[]; // higher-detail overlays composited over the baseline (LINZ when on; [] = off)
   maxzoom: number; // served cap; never request finer (overzoom past it just 404s/redirects)
   txLon: number;
@@ -526,7 +526,7 @@ export function corridorMetresPerPixel(c: CorridorTiles, lat: number): number {
 const LOD_BASE_RING_M = 4000; // innermost disc radius, fetched at maxzoom; ≤ this radius ⇒ one z-max mosaic
 const LOD_RING_GROWTH = 2; // each outer ring doubles its radius and drops one zoom (≈ constant tiles/level)
 const LOD_MIN_Z = 8; // never coarsen a ring below this
-const LOD_MAX_LEVELS = 6; // bound the stack (6 levels reach a 100 km radius from z14)
+const LOD_MAX_LEVELS = 6; // bound the stack (6 levels reach a 100 km radius from z15)
 
 export interface LodLevel {
   hm: Heightmap;

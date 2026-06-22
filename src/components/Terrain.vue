@@ -4,8 +4,8 @@
       <div class="col-12">
         <div class="form-text">
           Toggle <strong>3D terrain</strong> with the <strong>3D</strong> button on the map
-          (top-left, under the basemap buttons). It drapes the map over an elevation mesh (AWS
-          Terrarium / SRTM); tilt with right-drag (or the compass control) to read hill elevation.
+          (top-left, under the basemap buttons). It drapes the map over an elevation mesh
+          (Mapterhorn); tilt with right-drag (or the compass control) to read hill elevation.
           The <strong>Shade</strong> button beside it adds relief shading that reads hills on flat
           basemaps — works in both top-down and 3D view.
         </div>

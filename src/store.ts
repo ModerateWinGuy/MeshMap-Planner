@@ -11,7 +11,7 @@ import { Popover } from 'bootstrap';
 import { Links3DLayer, buildLinkGeometry, setLinkColorFn, type LinkPick } from './links3d.ts';
 import { getHeightmap, type Heightmap } from './viewshed/heightmap.ts';
 import {
-  AWS_TERRARIUM_TEMPLATE,
+  MAPTERHORN_TEMPLATE,
   DEM_MAXZOOM,
   DEM_SCHEME,
   builtinDemProviders,
@@ -209,15 +209,21 @@ function pairPopupHtml(aName: string, bName: string): string {
 }
 
 // The single raster-dem source backing the 3D terrain mesh, the hillshade, and the client-side sim
-// (matrix/profile/coverage/relay/viewshed). Baseline is always AWS Terrarium (global, no key). With no
-// provider enabled the source points straight at the AWS tiles (zero overhead); otherwise it points at
-// the `meshdem://` protocol, which composites every enabled provider over AWS per pixel and returns
-// Terrarium-encoded tiles — so `encoding` stays 'terrarium' either way and every downstream decoder is
-// unchanged. Toggling a provider swaps the two URL forms live via setTiles.
+// (matrix/profile/coverage/relay/viewshed). Baseline is always Mapterhorn (global, no key). With no
+// provider enabled the source points straight at the Mapterhorn tiles (zero overhead); otherwise it
+// points at the `meshdem://` protocol, which composites every enabled provider over Mapterhorn per
+// pixel and returns Terrarium-encoded tiles — so `encoding` stays 'terrarium' either way and every
+// downstream decoder is unchanged. Toggling a provider swaps the two URL forms live via setTiles.
 function terrainDemSource(hasAnyOverlay: boolean): any {
   return {
     type: 'raster-dem',
-    tiles: [hasAnyOverlay ? `${DEM_SCHEME}://{z}/{x}/{y}` : AWS_TERRARIUM_TEMPLATE],
+    tiles: [hasAnyOverlay ? `${DEM_SCHEME}://{z}/{x}/{y}` : MAPTERHORN_TEMPLATE],
+    // Declared 256 even though Mapterhorn natively serves 512 px webp: MapLibre derives the actual DEM
+    // decode grid from each loaded image's real pixel size (not this field — it only steers which zoom
+    // level gets requested), and setTiles (below) never updates this property once the source exists.
+    // Pinning it at the meshdem:// compositor's true 256 px output keeps it correct for that path on
+    // every toggle, at the cost of MapLibre overzooming the direct Mapterhorn path very slightly more
+    // than the bare minimum needed — harmless, since DEM_MAXZOOM caps how deep that can go anyway.
     tileSize: 256,
     // 'terrarium' is mandatory: these tiles decode to garbage under the default mapbox encoding. The
     // composited overlay tiles are normalised to Terrarium too, so this holds for both URL forms.
@@ -226,7 +232,7 @@ function terrainDemSource(hasAnyOverlay: boolean): any {
     // maxzoom rather than fetching finer tiles that don't exist.
     minzoom: 0,
     maxzoom: DEM_MAXZOOM,
-    attribution: 'Terrain: AWS / Mapzen / SRTM · LINZ CC-BY 4.0',
+    attribution: 'Terrain: Mapterhorn (Copernicus / national LiDAR) · LINZ CC-BY 4.0',
   };
 }
 
@@ -593,14 +599,14 @@ const useStore = defineStore('store', {
       terrainEnabled: useLocalStorage('terrainEnabled', false),
       terrainExaggeration: useLocalStorage('terrainExaggeration', 1),
       // User-added DEM/DSM overlay providers — analogous to the built-in LINZ rows (builtinDemProviders
-      // in demTiles.ts) but for any region. Each layers over the AWS Terrarium baseline where it has
-      // data, like LINZ. Drives the terrain-dem source URL (AWS vs the meshdem:// compositor) and the
-      // sim/viewshed — see the allDemProviders getter.
+      // in demTiles.ts) but for any region. Each layers over the Mapterhorn baseline where it has
+      // data, like LINZ. Drives the terrain-dem source URL (Mapterhorn vs the meshdem:// compositor) and
+      // the sim/viewshed — see the allDemProviders getter.
       customDemProviders: useLocalStorage<DemProvider[]>('customDemProviders', []),
       // Enabled state for the built-in (LINZ) rows, keyed by their fixed id — kept separate from
       // customDemProviders since builtins' urlTemplate/name must always come fresh from demTiles.ts
       // (e.g. a future LINZ key rotation), never frozen into a persisted provider object. Off by
-      // default so the map keeps the zero-overhead direct-AWS path until the user opts in. The default
+      // default so the map keeps the zero-overhead direct-Mapterhorn path until the user opts in. The default
       // migrates any pre-existing linzOverlay/linzModel value so upgrading users don't lose their
       // setting.
       builtinProviderEnabled: useLocalStorage<Record<string, boolean>>('builtinProviderEnabled', migrateLegacyLinzEnabled()),
@@ -1695,7 +1701,7 @@ const useStore = defineStore('store', {
             return;
           }
         }
-        // Resolve the same surface the map draws: the AWS Terrarium baseline plus every enabled
+        // Resolve the same surface the map draws: the Mapterhorn baseline plus every enabled
         // overlay provider. heightmap.ts can't fetch the map's meshdem:// URL, so it composites from
         // the base template + overlays itself (same underlying tiles → warm HTTP cache as the map).
         const overlays = enabledOverlaySpecs(this.allDemProviders);
@@ -1720,7 +1726,7 @@ const useStore = defineStore('store', {
         // drop frames while a pass is busy. The panel shows the live N/M tile count via viewshedProgress.
         const hm = await getHeightmap(
           {
-            urlTemplate: AWS_TERRARIUM_TEMPLATE,
+            urlTemplate: MAPTERHORN_TEMPLATE,
             overlays,
             maxzoom: DEM_MAXZOOM,
             lon: node.transmitter.tx_lon,
@@ -1819,7 +1825,7 @@ const useStore = defineStore('store', {
         start ? start.transmitter.tx_lon : DEFAULT_LON,
         start ? start.transmitter.tx_lat : DEFAULT_LAT,
       ];
-      // The `meshdem://` protocol composites every enabled provider over the AWS baseline (see
+      // The `meshdem://` protocol composites every enabled provider over the Mapterhorn baseline (see
       // demTiles.ts). Registered once, globally, before the map reads a style that may reference it
       // (when a provider is persisted on). getOverlays is a closure read fresh on every tile request,
       // so a provider add/edit/delete/toggle is picked up without re-registering the protocol.
@@ -2425,7 +2431,7 @@ const useStore = defineStore('store', {
       if (!map || !src?.setTiles) {
         return;
       }
-      // Swap the source's tile URLs in place — AWS direct when nothing is enabled, the meshdem://
+      // Swap the source's tile URLs in place — Mapterhorn direct when nothing is enabled, the meshdem://
       // compositor otherwise. setTiles reloads the source, so the 3D mesh and the hillshade re-read the
       // new surface without a removeSource/addSource teardown (which would tear down terrain + the
       // hillshade layer).
@@ -2925,13 +2931,13 @@ const useStore = defineStore('store', {
       pairPopup = popup;
     },
     // Resolve the terrain tile source for the client-side sim exactly as the map/viewshed do, so
-    // simulations run against the surface currently drawn (AWS Terrarium + the active overlays), at the
+    // simulations run against the surface currently drawn (Mapterhorn + the active overlays), at the
     // zoom the map is showing — see computeViewshed for the same resolution. The sim composites from the
-    // AWS base template + overlays (not the map's meshdem:// URL, which it can't fetch).
+    // Mapterhorn base template + overlays (not the map's meshdem:// URL, which it can't fetch).
     _simSource(): SimSource {
       const mapZoom = this.map ? (this.map as maplibregl.Map).getZoom() : 10;
       return {
-        urlTemplate: AWS_TERRARIUM_TEMPLATE,
+        urlTemplate: MAPTERHORN_TEMPLATE,
         overlays: enabledOverlaySpecs(this.allDemProviders),
         maxzoom: DEM_MAXZOOM,
         mapZoom,
