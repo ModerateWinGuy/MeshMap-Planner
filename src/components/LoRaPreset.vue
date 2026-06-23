@@ -82,7 +82,14 @@ const bandwidthKhz = computed({
 })
 
 const presetName = computed({
-    get: () => presetNameFor(spreadingFactor.value, bandwidthKhz.value) ?? '',
+    get: () => {
+        const saved = store.splatParams.lora?.preset;
+        const savedPreset = saved ? (MESHTASTIC_PRESETS[saved] ?? MESHCORE_PRESETS[saved]) : undefined;
+        if (savedPreset && savedPreset.spreadingFactor === spreadingFactor.value && savedPreset.bandwidthKhz === bandwidthKhz.value) {
+            return saved!;
+        }
+        return presetNameFor(spreadingFactor.value, bandwidthKhz.value) ?? '';
+    },
     set: (name: string) => {
         const preset = name ? (MESHTASTIC_PRESETS[name] ?? MESHCORE_PRESETS[name]) : undefined;
         if (!preset) {
