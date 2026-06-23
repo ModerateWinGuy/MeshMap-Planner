@@ -116,12 +116,7 @@ function encodeTerrarium(h: number, out: Uint8ClampedArray, i: number): void {
 // Fetch one tile and return its raw RGBA bytes resampled onto the TILE×TILE compositing grid, or null
 // on 404 / network error / abort. colorSpaceConversion:'none' + premultiplyAlpha:'none' keep the
 // elevation-encoded bytes (and LINZ's nodata alpha) byte-exact — no gamma/ICC shift, no alpha
-// pre-multiply zeroing the RGB. A source whose native size isn't TILE (Mapterhorn serves 512 px webp)
-// is nearest-neighbour resampled to fit: imageSmoothingEnabled is OFF because the RGB channels are
-// packed height bits, not colour — any blending across a pixel boundary (bilinear/etc.) would average
-// raw bytes instead of metres, which is wrong everywhere and can swing wildly right at a channel carry
-// (e.g. g 255→0, r+1). Nearest-neighbour just picks one source texel per output pixel, so every kept
-// value stays an exact, valid decode — it only ever subsamples, never corrupts.
+// pre-multiply zeroing the RGB.
 async function fetchTileRGBA(url: string, signal?: AbortSignal): Promise<RgbaBytes | null> {
   let res: Response;
   try {
@@ -135,13 +130,42 @@ async function fetchTileRGBA(url: string, signal?: AbortSignal): Promise<RgbaByt
       premultiplyAlpha: 'none',
       colorSpaceConversion: 'none',
     });
-    const cv = new OffscreenCanvas(TILE, TILE);
+    const { width, height } = bmp;
+    // Draw at native size — 1:1, so the canvas can't interpolate anything — then read the raw bytes.
+    const cv = new OffscreenCanvas(width, height);
     const cx = cv.getContext('2d', { willReadFrequently: true })!;
-    cx.imageSmoothingEnabled = false;
-    cx.drawImage(bmp, 0, 0, TILE, TILE);
+    cx.drawImage(bmp, 0, 0);
     bmp.close();
-    // getImageData's buffer is a full TILE×TILE×4 ArrayBuffer at offset 0; re-view it as ArrayBuffer.
-    return new Uint8ClampedArray(cx.getImageData(0, 0, TILE, TILE).data.buffer as ArrayBuffer);
+    const native = new Uint8ClampedArray(cx.getImageData(0, 0, width, height).data.buffer as ArrayBuffer);
+    if (width === TILE && height === TILE) {
+      return native;
+    }
+    // A source whose native size isn't TILE (Mapterhorn serves 512 px webp) is downsampled to fit by
+    // indexing the decoded array directly — NOT via a scaled drawImage. A canvas/GPU image scale, even
+    // with imageSmoothingEnabled off, isn't a safe way to do this: some backends still mip/box-filter a
+    // large minification under the hood, which averages the raw RGB BYTES — and those bytes are packed
+    // height bits, not colour, so averaging across a channel carry (g 255→0, r+1) produces a wildly
+    // wrong decoded metre value at that exact pixel, not a softened one (this is what produced the
+    // sharp, reproducible spikes some users saw, even though the source data itself was clean).
+    // Indexing the array ourselves is unambiguous: every output pixel is an exact, untouched copy of
+    // one real source texel — it can only ever drop detail, never corrupt a value.
+    const out = new Uint8ClampedArray(TILE_BYTES) as RgbaBytes;
+    const sx = width / TILE;
+    const sy = height / TILE;
+    for (let oy = 0; oy < TILE; oy++) {
+      const srcY = Math.min(height - 1, Math.floor((oy + 0.5) * sy));
+      const rowOff = srcY * width;
+      for (let ox = 0; ox < TILE; ox++) {
+        const srcX = Math.min(width - 1, Math.floor((ox + 0.5) * sx));
+        const si = (rowOff + srcX) * 4;
+        const oi = (oy * TILE + ox) * 4;
+        out[oi] = native[si];
+        out[oi + 1] = native[si + 1];
+        out[oi + 2] = native[si + 2];
+        out[oi + 3] = native[si + 3];
+      }
+    }
+    return out;
   } catch {
     return null;
   }
