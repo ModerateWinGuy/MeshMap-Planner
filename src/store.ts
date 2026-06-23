@@ -6,7 +6,7 @@ import maplibregl from 'maplibre-gl';
 import { type Site, type SplatParams, type Node, type NodeGroup, type MatrixResult, type LinkResult, type RelayResult, type ProfileResult, type UiMode } from './types.ts';
 import { cloneObject, escapeHtml, decodeShare, type SharePayload } from './utils.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
-import { createElement, Ruler, Keyboard } from 'lucide';
+import { createElement, Ruler, Keyboard, Search } from 'lucide';
 import { Popover } from 'bootstrap';
 import { Links3DLayer, buildLinkGeometry, setLinkColorFn, type LinkPick } from './links3d.ts';
 import { getHeightmap, type Heightmap } from './viewshed/heightmap.ts';
@@ -419,6 +419,9 @@ let measureDragIndex = -1;
 // Last pointer position over the map (lng/lat), so the "A" hotkey can drop a node under the cursor.
 // Null while the pointer is off the canvas, so the shortcut falls back to the map centre then.
 let lastMapCursor: maplibregl.LngLat | null = null;
+let locationSearchControl: LocationSearchControl | null = null;
+// Right-mousedown point, so 'contextmenu' can tell a click from a rotate-drag release.
+let rightMouseDownPoint: { x: number; y: number } | null = null;
 // Keys of tiles currently loading across all sources, for the bottom loading bar. Module-scoped (not
 // in reactive state) so updating a hot Set per tile event doesn't churn Vue's proxy; its size is
 // mirrored into store.mapTiles.inFlight. Reset on map teardown.
@@ -546,6 +549,36 @@ class HotkeyHelpControl implements maplibregl.IControl {
   }
 }
 
+// Native control (like MeasureControl/HotkeyHelpControl); toggles the LocationSearchPanel overlay.
+class LocationSearchControl implements maplibregl.IControl {
+  private container!: HTMLElement;
+  private button!: HTMLButtonElement;
+  constructor(private onToggle: () => void) {}
+  onAdd(): HTMLElement {
+    this.container = document.createElement('div');
+    this.container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    this.button = document.createElement('button');
+    this.button.type = 'button';
+    this.button.className = 'location-search-btn';
+    this.button.title = 'Search for a place or address';
+    this.button.setAttribute('aria-label', 'Search for a location');
+    const svg = createElement(Search);
+    svg.setAttribute('width', '18');
+    svg.setAttribute('height', '18');
+    this.button.appendChild(svg);
+    this.button.addEventListener('click', () => this.onToggle());
+    this.container.appendChild(this.button);
+    return this.container;
+  }
+  onRemove(): void {
+    this.container.remove();
+  }
+  setActive(active: boolean): void {
+    this.button.classList.toggle('location-search-active', active);
+    this.button.setAttribute('aria-pressed', String(active));
+  }
+}
+
 const useStore = defineStore('store', {
   state() {
     return {
@@ -662,6 +695,9 @@ const useStore = defineStore('store', {
       measureActive: false,
       measurePoints: [] as [number, number][],
       measureCursor: null as [number, number] | null,
+      locationSearchActive: false,
+      // nodeId set => the node-variant menu (delete/share); unset => the empty-map variant (add/copy).
+      contextMenu: null as { x: number; y: number; lat: number; lng: number; nodeId?: string } | null,
       // shared / global params (per-node radio lives on the nodes themselves)
       splatParams: useLocalStorage('splatParams', {
         lora: {
@@ -850,6 +886,29 @@ const useStore = defineStore('store', {
         measureDragIndex = -1;
       }
       this.applyMeasureMode();
+    },
+    toggleLocationSearch() {
+      this.locationSearchActive = !this.locationSearchActive;
+      locationSearchControl?.setActive(this.locationSearchActive);
+    },
+    // Explicit close, not toggle — dismissal paths must never re-open the panel.
+    closeLocationSearch() {
+      this.locationSearchActive = false;
+      locationSearchControl?.setActive(false);
+    },
+    // Fly the camera to a geocoded result; zoom only goes up (never zooms out from a closer view).
+    flyToLocation(lat: number, lon: number, zoom = 17) {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map) {
+        return;
+      }
+      map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), zoom) });
+    },
+    openContextMenu(x: number, y: number, lat: number, lng: number, nodeId?: string) {
+      this.contextMenu = { x, y, lat, lng, nodeId };
+    },
+    closeContextMenu() {
+      this.contextMenu = null;
     },
     // Clear the line without leaving the tool (vs toggleMeasure, which exits).
     clearMeasure() {
@@ -1277,6 +1336,9 @@ const useStore = defineStore('store', {
       if (this.pairTargetId === id) {
         this.clearPairTarget(); // the pending pair's target just vanished
       }
+      if (this.contextMenu?.nodeId === id) {
+        this.closeContextMenu(); // the open menu's target just vanished
+      }
       if (wasSelected) {
         this.selectedNodeId = this.nodes[0]?.id ?? null;
       }
@@ -1326,9 +1388,23 @@ const useStore = defineStore('store', {
           // right-click meant to rotate the map would instead drag the node. Swallow non-left
           // mousedowns before they bubble to the map container so only left-drag moves a pin.
           el.addEventListener('mousedown', (e) => {
+            if (e.button === 2) {
+              // stopPropagation below keeps this off the map-level mousedown, so record it here too —
+              // covers a drag-off-the-marker release landing on open map.
+              const rect = (this.map as maplibregl.Map).getContainer().getBoundingClientRect();
+              rightMouseDownPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+            }
             if (e.button !== 0) {
               e.stopPropagation();
             }
+          });
+          // stopPropagation so the map-level 'contextmenu' handler doesn't also open the empty-map menu.
+          el.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            // clientX/Y are viewport-relative; convert to map-container-relative to match e.point elsewhere.
+            const rect = (this.map as maplibregl.Map).getContainer().getBoundingClientRect();
+            this.openContextMenu(e.clientX - rect.left, e.clientY - rect.top, node.transmitter.tx_lat, node.transmitter.tx_lon, node.id);
           });
           // MapLibre markers have no click event; listen on the element. stopPropagation keeps the
           // pin click from also firing the map click used by "Set with map".
@@ -1778,6 +1854,10 @@ const useStore = defineStore('store', {
       cursor3dActive = false;
       measureControl = null;
       measureDragIndex = -1;
+      locationSearchControl = null;
+      rightMouseDownPoint = null;
+      this.locationSearchActive = false;
+      this.contextMenu = null;
       // Tear down the viewshed engine (releases the GPUDevice) and cancel any pending recompute so a
       // remount (Vite HMR) re-inits a fresh device lazily instead of leaking the old one.
       if (viewshedRaf) {
@@ -1864,6 +1944,9 @@ const useStore = defineStore('store', {
       this.map.addControl(measureControl, 'bottom-left');
       // Added last: MapLibre prepends bottom-corner controls, so this lands above the measure tool.
       this.map.addControl(new HotkeyHelpControl(), 'bottom-left');
+      // Added last of all: lands above the hotkey-help button.
+      locationSearchControl = new LocationSearchControl(() => this.toggleLocationSearch());
+      this.map.addControl(locationSearchControl, 'bottom-left');
 
       if (!this.selectedNodeId && this.nodes[0]) {
         this.selectedNodeId = this.nodes[0].id;
@@ -2141,6 +2224,22 @@ const useStore = defineStore('store', {
       // mouseout so it can't reuse a stale position once the pointer leaves the map (see addNodeAtCursor).
       map.on('mousemove', (e: any) => { lastMapCursor = e.lngLat; });
       map.on('mouseout', () => { lastMapCursor = null; });
+      // 'contextmenu' fires on right-mouseup for both a plain click and a rotate-drag release;
+      // only treat near-zero movement since mousedown as a real menu request.
+      map.on('mousedown', (e: any) => {
+        if (e.originalEvent.button === 2) {
+          rightMouseDownPoint = { x: e.point.x, y: e.point.y };
+        }
+      });
+      map.on('contextmenu', (e: any) => {
+        e.originalEvent.preventDefault();
+        const down = rightMouseDownPoint;
+        rightMouseDownPoint = null;
+        if (down && Math.hypot(e.point.x - down.x, e.point.y - down.y) > 5) {
+          return; // was a rotate-drag release, not a click
+        }
+        this.openContextMenu(e.point.x, e.point.y, e.lngLat.lat, e.lngLat.lng);
+      });
       // Hover cursor, throttled to one pick per frame so mousemove doesn't reproject every link.
       let hoverScheduled = false;
       map.on('mousemove', (e: any) => {

@@ -172,6 +172,22 @@ body {
   margin: 0;
 }
 
+/* Location search control — same plain MapLibre control button look; active = filled red to match
+   the "red = active" toggle convention (see measure-ctrl-active). */
+.maplibregl-ctrl button.location-search-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+}
+.maplibregl-ctrl button.location-search-btn.location-search-active {
+  background-color: var(--accent-red);
+  color: #fff;
+}
+.maplibregl-ctrl button.location-search-btn.location-search-active:hover {
+  background-color: var(--accent-red-hover);
+}
+
 /* Top-bar mode toggle, styled as an iOS-style segmented control: a rounded translucent track with
    the active segment shown as a solid white pill. These rules override Bootstrap's btn-group
    borders/dividers and square inner corners so the group reads as one unified pill. */

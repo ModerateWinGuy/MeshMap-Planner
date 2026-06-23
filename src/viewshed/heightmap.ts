@@ -37,11 +37,10 @@ const TILE = 256;
 const MAX_TILES = 64;
 const FETCH_CONCURRENCY = 8;
 // Per-tile fetch cap. A cold LINZ DEM/DSM tile is a live COG warp on the backend and can take a few
-// seconds; the Mapterhorn CDN is fast. Without a cap, one slow/stuck backend tile leaves
-// the whole compute pending forever — which freezes the viewshed (it holds viewshedComputing open),
-// so it silently stops updating after switching to a LINZ source. A timed-out tile falls back to the
-// sea sentinel; the next run (tiles now warm in the backend/browser cache) fills it in.
-const TILE_TIMEOUT_MS = 15000;
+// seconds. Without a cap, one slow/stuck tile leaves the whole compute pending forever — which freezes
+// the viewshed (it holds viewshedComputing open). A timed-out tile falls back to the sea sentinel; the
+// next run (tiles now warm in the backend/browser cache) fills it in.
+const TILE_TIMEOUT_MS = 25000;
 // Minimum gap between progressive onProgress emits (each re-reads the mosaic, ~16 MB), so a slow
 // LINZ fetch refines the view a few times per second rather than per-tile.
 const PROGRESS_MS = 250;

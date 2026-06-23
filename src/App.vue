@@ -91,6 +91,8 @@
         <MapLoadingBar />
         <SimLoadingBar />
         <MeasurePanel v-if="store.measureActive" />
+        <LocationSearchPanel v-if="store.locationSearchActive" />
+        <ContextMenu v-if="store.contextMenu" />
         <ProfilePanel v-if="store.profileResult || store.profileState === 'running' || store.profileState === 'failed'" />
       </div>
       <!-- data-bs-theme="dark" puts every Bootstrap component in this dark sidebar onto its dark-mode
@@ -210,6 +212,8 @@ import ProfilePanel from "./components/ProfilePanel.vue"
 import MapLoadingBar from "./components/MapLoadingBar.vue"
 import SimLoadingBar from "./components/SimLoadingBar.vue"
 import MeasurePanel from "./components/MeasurePanel.vue"
+import LocationSearchPanel from "./components/LocationSearchPanel.vue"
+import ContextMenu from "./components/ContextMenu.vue"
 import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical, ScanEye, Share2, Check, FolderInput, Bug } from "@lucide/vue"
 import type { Component } from "vue"
 
