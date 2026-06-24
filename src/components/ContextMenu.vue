@@ -32,6 +32,7 @@ import { Trash2, Share2, Plus, Copy, Check } from '@lucide/vue'
 import { useStore } from '../store.ts'
 import { useShareLink, copyText } from '../shareLink.ts'
 import { nodeToShared, type SharePayload } from '../utils.ts'
+import { trackEvent } from '../analytics.ts'
 
 const CONFIRM_CLOSE_MS = 800
 
@@ -71,6 +72,7 @@ function deleteNode() {
 async function shareNode() {
   const node = store.nodes.find((n) => n.id === menu.value?.nodeId)
   if (node) {
+    trackEvent('share-node')
     const payload: SharePayload = { v: 1, t: 'nodes', n: [nodeToShared(node)] }
     await share(payload)
     await new Promise((resolve) => setTimeout(resolve, CONFIRM_CLOSE_MS)) // let the "Copied!" flash register

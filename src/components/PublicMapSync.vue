@@ -41,6 +41,7 @@ import { useStore } from '../store.ts'
 import { PUBLIC_NODE_SOURCES, syncPublicNodes } from '../sources/index.ts'
 import { Globe, DownloadCloud } from '@lucide/vue'
 import InfoTip from './InfoTip.vue'
+import { trackEvent } from '../analytics.ts'
 
 // Above this many new nodes in one sync we confirm first — a zoomed-out view can match a lot.
 const CONFIRM_THRESHOLD = 300
@@ -76,6 +77,9 @@ async function onSync() {
   const b = map.getBounds()
   const bbox = { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() }
   const enabledIds = sources.filter((s) => enabled[s.id]).map((s) => s.id)
+  for (const id of enabledIds) {
+    trackEvent(`import-public-${id}`)
+  }
 
   loading.value = true
   progress.value = 'Fetching public nodes…'

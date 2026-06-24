@@ -58,6 +58,7 @@ import { useStore } from '../store.ts'
 import { parseMeshcoreContacts, type ContactCandidate } from '../meshcore.ts'
 import { FileUp, Upload } from '@lucide/vue'
 import InfoTip from './InfoTip.vue'
+import { trackEvent } from '../analytics.ts'
 
 const store = useStore()
 
@@ -120,6 +121,7 @@ function setAll(value: boolean) {
 }
 
 function confirmImport() {
+  trackEvent('import-contacts')
   const rows = candidates.value
     .filter((_, i) => include.value[i])
     .map((c) => ({ name: c.name, lat: c.lat, lon: c.lon }))

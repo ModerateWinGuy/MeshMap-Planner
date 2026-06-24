@@ -5,6 +5,7 @@ import { randanimalSync } from 'randanimal';
 import maplibregl from 'maplibre-gl';
 import { type Site, type SplatParams, type Node, type NodeGroup, type MatrixResult, type LinkResult, type RelayResult, type ProfileResult, type UiMode } from './types.ts';
 import { cloneObject, escapeHtml, decodeShare, type SharePayload } from './utils.ts';
+import { trackEvent } from './analytics.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
 import { createElement, Ruler, Keyboard, Search } from 'lucide';
 import { Popover } from 'bootstrap';
@@ -1587,6 +1588,7 @@ const useStore = defineStore('store', {
     toggleViewshed() {
       this.viewshedEnabled = !this.viewshedEnabled;
       if (this.viewshedEnabled) {
+        trackEvent('viewshed-enable');
         if (!ViewshedEngine.isSupported()) {
           this.viewshedState = 'unsupported'; // panel shows the WebGPU notice; nothing else to do
           return;
@@ -2452,6 +2454,9 @@ const useStore = defineStore('store', {
     },
     toggleTerrain() {
       this.terrainEnabled = !this.terrainEnabled;
+      if (this.terrainEnabled) {
+        trackEvent('terrain-3d-enable');
+      }
       this.applyTerrain();
       this.set3dLinksVisible(this.links3dActive);
       this.rebuild3dLinks();
@@ -2560,6 +2565,7 @@ const useStore = defineStore('store', {
       this.applyTerrainOverlays();
     },
     addCustomDemProvider(name: string, urlTemplate: string, encoding: 'mapbox' | 'terrarium') {
+      trackEvent('terrain-provider-add-custom');
       this.customDemProviders.push({ id: crypto.randomUUID(), name, urlTemplate, encoding, enabled: true });
       this.applyTerrainOverlays();
     },
@@ -2642,6 +2648,7 @@ const useStore = defineStore('store', {
         console.warn('No node selected; cannot run simulation.');
         return;
       }
+      trackEvent('simulation-coverage-run');
 
       // Supersede any in-flight coverage run so its now-stale grid stops arriving.
       coverageCancel?.();
@@ -3189,6 +3196,7 @@ const useStore = defineStore('store', {
     },
     // Compute the FULL link matrix (every pair), replacing any existing result. The "Compute all" button.
     async runMatrix() {
+      trackEvent('simulation-matrix-run');
       await this._runLinks(undefined);
     },
     // Compute only the SELECTED node's links (fast) and merge them into the existing matrix. Drives the
@@ -3225,6 +3233,7 @@ const useStore = defineStore('store', {
         console.warn('Line profile needs two distinct nodes.');
         return;
       }
+      trackEvent('simulation-profile-run');
       this.profileFromId = a.id;
       this.profileToId = b.id;
       this.profileError = null;
@@ -3421,6 +3430,7 @@ const useStore = defineStore('store', {
         console.warn('Relay finder needs two distinct nodes.');
         return;
       }
+      trackEvent('simulation-relay-run');
 
       // Supersede any in-flight relay run so its now-stale result stops arriving.
       relayCancel?.();

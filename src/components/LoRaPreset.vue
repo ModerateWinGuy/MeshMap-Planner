@@ -61,6 +61,7 @@ import { useStore } from '../store.ts'
 import { MESHTASTIC_PRESETS, MESHCORE_PRESETS, presetNameFor } from '../sim/linkBudget.ts'
 import InfoTip from './InfoTip.vue'
 import { Radio } from '@lucide/vue'
+import { trackEvent } from '../analytics.ts'
 
 const store = useStore()
 const meshtasticNames = Object.keys(MESHTASTIC_PRESETS)
@@ -95,6 +96,7 @@ const presetName = computed({
         if (!preset) {
             return;
         }
+        trackEvent('preset-select');
         store.splatParams.lora.preset = name;
         store.splatParams.lora.spreadingFactor = preset.spreadingFactor;
         store.splatParams.lora.bandwidthKhz = preset.bandwidthKhz;

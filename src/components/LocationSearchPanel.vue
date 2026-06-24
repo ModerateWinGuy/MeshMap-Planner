@@ -35,6 +35,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { Search } from '@lucide/vue'
 import { useStore } from '../store.ts'
+import { trackEvent } from '../analytics.ts'
 
 interface LocationResult {
   name: string
@@ -63,6 +64,7 @@ async function onSubmit() {
   if (!q || loading.value) {
     return
   }
+  trackEvent('search-location-submit')
   const id = ++requestId
   loading.value = true
   error.value = ''

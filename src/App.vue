@@ -221,6 +221,7 @@ import { useStore } from './store.ts'
 import { installKeyboardShortcuts } from './keyboard.ts'
 import { useShareLink } from './shareLink.ts'
 import { nodeToShared } from './utils.ts'
+import { trackEvent } from './analytics.ts'
 import type { UiMode } from './types.ts'
 const store = useStore()
 
@@ -229,11 +230,13 @@ const { copied: shareCopied, share: shareLink } = useShareLink()
 function shareSelectedNode() {
   const n = store.selectedNode
   if (n) {
+    trackEvent('share-node')
     shareLink({ v: 1, t: 'nodes', n: [nodeToShared(n)] })
   }
 }
 function shareSite() {
   if (store.nodes.length) {
+    trackEvent('share-site')
     shareLink({ v: 1, t: 'nodes', n: store.nodes.map(nodeToShared) })
   }
 }
