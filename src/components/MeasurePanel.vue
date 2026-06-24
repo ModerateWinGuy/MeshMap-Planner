@@ -45,4 +45,13 @@ const formatted = computed(() => {
   padding: 8px 10px;
   border-radius: 6px;
 }
+
+/* Phone's fixed .map-tool-row sits right over this corner (see style.css) — push below it. A scoped
+   rule, not style.css, because Vue compiles scoped selectors with a [data-v-xxx] attribute, which
+   out-specifies a plain .measure-panel rule in the global stylesheet regardless of source order. */
+@media (max-width: 767px) {
+  .measure-panel {
+    top: 60px;
+  }
+}
 </style>

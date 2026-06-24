@@ -134,7 +134,9 @@
         </template>
         <p v-else class="text-muted medium centered mb-0">Add a node to begin.</p>
 
-        <div class="d-flex gap-2 mb-2 mt-3">
+        <!-- Hidden when a parent renders NodePanelFooter itself (e.g. pinned to a phone bottom-sheet's
+             sticky footer instead of scrolling with the rest of this panel). -->
+        <div v-if="!hideFooter" class="d-flex gap-2 mb-2 mt-3">
             <button @click="store.addNode()" type="button" class="btn btn-success btn-sm w-100 d-flex align-items-center justify-content-center gap-1"><Plus :size="16" /> Add node</button>
             <button @click="addFolder" type="button" class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-center gap-1"><FolderPlus :size="16" /> Add folder</button>
         </div>
@@ -153,6 +155,8 @@ import { ChevronDown, ChevronRight, Eye, EyeOff, Folder, FolderPlus, Pencil, Plu
 import { dragKind, dragId, startDrag, endDrag, isOver, dropTarget } from './nodeDnd.ts';
 
 const store = useStore();
+
+defineProps<{ hideFooter?: boolean }>();
 
 // Share link for one folder: its nodes, tagged with the folder name so the recipient gets them
 // grouped under a folder of the same name. Null (button hidden) when the folder is empty.

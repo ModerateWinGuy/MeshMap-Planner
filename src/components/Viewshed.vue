@@ -1,5 +1,5 @@
 <template>
-  <form novalidate style="min-width: 260px;">
+  <form novalidate class="panel-min-width">
     <div class="row">
       <div class="col-12">
         <div class="form-text">

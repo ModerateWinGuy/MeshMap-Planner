@@ -1,6 +1,12 @@
 <template>
-  <!-- absolute within .map-col, anchored beside the bottom-left control stack its button lives in. -->
-  <div ref="panelRef" class="location-search-panel shadow text-bg-dark" data-bs-theme="dark">
+  <!-- Desktop/tablet: absolute within .map-col, anchored beside the bottom-left control stack its
+       button lives in. Phone: embedded, plain content inside App.vue's BottomSheet, which already
+       supplies the dark theme/background/shadow/position. -->
+  <div
+    ref="panelRef"
+    :class="embedded ? null : 'location-search-panel shadow text-bg-dark'"
+    :data-bs-theme="embedded ? null : 'dark'"
+  >
     <form class="d-flex gap-2" @submit.prevent="onSubmit">
       <input
         ref="inputRef"
@@ -42,6 +48,8 @@ interface LocationResult {
   lat: number
   lon: number
 }
+
+const { embedded = false } = defineProps<{ embedded?: boolean }>()
 
 const store = useStore()
 const panelRef = ref<HTMLElement | null>(null)

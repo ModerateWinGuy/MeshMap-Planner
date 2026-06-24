@@ -47,6 +47,16 @@ const pct = computed(() => {
     /* Above the map canvas but below the floating controls (z-index ~1000). */
 }
 
+/* Phone's fixed bottom tab bar covers this corner — push above it. A scoped rule, not style.css,
+   because Vue compiles scoped selectors with a [data-v-xxx] attribute, which out-specifies a plain
+   .map-loading rule in the global stylesheet regardless of source order (see MeasurePanel.vue for the
+   same issue). --tabbar-clearance is defined globally in style.css's :root block. */
+@media (max-width: 767px) {
+    .map-loading {
+        bottom: calc(var(--tabbar-clearance) + 10px + env(safe-area-inset-bottom));
+    }
+}
+
 .label {
     white-space: nowrap;
 }

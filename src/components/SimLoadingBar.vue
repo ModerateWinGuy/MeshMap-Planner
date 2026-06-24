@@ -4,7 +4,7 @@
      visible after switching tabs, instead of only inside the panel that launched it. Hidden when no
      heavy sim is running. -->
 <template>
-    <div v-if="running" class="sim-loading" :style="{ bottom: bottomPx + 'px' }" role="status" aria-live="polite">
+    <div v-if="running" class="sim-loading" :class="{ stacked: store.mapTiles.inFlight > 0 }" role="status" aria-live="polite">
         <LoaderCircle :size="14" class="spin" />
         <span class="label">{{ store.progress?.message || 'Starting…' }}</span>
         <div class="track">
@@ -34,16 +34,14 @@ const pct = computed(() => {
     const f = store.progress?.fraction
     return typeof f === 'number' ? Math.round(Math.min(Math.max(f, 0), 1) * 100) : null
 })
-
-// Sit above the tile loader (MapLoadingBar, bottom:10px) while it's visible; otherwise drop to the
-// bottom so a compute-only phase isn't left floating with a gap beneath it.
-const bottomPx = computed(() => (store.mapTiles.inFlight > 0 ? 44 : 10))
 </script>
 
 <style scoped>
 .sim-loading {
     position: absolute;
-    /* bottom is set inline so the bar stacks above the tile bar only while that one is showing. */
+    /* Sits above the tile loader (MapLoadingBar) only while that one is showing; otherwise drops to
+       the bottom so a compute-only phase isn't left floating with a gap beneath it. */
+    bottom: 10px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 900;
@@ -57,6 +55,22 @@ const bottomPx = computed(() => (store.mapTiles.inFlight > 0 ? 44 : 10))
     font-size: 12px;
     pointer-events: none;
     transition: bottom 0.15s ease;
+}
+
+.sim-loading.stacked {
+    bottom: 44px;
+}
+
+/* Phone's fixed bottom tab bar covers this corner — push above it (same --tabbar-clearance offset
+   as MapLoadingBar). Was previously an inline :style binding for the stacked/unstacked bottom value,
+   which would have out-prioritized any CSS override here — moved to a class so this can apply. */
+@media (max-width: 767px) {
+    .sim-loading {
+        bottom: calc(var(--tabbar-clearance) + 10px + env(safe-area-inset-bottom));
+    }
+    .sim-loading.stacked {
+        bottom: calc(var(--tabbar-clearance) + 44px + env(safe-area-inset-bottom));
+    }
 }
 
 .label {

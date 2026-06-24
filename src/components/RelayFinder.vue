@@ -1,5 +1,5 @@
 <template>
-    <div style="min-width: 260px;">
+    <div class="panel-min-width">
         <p v-if="store.nodes.length < 2" class="text-muted small mb-0">
             Add at least two nodes to find a relay site.
         </p>

@@ -80,6 +80,10 @@ body {
   height: 100vh;
   padding-top: 56px;
   box-sizing: border-box;
+  /* Containing block for the tablet sidebar-collapse handle, which is a sibling of .sidebar (not a
+     child) so .sidebar's own overflow:hidden can't clip it once the sidebar collapses to 0 width. No
+     visual effect on desktop: position:relative alone doesn't move a statically-laid-out box. */
+  position: relative;
 }
 
 .sidebar {
@@ -108,6 +112,12 @@ body {
 /* The computed-coverage results stay pinned below the mode area, visible in every mode. */
 .sidebar .results-pinned {
   flex: 0 0 auto;
+}
+
+/* Viewshed/Terrain/RelayFinder panels want a comfortable minimum width for their sliders/inputs —
+   scoped to .sidebar so it has no effect inside the (narrower) phone bottom-sheet body. */
+.sidebar .panel-min-width {
+  min-width: 260px;
 }
 
 /* Map column holds the map and (when a point-to-point profile is active) the docked bottom strip.
@@ -258,4 +268,258 @@ body {
 .info-tip-popover .popover-body {
   font-size: 0.8125rem;
   line-height: 1.4;
+}
+
+/* ── Responsive layout (phone / tablet) ──────────────────────────────────────
+   Everything below is additive: desktop (>=1024px) renders the rules above
+   exactly as before. Phone (<768px) replaces the navbar/sidebar with a
+   bottom-sheet UI; tablet (768-1023px) keeps the sidebar but narrows it.
+   Breakpoints are literal pixels, not Bootstrap's `lg` (992px) — see the
+   responsive-redesign plan for why. */
+
+/* Mobile design tokens — palette from the design handoff doc's "Design
+   Tokens" table (Mobile responsive redesign/design_handoff_mobile_responsive/
+   README.md). Not present elsewhere in this file; centralised here rather
+   than inlined so every new phone/tablet rule traces back to the same spec. */
+:root {
+  --surface-tabbar: #1a1d20;
+  --surface-input: #2b3035;
+  --border-input: #495057;
+  --text-muted-tab: #9aa0a6;
+  --text-icon-idle: #ced4da;
+  --scrim: rgba(0, 0, 0, 0.4);
+  /* Space the bottom tab bar occupies — shared by the bottom sheet's resting position and the
+     MapLibre bottom-corner controls (zoom, compass, scale, measure, location search) so they all
+     clear the bar by the same amount instead of three independently-eyeballed numbers. */
+  --tabbar-clearance: 56px;
+}
+
+@media (max-width: 767px) {
+  .content-row {
+    padding-top: 46px;
+  }
+
+  .phone-appbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 46px;
+    z-index: 1300;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px;
+    background: #212529;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .phone-appbar-title {
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  /* SharedLinkBanner assumes the 56px desktop navbar (top:64px); the phone app bar is only 46px. */
+  .share-banner {
+    top: 54px;
+  }
+
+  .bottom-tab-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1300;
+    display: flex;
+    background: var(--surface-tabbar);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 7px 4px max(9px, env(safe-area-inset-bottom));
+  }
+  .bottom-tab-bar .tab {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-height: 44px;
+    color: var(--text-muted-tab);
+    font-size: 9.5px;
+    font-weight: 500;
+    background: none;
+    border: 0;
+  }
+  .bottom-tab-bar .tab.active {
+    color: var(--accent-bright);
+    font-weight: 600;
+  }
+
+  /* Fixed to the viewport (not .map-col) — on phone the map is the only full-bleed surface, so
+     anchoring to the viewport's top-center lands in the same visual spot regardless of map-col width.
+     A single centered row (rather than a clump pinned to one corner) keeps every button a one-thumb
+     reach and leaves both map corners free for MapLibre's own controls / future overlays; the row
+     sizes to its content (not the full width) so the tight button-to-button spacing stays the same. */
+  .map-tool-row {
+    position: fixed;
+    top: 52px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1150;
+    display: flex;
+    gap: 4px;
+    background: #212529;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 11px;
+    padding: 4px;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+  }
+  .tool-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 7px;
+    border: 0;
+    background: transparent;
+    color: var(--text-icon-idle);
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tool-btn.active {
+    background: var(--accent-red);
+    color: #fff;
+  }
+  .tool-btn:disabled {
+    opacity: 0.4;
+  }
+
+  /* No physical keyboard on phone, so the shortcuts-help control has nothing to document. */
+  .hotkey-help-ctrl {
+    display: none;
+  }
+
+  .sheet-scrim {
+    position: fixed;
+    inset: 0;
+    background: var(--scrim);
+    z-index: 1190;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease-out;
+  }
+  .sheet-scrim.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* MapLibre's own bottom-corner controls (zoom/compass bottom-left, scale bottom-right, plus the
+     measure/hotkey-help/location-search buttons stacked above the zoom control) default to a 10px
+     margin from the viewport edge — which the fixed bottom tab bar now covers. Bump them up by the
+     bar's height (qualified with .maplibregl-map so this beats maplibre-gl.css's own same-specificity
+     rule regardless of stylesheet load order). */
+  .maplibregl-map .maplibregl-ctrl-bottom-left,
+  .maplibregl-map .maplibregl-ctrl-bottom-right {
+    margin-bottom: calc(var(--tabbar-clearance) + 10px + env(safe-area-inset-bottom));
+  }
+
+  .bottom-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--tabbar-clearance);
+    z-index: 1200;
+    display: flex;
+    flex-direction: column;
+    background: #212529;
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
+    transition: transform 0.25s ease-out;
+  }
+  .bottom-sheet.dragging {
+    transition: none;
+  }
+  .bottom-sheet .sheet-handle {
+    flex: 0 0 auto;
+    width: 36px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.4);
+    margin: 8px auto 0;
+    touch-action: none;
+  }
+  .bottom-sheet .sheet-title-row {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 14px;
+  }
+  .bottom-sheet .sheet-title {
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .bottom-sheet .sheet-close-hint {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--text-muted-tab);
+    font-size: 10.5px;
+  }
+  .bottom-sheet .sheet-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0 14px 14px;
+    min-width: 0;
+  }
+  .bottom-sheet .sheet-footer {
+    flex: 0 0 auto;
+    padding: 10px 14px max(10px, env(safe-area-inset-bottom));
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .sidebar {
+    width: 300px;
+    flex: 0 0 300px;
+    transition: flex-basis 0.2s ease, width 0.2s ease, padding 0.2s ease;
+  }
+  .sidebar.collapsed {
+    width: 0;
+    flex: 0 0 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  /* Sibling of .sidebar (not a child) so it isn't clipped by .sidebar's own overflow:hidden — it
+     needs to stay visible/clickable even when the sidebar it controls is fully collapsed. Positioned
+     against .content-row (see its position:relative above); `right` tracks the sidebar's current
+     width so the handle always straddles the map/sidebar boundary, collapsed or not. */
+  .sidebar-collapse-handle {
+    position: absolute;
+    top: 50%;
+    right: 300px;
+    transform: translate(50%, -50%);
+    width: 22px;
+    height: 44px;
+    border-radius: 0 6px 6px 0;
+    background: #212529;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-left: 0;
+    color: var(--text-icon-idle);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    transition: right 0.2s ease;
+  }
+  .sidebar-collapse-handle.collapsed {
+    right: 0;
+  }
 }

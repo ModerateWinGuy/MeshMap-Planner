@@ -3,18 +3,7 @@
        select dropdown over a WebGL canvas gets closed instantly by focus handling. This is the shared
        control body — BasemapControl wraps it as the floating on-map overlay, and Settings renders it
        inline in the sidebar. -->
-  <div class="btn-group-vertical shadow w-100" role="group" aria-label="Basemap">
-    <button
-      v-for="b in store.availableBasemaps"
-      :key="b.id"
-      type="button"
-      class="btn btn-sm text-start"
-      :class="store.activeBasemap === b.id ? 'btn-primary' : 'btn-light'"
-      @click="store.setBasemap(b.id)"
-    >
-      {{ b.label }}
-    </button>
-  </div>
+  <BasemapPicker />
   <button
     type="button"
     class="btn btn-sm shadow w-100 mt-2"
@@ -82,5 +71,6 @@
 <script setup lang="ts">
 import { useStore } from '../store.ts'
 import { Lock, LockOpen, Waypoints, ScanEye } from '@lucide/vue'
+import BasemapPicker from './BasemapPicker.vue'
 const store = useStore()
 </script>

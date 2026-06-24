@@ -329,6 +329,14 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
     flex-direction: column;
     font-size: 12px;
 }
+/* 500px is taller than many phone screens in portrait — cap it so it can't push the bottom tab
+   bar/sheet off-screen. Doesn't address full layering with the tab bar (no phone treatment is
+   specified for this panel yet); just stops it eating the whole viewport. */
+@media (max-width: 767px) {
+    .profile-strip {
+        height: 50vh;
+    }
+}
 .profile-close {
     position: absolute;
     top: 4px;

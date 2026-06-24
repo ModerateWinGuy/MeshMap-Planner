@@ -33,7 +33,7 @@ To generate a link profile:
 
 1. Add two nodes to the map
 2. Select one, shift + click the other and then click "Calculate link & Show Profile"
-3. You can go to the Link Finder tab to fine tune your settings, or bulk calculate links on the map.
+3. You can go to the Links tab to fine tune your settings, or bulk calculate links on the map.
 4. Click 3D and Links on the left hand side of the map will allow you to visualize all of the calculated links in 3D.
 
 ### Relay Finder
