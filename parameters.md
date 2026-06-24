@@ -41,6 +41,33 @@ Choose your receiver sensitivity based on the channel (defaults to `LongFast`). 
 | **LONG_SLOW**     | SF12                 | 125 kHz        | ~ -144.5 dBm          |
 | **VERY_LONG_SLOW**| SF12                 | 62.5 kHz       | ~ -147.5 dBm          |
 
+### Approximate Sensitivities for MeshCore Presets:
+
+MeshCore's region presets bundle a frequency together with the spreading factor / bandwidth, unlike Meshtastic where frequency is set independently per node.
+
+| Preset                          | Frequency   | Spreading Factor (SF) | Bandwidth (BW) | Estimated Sensitivity |
+|----------------------------------|-------------|-----------------------|-----------------|-----------------------|
+| **Australia**                   | 915.8 MHz   | SF10                 | 250 kHz         | ~ -129 dBm            |
+| **Australia (Narrow)**          | 916.575 MHz | SF7                  | 62.5 kHz        | ~ -127.5 dBm          |
+| **Australia (Mid)**             | 915.075 MHz | SF9                  | 125 kHz         | ~ -129.5 dBm          |
+| **Australia: SA, WA**           | 923.125 MHz | SF8                  | 62.5 kHz        | ~ -130 dBm            |
+| **Australia: QLD**              | 923.125 MHz | SF8                  | 62.5 kHz        | ~ -130 dBm            |
+| **Brazil**                      | 923.125 MHz | SF8                  | 62.5 kHz        | ~ -130 dBm            |
+| **EU/UK (Narrow)**              | 869.618 MHz | SF8                  | 62.5 kHz        | ~ -130 dBm            |
+| **EU/UK (Deprecated)**          | 869.525 MHz | SF11                 | 250 kHz         | ~ -131.5 dBm          |
+| **Czech Republic (Narrow)**     | 869.432 MHz | SF7                  | 62.5 kHz        | ~ -127.5 dBm          |
+| **EU 433MHz (Long Range)**      | 433.65 MHz  | SF11                 | 250 kHz         | ~ -131.5 dBm          |
+| **EU 433MHz (Narrow)**          | 433.65 MHz  | SF8                  | 62.5 kHz        | ~ -130 dBm            |
+| **Netherlands**                 | 869.618 MHz | SF7                  | 62.5 kHz        | ~ -127.5 dBm          |
+| **New Zealand**                 | 917.375 MHz | SF11                 | 250 kHz         | ~ -131.5 dBm          |
+| **New Zealand (Narrow)**        | 917.375 MHz | SF7                  | 62.5 kHz        | ~ -127.5 dBm          |
+| **Portugal 433**                | 433.375 MHz | SF9                  | 62.5 kHz        | ~ -132.5 dBm          |
+| **Portugal 868**                | 869.618 MHz | SF7                  | 62.5 kHz        | ~ -127.5 dBm          |
+| **Switzerland**                 | 869.618 MHz | SF8                  | 62.5 kHz        | ~ -130 dBm            |
+| **USA/Canada (Recommended)**    | 910.525 MHz | SF7                  | 62.5 kHz        | ~ -127.5 dBm          |
+| **Vietnam (Narrow)**            | 920.25 MHz  | SF8                  | 62.5 kHz        | ~ -130 dBm            |
+| **Vietnam (Deprecated)**        | 920.25 MHz  | SF11                 | 250 kHz         | ~ -131.5 dBm          |
+
 Using the `RX Boosted Gain` feature on devices which have the SX1262 chipset will result in improved sensitivies. Refer to the Semtech datasheet: https://www.semtech.com/products/wireless-rf/lora-connect/sx1262.
 
 ## Environmental Parameters

@@ -16,13 +16,30 @@ The terrain elevation tiles are streamed directly from Mapterhorn (https://mapte
 
 ## Usage
 
+### Coverage
+
 The minimal steps for creating a mesh coverage prediction are:
 
 1. Open the [hosted site](https://moderatewinguy.github.io/MeshMap-Planner/) in a web browser (or run your own copy — see [Building](#building)).
-2. In `Site Parameters > Site / Transmitter`, enter a name for the site, the geographic coordinates, and the antenna height above ground. Input the transmit power, frequency, and antenna gain for your device — for Meshtastic devices you can refer to the regional parameters (https://meshtastic.org/docs/configuration/region-by-country/).
-3. In `Site Parameters > Receiver`, enter the receiver sensitivity (`-130 dBm` for the default `LongFast` channel), the receiver height, and the receiver antenna gain.
-4. In `Site Parameters > Receiver`, enter the maximum range for the simulation in kilometers. Selecting long ranges (> 50 kilometers) will result in longer computation times.
-5. Press "Run Simulation." The coverage map will be displayed when the calculation completes.
+2. Go to the settings tab and select your radio preset for your region
+3. Add a node by right clicking on the map > Add node here, or by pressing A on the keyboard.
+4. Drag the node to exactly where you want it if you need to adjust the position
+5. Configure your node's settings in the node settings panel (In the nodes tab)
+6. Go to the coverage tab and click "Run Simulation" or press the keyboard shortcut "C"
+   
+### Link Profile
+
+To generate a link profile:
+
+1. Add two nodes to the map
+2. Select one, shift + click the other and then click "Calculate link & Show Profile"
+3. You can go to the Link Finder tab to fine tune your settings, or bulk calculate links on the map.
+4. Click 3D and Links on the left hand side of the map will allow you to visualize all of the calculated links in 3D.
+
+### Relay Finder
+The relay finder calculates the coverage for two nodes and then shows where they overlap, for when you want to find a way to link two nodes.
+
+Simply select one node, shift click another, and then you'll get a heatmap like the coverage map that shows the overlap. It'll also present some points that show some possible node locations with good margins that you can use to create nodes from.
 
 Multiple radio sites can be added to the simulation by repeating these steps. For a detailed explanation of the other adjustable parameters, see [parameters.md](parameters.md).
 
