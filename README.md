@@ -30,7 +30,7 @@ Multiple radio sites can be added to the simulation by repeating these steps. Fo
 
 This tool runs a physics simulation that depends on several assumptions. The most important ones are:
 
-1. The terrain model is accurate to its source resolution, capped at the app's own terrain zoom ceiling — roughly 7-8 m over New Zealand (LINZ LiDAR) and ~30 m elsewhere (Copernicus GLO-30).
+1. The terrain model is accurate to its source resolution, capped at the app's own terrain zoom ceiling. Mapterhorn bakes in higher-resolution national LiDAR/DEM datasets for many countries (e.g. ~4 m for New Zealand's LINZ data) over a ~30 m Copernicus GLO-30 baseline everywhere else — see Mapterhorn's [source attribution list](https://mapterhorn.com/attribution) for the full per-country breakdown.
 2. There are no obstructions besides terrain that attenuate radio signals — trees, buildings, and transient effects like precipitation are not modeled directly (they can be approximated with the clutter-height parameter).
 3. Antennas are isotropic in the horizontal plane (we do not account for directional antennas).
 4. Reflections from the upper atmosphere (skywave propagation) are negligible. This is less accurate when the signal frequency is low (less than approximately 50 MHz).
