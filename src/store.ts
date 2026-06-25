@@ -513,7 +513,8 @@ class HotkeyHelpControl implements maplibregl.IControl {
   private popover: Popover | null = null;
   onAdd(): HTMLElement {
     this.container = document.createElement('div');
-    this.container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    // hotkey-help-ctrl is a hook for hiding the whole control on phone (no keyboard to document).
+    this.container.className = 'maplibregl-ctrl maplibregl-ctrl-group hotkey-help-ctrl';
     this.button = document.createElement('button');
     this.button.type = 'button';
     this.button.className = 'hotkey-help-btn';
@@ -691,6 +692,9 @@ const useStore = defineStore('store', {
       // When set, node markers are non-draggable so they can't be moved by accident. Persisted so
       // the lock survives a reload. Manual lat/lon edits in the panel still apply either way.
       nodesLocked: useLocalStorage('nodesLocked', false),
+      // Tablet layout: collapses the sidebar to give the map full width. A standing layout
+      // preference (like activeBasemap/terrainEnabled), not transient UI state, so it's persisted.
+      sidebarCollapsed: useLocalStorage('sidebarCollapsed', false),
       // Measure tool: committed vertices [lng,lat], plus the live cursor that draws the rubber-band
       // preview segment out to the pointer.
       measureActive: false,
@@ -877,6 +881,9 @@ const useStore = defineStore('store', {
     toggleNodesLock() {
       this.nodesLocked = !this.nodesLocked;
       this.renderNodeMarkers(); // re-render flips setDraggable on every existing marker
+    },
+    toggleSidebarCollapsed() {
+      this.sidebarCollapsed = !this.sidebarCollapsed;
     },
     toggleMeasure() {
       this.measureActive = !this.measureActive;

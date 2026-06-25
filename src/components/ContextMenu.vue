@@ -123,7 +123,9 @@ onBeforeUnmount(() => {
 <style scoped>
 .context-menu {
   position: absolute;
-  z-index: 1100;
+  /* Above the phone bottom-sheet/scrim (z-index 1190/1200, see style.css) so a map long-press menu
+     isn't trapped beneath an open sheet. */
+  z-index: 1250;
   min-width: 180px;
 }
 </style>

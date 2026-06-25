@@ -1,6 +1,47 @@
 <template>
-  <div>
-    <nav class="navbar navbar-dark bg-dark fixed-top">
+  <div :data-regime="regime">
+    <!-- Phone app bar replaces the desktop/tablet navbar — no room for the mode-toggle segmented
+         control, so mode switching moves to BottomTabBar at the bottom of the screen instead. -->
+    <header v-if="regime === 'phone'" class="phone-appbar">
+      <span class="d-inline-flex align-items-center gap-2">
+        <Radio :size="20" class="brand-icon" aria-label="MeshMap Planner Logo" />
+        <span class="phone-appbar-title">MeshMap Planner</span>
+      </span>
+      <div class="dropdown">
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-light dropdown-toggle d-inline-flex align-items-center gap-1"
+          data-bs-toggle="dropdown"
+          aria-expanded="false"
+          :disabled="!store.nodes.length"
+          :title="shareCopied ? 'Link copied!' : 'Share nodes as a link'"
+        >
+          <component :is="shareCopied ? Check : Share2" :size="14" />
+          {{ shareCopied ? 'Copied!' : 'Share' }}
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end" data-bs-theme="dark">
+          <li>
+            <button
+              type="button"
+              class="dropdown-item d-flex align-items-center gap-2"
+              :disabled="!store.selectedNode"
+              @click="shareSelectedNode"
+            >
+              <RadioTower :size="15" />
+              <span class="text-truncate">Selected node<template v-if="store.selectedNode">: {{ store.selectedNode.transmitter.name }}</template></span>
+            </button>
+          </li>
+          <li><hr class="dropdown-divider" /></li>
+          <li>
+            <button type="button" class="dropdown-item d-flex align-items-center gap-2" @click="shareSite">
+              <MapIcon :size="15" /> Whole site ({{ store.nodes.length }})
+            </button>
+          </li>
+        </ul>
+      </div>
+    </header>
+
+    <nav v-else class="navbar navbar-dark bg-dark fixed-top">
       <div class="container-fluid position-relative">
         <a class="navbar-brand d-inline-flex align-items-center gap-2" href="#">
           <Radio :size="30" class="brand-icon" aria-label="MeshMap Planner Logo" />
@@ -91,78 +132,37 @@
         <MapLoadingBar />
         <SimLoadingBar />
         <MeasurePanel v-if="store.measureActive" />
-        <LocationSearchPanel v-if="store.locationSearchActive" />
+        <LocationSearchPanel v-if="store.locationSearchActive && regime !== 'phone'" />
         <ContextMenu v-if="store.contextMenu" />
-        <ProfilePanel v-if="store.profileResult || store.profileState === 'running' || store.profileState === 'failed'" />
+        <ProfilePanel v-if="profileActive && regime !== 'phone'" />
       </div>
       <!-- data-bs-theme="dark" puts every Bootstrap component in this dark sidebar onto its dark-mode
            palette (Bootstrap 5.3 color modes). Without it, descendants default to light-mode colours
            that vanish on the dark background: .form-text / .text-muted render near-black, and
            .list-group-item draws a white box (which hid the white close buttons on the coverage
            results and node list). -->
-      <aside class="sidebar text-bg-dark" data-bs-theme="dark">
+      <!-- Tablet collapse handle: a sibling of .sidebar (not a child), so it stays visible/clickable
+           against the boundary even once the sidebar it controls has collapsed to 0 width — see the
+           overflow:hidden note on .sidebar-collapse-handle in style.css. -->
+      <button
+        v-if="regime === 'tablet'"
+        type="button"
+        class="sidebar-collapse-handle"
+        :class="{ collapsed: store.sidebarCollapsed }"
+        @click="store.toggleSidebarCollapsed()"
+        :aria-label="store.sidebarCollapsed ? 'Expand panel' : 'Collapse panel'"
+        :title="store.sidebarCollapsed ? 'Expand panel' : 'Collapse panel'"
+      >
+        <component :is="store.sidebarCollapsed ? ChevronLeft : ChevronRight" :size="16" />
+      </button>
+      <aside
+        v-if="regime !== 'phone'"
+        class="sidebar text-bg-dark"
+        :class="{ collapsed: regime === 'tablet' && store.sidebarCollapsed }"
+        data-bs-theme="dark"
+      >
         <div class="mode-area">
-          <!-- One panel group visible per mode. v-show (not v-if) keeps every panel mounted so
-               component state survives mode switches and the map — initialised here in App, see the
-               onMounted hook — is never torn down by a panel unmount. -->
-          <div v-show="store.activeMode === 'nodes'">
-            <NodePanel />
-            <!-- The transmitter/receiver editors only make sense once a node exists; hiding them when
-                 the list is empty leaves NodePanel's single "Add a node to begin." prompt, instead of
-                 each panel repeating its own "no node selected" message. -->
-            <template v-if="store.nodes.length">
-              <hr />
-              <Transmitter />
-              <hr />
-              <Receiver />
-            </template>
-          </div>
-
-          <div v-show="store.activeMode === 'radio'">
-            <Environment />
-            <hr />
-            <LoRaPreset />
-            <hr />
-            <Simulation />
-          </div>
-
-          <div v-show="store.activeMode === 'coverage'">
-            <Display />
-            <div class="mt-3 d-flex gap-2">
-              <button :disabled="store.simulationState === 'running' || !store.selectedNode" @click="store.runSimulation" type="button" class="btn btn-success btn-sm w-100" id="runSimulation">
-                <span :class="{ 'd-none': store.simulationState !== 'running' }" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                <span class="button-text">{{ buttonText() }}</span>
-              </button>
-            </div>
-            <!-- Detailed coverage progress now rides the global SimLoadingBar (bottom of the map), so it
-                 stays visible from any tab / the C shortcut; the button spinner above is the in-panel cue. -->
-          </div>
-
-          <div v-show="store.activeMode === 'viewshed'">
-            <Viewshed />
-          </div>
-
-          <div v-show="store.activeMode === 'linkfinder'">
-            <LinkMatrix />
-            <hr />
-            <RelayFinder />
-          </div>
-
-          <div v-show="store.activeMode === 'import'">
-            <!-- These importers are MeshCore-specific: a MeshCore contacts export, or live nodes from
-                 the MeshCore public maps. Spelled out here so users don't expect other mesh networks. -->
-            <p class="small text-secondary mb-3">
-              Import nodes from <strong>MeshCore</strong> — from a contacts export file, or pulled live
-              from the public maps for your current view.
-            </p>
-            <ContactImport />
-            <hr />
-            <PublicMapSync />
-          </div>
-
-          <div v-show="store.activeMode === 'settings'">
-            <Terrain />
-          </div>
+          <ModePanels />
         </div>
 
         <!-- Computed-coverage results: pinned below the mode area so they stay visible (and
@@ -183,7 +183,55 @@
         </ul>
       </aside>
     </div>
-    <BasemapControl />
+    <BasemapControl v-if="regime !== 'phone'" />
+    <template v-if="regime === 'phone'">
+      <MapToolRow />
+      <BottomTabBar :open-mode="sheetOpen ? store.activeMode : null" @tap="onTabTap" @toggle-more="moreSheetOpen = !moreSheetOpen" />
+      <BottomSheet v-model="sheetOpen" v-model:detent="sheetDetent" :title="activeModeLabel">
+        <ModePanels node-footer="external" />
+        <template v-if="store.activeMode === 'nodes'" #footer>
+          <NodePanelFooter />
+        </template>
+      </BottomSheet>
+      <!-- Overflow for the 3 modes that don't get their own bottom tab. A 3-item list doesn't need
+           half/full detents, so it's pinned to peek. -->
+      <BottomSheet v-model="moreSheetOpen" detent="peek" :detents="['peek']" title="More">
+        <ul class="list-group">
+          <li
+            v-for="m in overflowModes"
+            :key="m.id"
+            class="list-group-item d-flex align-items-center gap-2"
+            role="button"
+            @click="openOverflow(m.id)"
+          >
+            <component :is="m.icon" :size="18" />
+            {{ m.label }}
+          </li>
+        </ul>
+      </BottomSheet>
+      <!-- The native MapLibre search button (bottom-left) toggles store.locationSearchActive same as
+           on desktop; on phone the results render in a sheet instead of the absolute-positioned panel
+           (which the fixed bottom tab bar would otherwise cover). -->
+      <BottomSheet
+        :model-value="store.locationSearchActive"
+        @update:model-value="(open: boolean) => { if (!open) store.closeLocationSearch() }"
+        detent="peek"
+        :detents="['peek']"
+        title="Search location"
+      >
+        <LocationSearchPanel embedded />
+      </BottomSheet>
+      <!-- Point-to-point link profile: docked below the map on desktop/tablet, a sheet here so it
+           doesn't get stuck under the top tool row or fight the bottom tab bar for screen space. -->
+      <BottomSheet
+        :model-value="profileActive"
+        @update:model-value="(open: boolean) => { if (!open) store.clearProfile() }"
+        detent="half"
+        title="Link Profile"
+      >
+        <ProfilePanel embedded />
+      </BottomSheet>
+    </template>
   </div>
 </template>
 
@@ -192,21 +240,13 @@ import "maplibre-gl/dist/maplibre-gl.css"
 // Bootstrap's CSS is imported in main.ts (before style.css) so our theme overrides win; only the JS
 // bundle (popovers/dropdowns) is needed here.
 import "bootstrap/dist/js/bootstrap.bundle.min.js"
-import { onMounted, onUnmounted } from "vue"
-import NodePanel from "./components/NodePanel.vue"
-import LinkMatrix from "./components/LinkMatrix.vue"
-import RelayFinder from "./components/RelayFinder.vue"
-import Transmitter from "./components/Transmitter.vue"
-import Receiver from "./components/Receiver.vue"
-import Environment from "./components/Environment.vue"
-import LoRaPreset from "./components/LoRaPreset.vue"
-import Simulation from "./components/Simulation.vue"
-import Display from "./components/Display.vue"
-import Viewshed from "./components/Viewshed.vue"
-import Terrain from "./components/Terrain.vue"
+import { computed, onMounted, onUnmounted, ref } from "vue"
+import ModePanels from "./components/ModePanels.vue"
 import BasemapControl from "./components/BasemapControl.vue"
-import ContactImport from "./components/ContactImport.vue"
-import PublicMapSync from "./components/PublicMapSync.vue"
+import BottomTabBar from "./components/BottomTabBar.vue"
+import BottomSheet from "./components/BottomSheet.vue"
+import NodePanelFooter from "./components/NodePanelFooter.vue"
+import MapToolRow from "./components/MapToolRow.vue"
 import SharedLinkBanner from "./components/SharedLinkBanner.vue"
 import ProfilePanel from "./components/ProfilePanel.vue"
 import MapLoadingBar from "./components/MapLoadingBar.vue"
@@ -214,7 +254,7 @@ import SimLoadingBar from "./components/SimLoadingBar.vue"
 import MeasurePanel from "./components/MeasurePanel.vue"
 import LocationSearchPanel from "./components/LocationSearchPanel.vue"
 import ContextMenu from "./components/ContextMenu.vue"
-import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical, ScanEye, Share2, Check, FolderInput, Bug } from "@lucide/vue"
+import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical, ScanEye, Share2, Check, FolderInput, Bug, ChevronLeft, ChevronRight } from "@lucide/vue"
 import type { Component } from "vue"
 
 import { useStore } from './store.ts'
@@ -224,6 +264,32 @@ import { nodeToShared } from './utils.ts'
 import { trackEvent } from './analytics.ts'
 import type { UiMode } from './types.ts'
 const store = useStore()
+
+// Phone (<768px) and tablet (768-1023px) get a different layout shell; desktop (>=1024px) renders
+// today's markup untouched. matchMedia (not a resize listener) only fires on the 2 regime
+// transitions, never on every drag-resize pixel; CSS media queries still own the actual chrome sizing.
+const PHONE_MAX = 767
+const TABLET_MAX = 1023
+function useRegime() {
+  const phoneMq = window.matchMedia(`(max-width: ${PHONE_MAX}px)`)
+  const tabletMq = window.matchMedia(`(min-width: ${PHONE_MAX + 1}px) and (max-width: ${TABLET_MAX}px)`)
+  const regime = ref<'phone' | 'tablet' | 'desktop'>(
+    phoneMq.matches ? 'phone' : tabletMq.matches ? 'tablet' : 'desktop'
+  )
+  const update = () => {
+    regime.value = phoneMq.matches ? 'phone' : tabletMq.matches ? 'tablet' : 'desktop'
+  }
+  onMounted(() => {
+    phoneMq.addEventListener('change', update)
+    tabletMq.addEventListener('change', update)
+  })
+  onUnmounted(() => {
+    phoneMq.removeEventListener('change', update)
+    tabletMq.removeEventListener('change', update)
+  })
+  return regime
+}
+const regime = useRegime()
 
 // Share-menu actions. `shareCopied` flips the toggle to a brief "Copied!" after any item copies.
 const { copied: shareCopied, share: shareLink } = useShareLink()
@@ -246,12 +312,47 @@ function shareSite() {
 const MODES = [
   { id: 'nodes', label: 'Nodes', icon: RadioTower },
   { id: 'coverage', label: 'Coverage', icon: MapIcon },
-  { id: 'linkfinder', label: 'Link Finder', icon: Link },
+  { id: 'linkfinder', label: 'Links', icon: Link },
   { id: 'viewshed', label: 'Viewshed', icon: ScanEye },
   { id: 'radio', label: 'Simulation Settings', icon: WifiCog },
   { id: 'settings', label: 'Settings', icon: SlidersVertical },
   { id: 'import', label: 'Import', icon: FolderInput },
 ] as const satisfies ReadonlyArray<{ id: UiMode; label: string; icon: Component }>
+
+const activeModeLabel = computed(() => MODES.find((m) => m.id === store.activeMode)?.label ?? '')
+
+// Whether a point-to-point link profile exists to show — shared by the desktop/tablet docked strip
+// and the phone sheet below, so the two stay in sync without duplicating the condition.
+const profileActive = computed(() =>
+  !!store.profileResult || store.profileState === 'running' || store.profileState === 'failed'
+)
+
+// Phone bottom sheet. Not persisted (see the responsive-redesign plan's state-ownership table) —
+// reload should always land on the map-home rest state, sheet closed. `store.activeMode` (already
+// persisted) stays the single source of truth for *which* mode is showing across all three regimes;
+// these two only track whether the sheet for that mode is currently raised.
+const sheetOpen = ref(false)
+const sheetDetent = ref<'peek' | 'half' | 'full'>('half')
+function onTabTap(mode: UiMode) {
+  if (sheetOpen.value && store.activeMode === mode) {
+    sheetOpen.value = false // re-tapping the lit tab closes its sheet
+    return
+  }
+  store.activeMode = mode
+  sheetOpen.value = true
+  sheetDetent.value = 'half'
+}
+
+// "More" overflow: the 3 modes that don't have their own bottom tab. Reuses BottomSheet for visual/
+// behavioral consistency (same scrim, same drag-to-dismiss) rather than a second sheet pattern.
+const moreSheetOpen = ref(false)
+const overflowModes = MODES.filter((m) => m.id === 'radio' || m.id === 'settings' || m.id === 'import')
+function openOverflow(mode: UiMode) {
+  store.activeMode = mode
+  moreSheetOpen.value = false
+  sheetOpen.value = true
+  sheetDetent.value = 'half'
+}
 
 // The map belongs to the app shell, not any one panel — init/destroy here so switching modes (which
 // only toggles panel visibility via v-show) never tears the map down.
@@ -268,16 +369,6 @@ onUnmounted(() => {
   removeKeyboardShortcuts?.()
   removeKeyboardShortcuts = null
 })
-
-const buttonText = () => {
-  if ('running' === store.simulationState) {
-    return 'Running'
-  } else if ('failed' === store.simulationState) {
-    return 'Failed'
-  } else {
-    return 'Run Simulation'
-  }
-}
 </script>
 
 <style>
