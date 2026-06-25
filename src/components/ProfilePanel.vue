@@ -1,5 +1,8 @@
 <template>
-    <div class="profile-strip text-bg-dark" data-bs-theme="dark">
+    <div
+        :class="['profile-strip', embedded ? 'profile-embedded' : 'text-bg-dark']"
+        :data-bs-theme="embedded ? null : 'dark'"
+    >
         <ShareButton
             v-if="linkPayload()"
             :payload="linkPayload"
@@ -8,7 +11,9 @@
             label="Share link"
             :size="18"
         />
-        <button type="button" class="btn btn-sm p-0 border-0 bg-transparent lh-1 profile-close" aria-label="Close profile" title="Close" @click="store.clearProfile()">
+        <!-- Redundant with the sheet's own close affordances (scrim tap / swipe down / chevron) when
+             embedded — hidden there rather than wired to a second close path. -->
+        <button v-if="!embedded" type="button" class="btn btn-sm p-0 border-0 bg-transparent lh-1 profile-close" aria-label="Close profile" title="Close" @click="store.clearProfile()">
             <X :size="20" />
         </button>
         <button
@@ -33,7 +38,7 @@
         <template v-else-if="store.profileResult">
             <!-- Header: endpoint identity on the corners, headline link budget across the middle. -->
             <div class="profile-header">
-                <div class="text-start">
+                <div class="text-start profile-left">
                     <div class="fw-bold text-info">{{ fromNode?.transmitter.name || 'Point A' }}</div>
                     <div class="text-muted">{{ fromCoord }} · {{ fromNode?.transmitter.tx_height ?? '?' }} m AGL</div>
                     <div class="text-muted" v-if="bearing !== null">{{ bearing.toFixed(1) }}° →</div>
@@ -103,6 +108,8 @@ import { interpGreatCircle } from '../sim/profile.ts'
 import { nodeToShared, type SharePayload } from '../utils.ts'
 import ShareButton from './ShareButton.vue'
 import type { ProfileCurve } from '../types.ts'
+
+const { embedded = false } = defineProps<{ embedded?: boolean }>()
 
 const store = useStore()
 
@@ -329,13 +336,47 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
     flex-direction: column;
     font-size: 12px;
 }
-/* 500px is taller than many phone screens in portrait — cap it so it can't push the bottom tab
-   bar/sheet off-screen. Doesn't address full layering with the tab bar (no phone treatment is
-   specified for this panel yet); just stops it eating the whole viewport. */
-@media (max-width: 767px) {
-    .profile-strip {
-        height: 50vh;
-    }
+/* Embedded in App.vue's phone BottomSheet instead of docked under the map — the sheet supplies the
+   background/scroll/close chrome, so this drops its own fixed height/border in favour of sizing to
+   content within the sheet's scrollable body. Higher specificity than the plain .profile-strip rules
+   above (including inside the max-width:767px block, since this is the only regime it's used in) so
+   it always wins regardless of source order. */
+.profile-strip.profile-embedded {
+    position: relative;
+    height: auto;
+    border-top: 0;
+    padding: 0;
+}
+.profile-embedded .profile-chart {
+    flex: none;
+    height: 20vh;
+}
+/* The chart's viewBox (1600x320, ~5:1) no longer matches the embedded box's much-squarer aspect
+   ratio now that it's short — preserveAspectRatio="none" scales x/y independently to fill the box, so
+   text glyphs get squished horizontally along with the chart lines. Counter-scale just the text back
+   out; fill-box/center keeps each label anchored at its own midpoint instead of sliding it. */
+.profile-embedded .profile-svg text {
+    transform-box: fill-box;
+    transform-origin: center;
+    transform: scaleX(1.3);
+}
+/* Desktop's 3-column header (endpoint A | stats | endpoint B) squeezes all three into one row —
+   fine in a wide docked strip, too tight in a phone-width sheet. Reflow into two rows instead: the
+   signal-budget stats get their own full-width row up top, with the two endpoints' name/coords/AGL
+   side by side underneath, so neither competes with the other for horizontal space. */
+.profile-embedded .profile-header {
+    flex-wrap: wrap;
+    row-gap: 0.4rem;
+}
+.profile-embedded .profile-stats {
+    order: -1;
+    flex: 1 1 100%;
+    justify-content: flex-start;
+}
+.profile-embedded .profile-left,
+.profile-embedded .profile-right {
+    flex: 1 1 0;
+    min-width: 0;
 }
 .profile-close {
     position: absolute;
@@ -428,5 +469,33 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
 .profile-svg .axis-title {
     fill: #c7d4e0;
     font-size: 16px;
+}
+
+/* 500px is taller than many phone screens in portrait — cap it (shorter than the desktop/tablet cap
+   above, since the smaller font sizes below need less room) so it can't push the bottom tab bar/sheet
+   off-screen. Sized close to the sheet's own "swipe down / tap map to close" hint text (10.5px in
+   style.css) so the header reads as secondary detail, not a desktop-sized headline crammed into a
+   drawer. Placed at the end of this block (not alongside .profile-strip near the top) so its rules
+   come after the unconditional .profile-header/.profile-stats declarations above — equal-specificity
+   CSS resolves ties by source order, so an earlier media query here would otherwise lose to those
+   later base rules regardless of the viewport width. */
+@media (max-width: 767px) {
+    .profile-strip {
+        height: 36vh;
+        font-size: 10px;
+    }
+    .profile-header {
+        font-size: 11px;
+    }
+    .profile-header .fw-bold {
+        font-size: 13px;
+    }
+    .profile-stats {
+        gap: 0.2rem 0.7rem;
+        font-size: 12px;
+    }
+    .profile-stats .badge {
+        font-size: 11px;
+    }
 }
 </style>

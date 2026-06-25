@@ -134,7 +134,7 @@
         <MeasurePanel v-if="store.measureActive" />
         <LocationSearchPanel v-if="store.locationSearchActive && regime !== 'phone'" />
         <ContextMenu v-if="store.contextMenu" />
-        <ProfilePanel v-if="store.profileResult || store.profileState === 'running' || store.profileState === 'failed'" />
+        <ProfilePanel v-if="profileActive && regime !== 'phone'" />
       </div>
       <!-- data-bs-theme="dark" puts every Bootstrap component in this dark sidebar onto its dark-mode
            palette (Bootstrap 5.3 color modes). Without it, descendants default to light-mode colours
@@ -220,6 +220,16 @@
         title="Search location"
       >
         <LocationSearchPanel embedded />
+      </BottomSheet>
+      <!-- Point-to-point link profile: docked below the map on desktop/tablet, a sheet here so it
+           doesn't get stuck under the top tool row or fight the bottom tab bar for screen space. -->
+      <BottomSheet
+        :model-value="profileActive"
+        @update:model-value="(open: boolean) => { if (!open) store.clearProfile() }"
+        detent="half"
+        title="Link Profile"
+      >
+        <ProfilePanel embedded />
       </BottomSheet>
     </template>
   </div>
@@ -310,6 +320,12 @@ const MODES = [
 ] as const satisfies ReadonlyArray<{ id: UiMode; label: string; icon: Component }>
 
 const activeModeLabel = computed(() => MODES.find((m) => m.id === store.activeMode)?.label ?? '')
+
+// Whether a point-to-point link profile exists to show — shared by the desktop/tablet docked strip
+// and the phone sheet below, so the two stay in sync without duplicating the condition.
+const profileActive = computed(() =>
+  !!store.profileResult || store.profileState === 'running' || store.profileState === 'failed'
+)
 
 // Phone bottom sheet. Not persisted (see the responsive-redesign plan's state-ownership table) —
 // reload should always land on the map-home rest state, sheet closed. `store.activeMode` (already
