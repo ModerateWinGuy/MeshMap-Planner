@@ -17,7 +17,7 @@
 // 4096² live-drag is a documented follow-up — it must be validated to match this pass pixel-for-
 // pixel before replacing it; that's the whole point of keeping this one as the oracle.
 
-import { type Heightmap, lngLatToMosaicPixel, mosaicMetresPerPixel } from './heightmap.ts';
+import { type Heightmap, viewshedOutputGeometry } from './heightmap.ts';
 
 // 1 / (2 · k · R) with k = 4/3, R = 6371000 m. Mirrors links3d.ts so the two LOS models agree.
 const INV_KR2 = 1 / (2 * (4 / 3) * 6371000);
@@ -100,7 +100,16 @@ export interface ComputeResult {
   coords: [[number, number], [number, number], [number, number], [number, number]]; // TL,TR,BR,BL lng/lat
 }
 
-export class ViewshedEngine {
+// Shape shared by every viewshed compute backend (this WebGPU engine and the WebGL2 fallback in
+// ./webgl2.ts), so store.ts can hold either behind one variable and a factory can try WebGPU first,
+// WebGL2 second, without the call sites caring which one it got.
+export interface ViewshedComputeEngine {
+  init(): Promise<boolean>;
+  compute(opts: ComputeOptions): Promise<ComputeResult>;
+  destroy(): void;
+}
+
+export class ViewshedEngine implements ViewshedComputeEngine {
   static isSupported(): boolean {
     return typeof navigator !== 'undefined' && !!navigator.gpu;
   }
@@ -201,12 +210,9 @@ export class ViewshedEngine {
     this.ensureOutBuffers(bytes);
 
     // Geometry: observer in output-pixel space, metres-per-output-pixel, and the output→mosaic scale.
-    const [mx, my] = lngLatToMosaicPixel(hm, opts.obsLon, opts.obsLat);
-    const outToMosaicX = hm.width / outW;
-    const outToMosaicY = hm.height / outH;
-    const mppOut = mosaicMetresPerPixel(hm, opts.obsLat) * outToMosaicX; // ≈ Y; pixels are ~square
-    const obsOutX = mx / outToMosaicX;
-    const obsOutY = my / outToMosaicY;
+    const { obsOutX, obsOutY, outToMosaicX, outToMosaicY, mppOut } = viewshedOutputGeometry(
+      hm, opts.obsLon, opts.obsLat, outW, outH,
+    );
 
     const p = new Float32Array(16);
     p[0] = outW; p[1] = outH;

@@ -112,6 +112,36 @@ export function mosaicMetresPerPixel(hm: Heightmap, lat: number): number {
   return (EQUATOR_MPP_Z0 * Math.max(0.01, Math.cos((lat * Math.PI) / 180))) / 2 ** hm.z;
 }
 
+// Shared by every viewshed compute engine (gpu.ts, webgl2.ts): places the observer in output-pixel
+// space and derives the output→mosaic scale + ground resolution, so each engine just plugs these into
+// its own Params/uniform upload instead of re-deriving the same mosaic geometry per backend.
+export interface ViewshedOutputGeometry {
+  obsOutX: number;
+  obsOutY: number;
+  outToMosaicX: number;
+  outToMosaicY: number;
+  mppOut: number; // metres per OUTPUT pixel (horizontal), ≈ vertical too since pixels are ~square
+}
+
+export function viewshedOutputGeometry(
+  hm: Heightmap,
+  obsLon: number,
+  obsLat: number,
+  outW: number,
+  outH: number,
+): ViewshedOutputGeometry {
+  const [mx, my] = lngLatToMosaicPixel(hm, obsLon, obsLat);
+  const outToMosaicX = hm.width / outW;
+  const outToMosaicY = hm.height / outH;
+  return {
+    obsOutX: mx / outToMosaicX,
+    obsOutY: my / outToMosaicY,
+    outToMosaicX,
+    outToMosaicY,
+    mppOut: mosaicMetresPerPixel(hm, obsLat) * outToMosaicX,
+  };
+}
+
 // Small LRU so live-dragging within an already-fetched area never refetches. Keyed by the resolved
 // template + zoom + tile range, so switching terrain source (a new template) misses → refetches.
 // Sized for a coverage LOD stack (up to LOD_MAX_LEVELS concentric mosaics) plus the matrix/relay

@@ -12,14 +12,14 @@
       </div>
     </div>
 
-    <!-- WebGPU is required for the compute pass; on browsers without it the mode is inert. -->
+    <!-- The compute pass needs WebGPU or, failing that, WebGL2; on a browser with neither the mode is inert. -->
     <div v-if="store.viewshedState === 'unsupported'" class="row mt-3">
       <div class="col-12">
         <div class="alert alert-warning py-2 px-3 mb-0 d-flex align-items-start gap-2">
           <TriangleAlert :size="18" class="flex-shrink-0 mt-1" />
           <span>
-            Viewshed needs a <strong>WebGPU-capable browser</strong> — Chrome/Edge, Safari&nbsp;18+, or a
-            recent Firefox. The rest of the app is unaffected.
+            Viewshed needs a browser with <strong>WebGPU or WebGL2</strong> support. The rest of the
+            app is unaffected.
           </span>
         </div>
       </div>

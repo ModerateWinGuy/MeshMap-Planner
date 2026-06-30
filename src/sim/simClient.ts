@@ -14,6 +14,11 @@ import type { CoverageNode, CoverageGrid, CoverageOptions } from './coverageType
 import type { RelayParams } from './relay.ts';
 import type { LinkResult, ProfileResult, RelayResult } from '../types.ts';
 import type { WireHeightmap, WireLodHeightmap } from './worker.ts';
+// The `?worker` suffix has Vite bundle the worker (and the wasm-embedding itm.js it imports) as a
+// classic script, so it loads on any browser with Worker support — unlike `new Worker(url, { type:
+// 'module' })`, which silently fails wherever ES-module workers aren't supported (old Safari, Firefox
+// pre-114, many Android WebViews), hanging every pending sim promise with no error.
+import SimWorker from './worker.ts?worker';
 
 // The active terrain tile source, resolved by the store from the map's zoom + overlay state.
 export interface SimSource {
@@ -82,21 +87,36 @@ let reqCounter = 0;
 // Per-LINK request map: each pipelined matrix link posts a `matrix-link` to the worker keyed by a fresh
 // id and resolves here on `matrix-link-done` (mirrors profileHandlers, one entry per pair in flight).
 let linkSeq = 0;
-const matrixLinkHandlers = new Map<number, (link: LinkResult) => void>();
+const matrixLinkHandlers = new Map<number, { resolve: (link: LinkResult) => void; reject: (e: unknown) => void }>();
 const profileHandlers = new Map<number, { resolve: (r: ProfileResult) => void; reject: (e: unknown) => void }>();
 const coverageHandlers = new Map<number, { onProgress?: CoverageRun['onProgress']; resolve: (g: CoverageGrid) => void; reject: (e: unknown) => void }>();
 const relayHandlers = new Map<number, { onProgress?: RelayRun['onProgress']; resolve: (r: RelayResult) => void; reject: (e: unknown) => void }>();
 
 function getWorker(): Worker {
   if (!worker) {
-    worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+    worker = new SimWorker();
+    // A worker that fails to load (or crashes) would otherwise leave every pending sim promise
+    // hanging forever with no error. Reject everything in flight and drop the dead worker so the
+    // next call to getWorker() constructs a fresh one instead of reusing it.
+    worker.onerror = (ev: ErrorEvent) => {
+      const err = new Error(ev.message || 'Sim worker failed to load or crashed');
+      for (const h of matrixLinkHandlers.values()) h.reject(err);
+      matrixLinkHandlers.clear();
+      for (const h of profileHandlers.values()) h.reject(err);
+      profileHandlers.clear();
+      for (const h of coverageHandlers.values()) h.reject(err);
+      coverageHandlers.clear();
+      for (const h of relayHandlers.values()) h.reject(err);
+      relayHandlers.clear();
+      worker = null;
+    };
     worker.onmessage = (ev: MessageEvent) => {
       const m = ev.data;
       switch (m.type) {
         case 'matrix-link-done': {
-          const resolve = matrixLinkHandlers.get(m.id);
+          const h = matrixLinkHandlers.get(m.id);
           matrixLinkHandlers.delete(m.id);
-          resolve?.(m.link);
+          h?.resolve(m.link);
           break;
         }
         case 'profile-done': {
@@ -274,8 +294,8 @@ function computeLinkInWorker(
   sample: ProfileSample, tx: SimNode, rx: SimNode, shared: SimShared, sensitivity: number,
 ): Promise<LinkResult> {
   const id = ++linkSeq;
-  return new Promise<LinkResult>((resolve) => {
-    matrixLinkHandlers.set(id, resolve);
+  return new Promise<LinkResult>((resolve, reject) => {
+    matrixLinkHandlers.set(id, { resolve, reject });
     getWorker().postMessage(
       {
         type: 'matrix-link', id,

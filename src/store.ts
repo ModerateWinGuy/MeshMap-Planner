@@ -22,7 +22,8 @@ import {
   type DemProvider,
   type ProviderTestResult,
 } from './terrain/demTiles.ts';
-import { ViewshedEngine } from './viewshed/gpu.ts';
+import { ViewshedEngine, type ViewshedComputeEngine } from './viewshed/gpu.ts';
+import { Webgl2ViewshedEngine } from './viewshed/webgl2.ts';
 import { runMatrix as runMatrixWorker, runProfile as runProfileWorker, runCoverage as runCoverageWorker, runRelay as runRelayWorker, type SimSource } from './sim/simClient.ts';
 import type { ProfileOptions } from './sim/profile.ts';
 import type { SimNode, SimShared } from './sim/links.ts';
@@ -435,11 +436,30 @@ const attachedMarkers = new Set<string>();
 // The on-map popup offering to compute a shift-clicked node pair. Module-scoped (like the Map) so
 // Vue never proxies the GL popup; only one is ever open at a time.
 let pairPopup: maplibregl.Popup | null = null;
-// The WebGPU viewshed engine + its scheduling/result handles. Module-scoped (not Pinia state) for
-// the same reason as the Map and the 3D layer: the GPUDevice and the result canvas must never be
-// deep-proxied by Vue. The engine survives mode switches; destroyMap disposes it. viewshedComputing
-// /viewshedDirty coalesce overlapping recomputes (a drag can outrun a single async compute).
-let viewshedEngine: ViewshedEngine | null = null;
+// The viewshed compute engine (WebGPU when available, WebGL2 otherwise — see acquireViewshedEngine)
+// + its scheduling/result handles. Module-scoped (not Pinia state) for the same reason as the Map and
+// the 3D layer: the GPUDevice/WebGL2 context and the result canvas must never be deep-proxied by Vue.
+// The engine survives mode switches; destroyMap disposes it. viewshedComputing/viewshedDirty coalesce
+// overlapping recomputes (a drag can outrun a single async compute).
+let viewshedEngine: ViewshedComputeEngine | null = null;
+
+// Try WebGPU first (currently the faster/more capable backend where available), then WebGL2 — which
+// covers virtually every phone WebGPU doesn't. Returns null only when neither is supported/working.
+async function acquireViewshedEngine(): Promise<ViewshedComputeEngine | null> {
+  if (ViewshedEngine.isSupported()) {
+    const engine = new ViewshedEngine();
+    if (await engine.init()) {
+      return engine;
+    }
+  }
+  if (Webgl2ViewshedEngine.isSupported()) {
+    const engine = new Webgl2ViewshedEngine();
+    if (await engine.init()) {
+      return engine;
+    }
+  }
+  return null;
+}
 let viewshedRaf = 0; // rAF handle for live (per-frame) recompute throttling; 0 = none pending
 let viewshedTimer: ReturnType<typeof setTimeout> | null = null; // debounce handle for move-end/param recompute
 let viewshedResultCanvas: HTMLCanvasElement | null = null;
@@ -1596,8 +1616,10 @@ const useStore = defineStore('store', {
       this.viewshedEnabled = !this.viewshedEnabled;
       if (this.viewshedEnabled) {
         trackEvent('viewshed-enable');
-        if (!ViewshedEngine.isSupported()) {
-          this.viewshedState = 'unsupported'; // panel shows the WebGPU notice; nothing else to do
+        // Cheap synchronous gate so the panel doesn't flash the enabled controls before computeViewshed's
+        // async engine-acquisition settles; computeViewshed below re-checks authoritatively either way.
+        if (!ViewshedEngine.isSupported() && !Webgl2ViewshedEngine.isSupported()) {
+          this.viewshedState = 'unsupported'; // panel shows the notice; nothing else to do
           return;
         }
         this.computeViewshed();
@@ -1775,13 +1797,8 @@ const useStore = defineStore('store', {
       this.viewshedState = 'computing';
       try {
         if (!viewshedEngine) {
-          if (!ViewshedEngine.isSupported()) {
-            this.viewshedState = 'unsupported';
-            return;
-          }
-          viewshedEngine = new ViewshedEngine();
-          if (!(await viewshedEngine.init())) {
-            viewshedEngine = null;
+          viewshedEngine = await acquireViewshedEngine();
+          if (!viewshedEngine) {
             this.viewshedState = 'unsupported';
             return;
           }

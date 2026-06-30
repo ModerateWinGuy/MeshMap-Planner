@@ -14,4 +14,10 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
   },
+  // Explicit (this is already Vite's default): the sim Web Worker (src/sim/worker.ts, imported via
+  // `?worker` in simClient.ts) must bundle as a classic script, not an ES module, so it loads on every
+  // browser with Worker support rather than only the ones with module-worker support.
+  worker: {
+    format: 'iife',
+  },
 })
