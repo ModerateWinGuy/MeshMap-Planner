@@ -2086,17 +2086,16 @@ const useStore = defineStore('store', {
             }, 300);
           }
         ),
-        // Refresh an open profile when either of its endpoints moves — a map drag-drop or a manual
-        // lat/lon edit. Tracks only the two endpoint coords (resolved via profileFromId/profileToId),
-        // so an unrelated node moving never fires it. runProfile is cache-keyed on the resolved coords:
-        // a no-op move returns from cache instantly (no spinner), a real move recomputes the chart and
-        // redraws the cyan path. Gated on !dragging so it fires once on drop (not per frame mid-drag),
-        // and debounced like the matrix watcher so a lat/lon keystroke burst is one run.
+        // Refresh an open profile when either of its endpoints moves or changes height — a map
+        // drag-drop, a manual lat/lon edit, or an AGL height edit. Tracks coords + heights for both
+        // endpoints; an unrelated node changing never fires it. runProfile is cache-keyed on the full
+        // sim inputs, so a no-op change returns from cache instantly. Gated on !dragging so it fires
+        // once on drop (not per frame mid-drag), and debounced so a keystroke burst is one run.
         watch(
           () => {
             const from = this.nodes.find((n) => n.id === this.profileFromId);
             const to = this.nodes.find((n) => n.id === this.profileToId);
-            return `${from?.transmitter.tx_lat}:${from?.transmitter.tx_lon}:${to?.transmitter.tx_lat}:${to?.transmitter.tx_lon}`;
+            return `${from?.transmitter.tx_lat}:${from?.transmitter.tx_lon}:${from?.transmitter.tx_height}:${to?.transmitter.tx_lat}:${to?.transmitter.tx_lon}:${to?.transmitter.tx_height}`;
           },
           () => {
             if (!this.profileFromId || !this.profileToId || this.dragging) {
