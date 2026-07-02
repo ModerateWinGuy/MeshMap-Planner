@@ -679,6 +679,9 @@ const useStore = defineStore('store', {
       // When true, non-viable links are hidden everywhere — including those touching the selected node
       // (which visibleLinks otherwise keeps). Default off. Persisted.
       hideInvalidLinks: useLocalStorage('hideInvalidLinks', false),
+      // Link Profile chart display: when true, the signal/LOS line is drawn straight and the terrain
+      // curve absorbs the earth-curvature correction instead (visual-only; same underlying geometry).
+      profileFlatSignalLine: useLocalStorage('profileFlatSignalLine', false),
       // In-flight map tile tracker for the bottom loading bar (basemap + terrain + sim tiles). inFlight
       // mirrors the size of a non-reactive key set; peak is the high-water mark since it last hit zero,
       // so a fraction (peak-inFlight)/peak fills smoothly per burst. In-memory only.
@@ -2527,6 +2530,9 @@ const useStore = defineStore('store', {
     toggleHideInvalidLinks() {
       this.hideInvalidLinks = !this.hideInvalidLinks;
       this.redrawLinks();
+    },
+    toggleProfileFlatSignalLine() {
+      this.profileFlatSignalLine = !this.profileFlatSignalLine;
     },
     toggleLinkCurtain() {
       this.linkCurtainEnabled = !this.linkCurtainEnabled;

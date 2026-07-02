@@ -143,6 +143,31 @@
     </div>
 
     <div class="row mt-3">
+      <div class="col-12"><hr class="border-secondary" /></div>
+    </div>
+
+    <div class="row mt-3">
+      <div class="col-12">
+        <div class="form-check form-switch">
+          <input
+            class="form-check-input"
+            type="checkbox"
+            role="switch"
+            id="profile_flat_signal_line"
+            :checked="store.profileFlatSignalLine"
+            @change="store.toggleProfileFlatSignalLine()"
+          />
+          <label class="form-check-label" for="profile_flat_signal_line">Show signal as straight line</label>
+          <InfoTip>
+            In the Link Profile chart, draw the signal line straight and let the terrain curve up/down
+            instead — the same physical geometry, just flipped so the terrain shows Earth's curvature
+            rather than the signal.
+          </InfoTip>
+        </div>
+      </div>
+    </div>
+
+    <div class="row mt-3">
       <div class="col-12">
         <button type="button" class="btn btn-outline-light btn-sm" @click="store.resetView()">
           Reset view (top-down)

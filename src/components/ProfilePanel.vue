@@ -246,26 +246,33 @@ const chart = computed(() => {
     const topB = groundB + hB
 
     // Build the line-of-sight, first-Fresnel-zone bounds and 60% boundary at each terrain sample.
-    // The LOS is the straight chord between antenna tops, sagged by the earth-curvature bulge so a
-    // long path's clearance reads correctly against the (true elevation) terrain.
+    // Normally the LOS is the straight chord between antenna tops, sagged by the earth-curvature
+    // bulge so a long path's clearance reads correctly against the (true elevation) terrain. With
+    // flatSignalLine on, that's flipped: the LOS is drawn as the straight chord itself, and the bulge
+    // is added to the terrain instead — the same clearance at every point, just re-framed so the
+    // terrain shows the curvature rather than the signal.
+    const flatSignalLine = store.profileFlatSignalLine
     const los: ProfileCurve = []
+    const dispTerrain: ProfileCurve = []
     const fresUpper: ProfileCurve = []
     const fresLower: ProfileCurve = []
     const fres60: ProfileCurve = []
-    for (const [d] of terrain) {
+    for (const [d, elev] of terrain) {
         const d1 = Math.min(Math.max(d * 1000, 0), dM)
         const frac = d1 / dM
         const bulge = (d1 * (dM - d1)) / (2 * K_FACTOR * EARTH_RADIUS_M)
-        const losV = topA + (topB - topA) * frac - bulge
+        const chord = topA + (topB - topA) * frac
+        const losV = flatSignalLine ? chord : chord - bulge
         const f1 = Math.sqrt(Math.max(wavelength * (d1 * (dM - d1)) / dM, 0))
         los.push([d, losV])
+        dispTerrain.push([d, flatSignalLine ? elev + bulge : elev])
         fresUpper.push([d, losV + f1])
         fresLower.push([d, losV - f1])
         fres60.push([d, losV - 0.6 * f1])
     }
 
     const xMax = Math.max(terrain[terrain.length - 1][0], 0.001)
-    const ys = [...terrain, ...fresUpper, ...fresLower].map((d) => d[1])
+    const ys = [...dispTerrain, ...fresUpper, ...fresLower].map((d) => d[1])
     let yMin = Math.min(...ys)
     let yMax = Math.max(...ys)
     if (yMax - yMin < 1) yMax = yMin + 1 // avoid a zero range on a perfectly flat slice
@@ -283,7 +290,7 @@ const chart = computed(() => {
     const reversePts = (pts: ProfileCurve) =>
         [...pts].reverse().map((pt) => `L${sx(pt[0]).toFixed(1)},${sy(pt[1]).toFixed(1)}`).join(' ')
 
-    const terrainLine = toPath(terrain)
+    const terrainLine = toPath(dispTerrain)
     const baseY = sy(yMin).toFixed(1)
     const terrainFill = `${terrainLine} L${sx(xMax).toFixed(1)},${baseY} L${sx(0).toFixed(1)},${baseY} Z`
 
@@ -297,7 +304,8 @@ const chart = computed(() => {
         const d = f * xMax
         const d1 = Math.min(Math.max(d * 1000, 0), dM)
         const bulge = (d1 * (dM - d1)) / (2 * K_FACTOR * EARTH_RADIUS_M)
-        const losV = topA + (topB - topA) * (d1 / dM) - bulge
+        const chord = topA + (topB - topA) * (d1 / dM)
+        const losV = flatSignalLine ? chord : chord - bulge
         return [sx(d), sy(losV)]
     }
 
