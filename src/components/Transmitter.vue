@@ -10,12 +10,12 @@
         <div class="row g-2">
             <div class="col-6">
                 <label for="tx_lat" class="form-label">Latitude (degrees)</label>
-                <input v-model="transmitter.tx_lat" @focus="onCoordFocus" @change="onCoordChange" type="number" class="form-control form-control-sm" id="tx_lat" required min="-90" max="90" step="0.000001" data-bs-toggle="tooltip" title="Transmitter latitude in degrees (-90 to 90)." />
+                <input v-model="transmitter.tx_lat" @focus="onCoordFocus" @change="onCoordChange" @paste="onCoordPaste" type="number" class="form-control form-control-sm" id="tx_lat" required min="-90" max="90" step="0.000001" data-bs-toggle="tooltip" title="Transmitter latitude in degrees (-90 to 90)." />
                 <div class="invalid-feedback">Please enter a valid latitude (-90 to 90).</div>
             </div>
             <div class="col-6">
                 <label for="tx_lon" class="form-label">Longitude (degrees)</label>
-                <input v-model="transmitter.tx_lon" @focus="onCoordFocus" @change="onCoordChange" type="number" class="form-control form-control-sm" id="tx_lon" required min="-180" max="180" step="0.000001" data-bs-toggle="tooltip" title="Transmitter longitude in degrees (-180 to 180)." />
+                <input v-model="transmitter.tx_lon" @focus="onCoordFocus" @change="onCoordChange" @paste="onCoordPaste" type="number" class="form-control form-control-sm" id="tx_lon" required min="-180" max="180" step="0.000001" data-bs-toggle="tooltip" title="Transmitter longitude in degrees (-180 to 180)." />
                 <div class="invalid-feedback">Please enter a valid longitude (-180 to 180).</div>
             </div>
         </div>
@@ -85,6 +85,33 @@
         if (Number(tx.tx_lat) !== snap.lat || Number(tx.tx_lon) !== snap.lon) {
             store.pushNodeMove(node.id, snap.lat, snap.lon);
         }
+    };
+
+    // Some map tools (e.g. Google Maps) copy "lat, lon" as one string. Paste that into
+    // either coordinate field and it fills both, rather than leaving a broken paste behind.
+    const COORD_PAIR_RE = /^\s*(-?\d+(?:\.\d+)?)\s*[,;]\s*(-?\d+(?:\.\d+)?)\s*$/;
+    const onCoordPaste = (event: ClipboardEvent) => {
+        const text = event.clipboardData?.getData('text');
+        if (!text) {
+            return;
+        }
+        const match = text.match(COORD_PAIR_RE);
+        if (!match) {
+            return;
+        }
+        const lat = parseFloat(match[1]);
+        const lon = parseFloat(match[2]);
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+            return;
+        }
+        event.preventDefault();
+        const tx = transmitter.value;
+        if (!tx) {
+            return;
+        }
+        tx.tx_lat = lat;
+        tx.tx_lon = lon;
+        onCoordChange();
     };
 
     // Power can be entered in watts or dBm; the two stay in sync (30 dBm = 1 W).
