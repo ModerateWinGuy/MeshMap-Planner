@@ -27,7 +27,7 @@
   <div v-show="store.activeMode === 'coverage'">
     <Display />
     <div class="mt-3 d-flex gap-2">
-      <button :disabled="store.simulationState === 'running' || !store.selectedNode" @click="store.runSimulation" type="button" class="btn btn-success btn-sm w-100" id="runSimulation">
+      <button :disabled="store.simulationState === 'running' || !store.selectedNode" @click="store.runSimulation()" type="button" class="btn btn-success btn-sm w-100" id="runSimulation">
         <span :class="{ 'd-none': store.simulationState !== 'running' }" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
         <span class="button-text">{{ buttonText() }}</span>
       </button>

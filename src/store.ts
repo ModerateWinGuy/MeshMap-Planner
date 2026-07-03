@@ -2671,8 +2671,8 @@ const useStore = defineStore('store', {
     // Compute the coverage overlay in the browser (WASM ITM, off-thread). The result drapes through the
     // Site/overlay model as a palette canvas on a MapLibre canvas source, so the visibility toggle,
     // opacity slider and multi-site stacking all apply.
-    async runSimulation() {
-      const node = this.selectedNode;
+    async runSimulation(targetNode?: Node) {
+      const node = targetNode ?? this.selectedNode;
       if (!node) {
         console.warn('No node selected; cannot run simulation.');
         return;
@@ -3050,10 +3050,7 @@ const useStore = defineStore('store', {
         const from = this.selectedNodeId;
         const to = this.pairTargetId;
         this.clearPairTarget(); // closes this popup
-        this.relayA = from;
-        this.relayB = to;
-        this.activeMode = 'linkfinder'; // surface the RelayFinder panel showing the run
-        this.runRelay(from!, to!);
+        this.startRelaySearch(from!, to!);
       }, { once: true });
       // Dismissing the popup (its X or a click away) cancels the pending pair. Guarded by the ref
       // check so clearPairTarget's own remove() doesn't re-enter.
@@ -3447,6 +3444,14 @@ const useStore = defineStore('store', {
       this.setBeamCursor(null);
       this.redrawProfilePath();
       this.redrawLinks(); // re-filter: a link forced visible only because its profile was open drops out
+    },
+    // Stage a relay search between two nodes and surface the RelayFinder panel showing the run.
+    // Shared by the shift-click pair popup's relay button and the right-click context menu.
+    startRelaySearch(aId: string, bId: string) {
+      this.relayA = aId;
+      this.relayB = bId;
+      this.activeMode = 'linkfinder';
+      this.runRelay(aId, bId);
     },
     // Find the candidate relay zone between two nodes in the browser (WASM ITM). Runs two coverage
     // passes (one per endpoint) over a SHARED bbox so their grids align, then intersects them per-cell:
