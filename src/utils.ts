@@ -15,8 +15,6 @@ export interface SharedNode {
   txh: number; // tx_height (m AGL)
   txg: number; // tx_gain (dBi)
   rxs: number; // rx_sensitivity (dBm)
-  rxh: number; // rx_height (m AGL)
-  rxg: number; // rx_gain (dBi)
   rxl: number; // rx_loss (dB)
 }
 
@@ -45,8 +43,6 @@ export function nodeToShared(node: Node): SharedNode {
     txh: t.tx_height,
     txg: t.tx_gain,
     rxs: r.rx_sensitivity,
-    rxh: r.rx_height,
-    rxg: r.rx_gain,
     rxl: r.rx_loss,
   };
 }

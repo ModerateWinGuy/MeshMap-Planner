@@ -61,8 +61,6 @@ export interface SplatParams {
     };
     receiver: {
         rx_sensitivity: number;
-        rx_height: number;
-        rx_gain: number;
         rx_loss: number;
     };
     environment: {

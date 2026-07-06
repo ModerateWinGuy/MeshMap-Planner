@@ -48,6 +48,18 @@
                 <input v-model="transmitter.tx_gain" type="number" class="form-control form-control-sm" id="tx_gain" required min="0" step="0.1" />
                 <div class="invalid-feedback">Gain must be a positive number.</div>
             </div>
+            <div class="col-6" v-if="receiver">
+                <label for="rx_sensitivity" class="form-label">Sensitivity (dBm)</label>
+                <input v-model="receiver.rx_sensitivity" type="number" class="form-control form-control-sm" id="rx_sensitivity" required step="1" min="-150" max="-30" />
+                <div class="invalid-feedback">Please enter a valid sensitivity.</div>
+            </div>
+        </div>
+        <div class="row g-2 mt-2" v-if="receiver">
+            <div class="col-6">
+                <label for="rx_loss" class="form-label">Cable Loss (dB)</label>
+                <input v-model="receiver.rx_loss" type="number" class="form-control form-control-sm" id="rx_loss" required min="0" max="100" step="0.1" />
+                <div class="invalid-feedback">Loss must be a positive number.</div>
+            </div>
         </div>
         <div class="mt-3 d-flex gap-2">
             <button @click="setWithMap" type="button" id="setWithMap" class="btn btn-primary btn-sm" data-bs-toggle="popover" data-bs-trigger="manual" data-bs-placement="left" title="Set Coordinates" data-bs-content="" content="Click on the map to set the transmitter location.">
@@ -65,6 +77,7 @@
     import { computed, onMounted, ref, watch } from 'vue';
     const store = useStore();
     const transmitter = computed(() => store.selectedNode?.transmitter);
+    const receiver = computed(() => store.selectedNode?.receiver);
 
     // Snapshot the node's coords when a lat/lon field gains focus, so a committed edit pushes ONE undo
     // entry (the live v-model would otherwise change per keystroke). Compared on change; pushed only if

@@ -379,9 +379,9 @@ function defaultTransmitter(freqOverride?: number): SplatParams['transmitter'] {
 function defaultReceiver(): SplatParams['receiver'] {
   return {
     rx_sensitivity: -130.0,
-    rx_height: 1.0,
-    rx_gain: 2.0,
-    rx_loss: 2.0
+    // Most LoRa devices have the antenna mounted directly on the housing, so cable loss is
+    // negligible by default.
+    rx_loss: 0
   };
 }
 
@@ -699,6 +699,10 @@ const useStore = defineStore('store', {
       viewshedRadiusKm: useLocalStorage('viewshedRadiusKm', 10),
       viewshedOpacity: useLocalStorage('viewshedOpacity', 0.5),
       viewshedTargetHeight: useLocalStorage('viewshedTargetHeight', 0), // receiver AGL at tested cells (m)
+      // Assumed height (m AGL) of a hypothetical listener elsewhere on the map, used only by coverage
+      // generation (runSimulation's rxHeightM). Global rather than per-node: it never described any
+      // node's own hardware (link matrix/profile/relay use each node's own transmitter.tx_height).
+      listenerHeightAgl: useLocalStorage('listenerHeightAgl', 1.0),
       viewshedState: 'idle' as 'idle' | 'computing' | 'ready' | 'error' | 'unsupported',
       // Tile-fetch progress while terrain streams in (null when not loading). In-memory only; drives
       // the panel's "Loading terrain… N/M tiles" indicator so a slow LINZ fetch never looks frozen.
@@ -1210,8 +1214,6 @@ const useStore = defineStore('store', {
           },
           receiver: {
             rx_sensitivity: fin(sn.rxs, dr.rx_sensitivity),
-            rx_height: fin(sn.rxh, dr.rx_height),
-            rx_gain: fin(sn.rxg, dr.rx_gain),
             rx_loss: fin(sn.rxl, dr.rx_loss),
           },
           groupId,
@@ -2061,7 +2063,7 @@ const useStore = defineStore('store', {
             const env = this.splatParams.environment;
             const sig = [
               t?.tx_lat, t?.tx_lon, t?.tx_power, t?.tx_gain, t?.tx_freq, t?.tx_height,
-              r?.rx_gain, r?.rx_loss,
+              r?.rx_loss,
               this.splatParams.lora?.preset,
               env.radio_climate, env.polarization, env.clutter_height,
               env.ground_dielectric, env.ground_conductivity, env.atmosphere_bending,
@@ -2721,7 +2723,7 @@ const useStore = defineStore('store', {
         shared: this._simShared(),
         radiusM,
         gridSize: renderGrid,
-        rxHeightM: node.receiver.rx_height,
+        rxHeightM: this.listenerHeightAgl,
         azimuths: az,
         rangeSteps,
         // Terrain fetch fills 0->0.4, the radial sweep fills 0.4->1.0, mirroring runMatrix's split.
@@ -3131,7 +3133,8 @@ const useStore = defineStore('store', {
         height: n.transmitter.tx_height,
         tx_power: 10 * Math.log10(n.transmitter.tx_power) + 30, // watts -> dBm
         tx_gain: n.transmitter.tx_gain,
-        rx_gain: n.receiver.rx_gain,
+        // Same physical antenna transmits and receives, so RX gain reuses the node's own tx_gain.
+        rx_gain: n.transmitter.tx_gain,
         frequency_mhz: n.transmitter.tx_freq,
         system_loss: n.receiver.rx_loss,
       }));
@@ -3275,7 +3278,7 @@ const useStore = defineStore('store', {
         height: a.transmitter.tx_height,
         tx_power: 10 * Math.log10(a.transmitter.tx_power) + 30, // watts -> dBm
         tx_gain: a.transmitter.tx_gain,
-        rx_gain: a.receiver.rx_gain,
+        rx_gain: a.transmitter.tx_gain,
         frequency_mhz: a.transmitter.tx_freq,
         system_loss: b.receiver.rx_loss,
       };
@@ -3286,7 +3289,7 @@ const useStore = defineStore('store', {
         height: b.transmitter.tx_height,
         tx_power: 0,
         tx_gain: 0,
-        rx_gain: b.receiver.rx_gain,
+        rx_gain: b.transmitter.tx_gain,
         frequency_mhz: b.transmitter.tx_freq,
         system_loss: 0,
       };
@@ -3529,8 +3532,8 @@ const useStore = defineStore('store', {
 
       const params: RelayParams = {
         sensitivity_dbm: this._simSensitivity(),
-        // Node A's receiver gain stands in for the hypothetical relay's rx gain.
-        relay_rx_gain: a.receiver.rx_gain,
+        // Node A's antenna gain stands in for the hypothetical relay's rx gain.
+        relay_rx_gain: a.transmitter.tx_gain,
         band_edges_db: [0.0, 10.0, 20.0],
         top_n: 5, // return the 5 best candidate sites
         node_a_id: a.id,

@@ -11,8 +11,6 @@
     <template v-if="store.nodes.length">
       <hr />
       <Transmitter />
-      <hr />
-      <Receiver />
     </template>
   </div>
 
@@ -26,6 +24,8 @@
 
   <div v-show="store.activeMode === 'coverage'">
     <Display />
+    <hr />
+    <Listener />
     <div class="mt-3 d-flex gap-2">
       <button :disabled="store.simulationState === 'running' || !store.selectedNode" @click="store.runSimulation()" type="button" class="btn btn-success btn-sm w-100" id="runSimulation">
         <span :class="{ 'd-none': store.simulationState !== 'running' }" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
@@ -68,11 +68,11 @@ import NodePanel from "./NodePanel.vue"
 import LinkMatrix from "./LinkMatrix.vue"
 import RelayFinder from "./RelayFinder.vue"
 import Transmitter from "./Transmitter.vue"
-import Receiver from "./Receiver.vue"
 import Environment from "./Environment.vue"
 import LoRaPreset from "./LoRaPreset.vue"
 import Simulation from "./Simulation.vue"
 import Display from "./Display.vue"
+import Listener from "./Listener.vue"
 import Viewshed from "./Viewshed.vue"
 import Terrain from "./Terrain.vue"
 import ContactImport from "./ContactImport.vue"
