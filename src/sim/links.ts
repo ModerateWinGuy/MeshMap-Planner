@@ -12,7 +12,7 @@ import type { LinkResult, ProfileResult } from '../types.ts';
 import { type ItmModule, itmP2P } from './itm/index.ts';
 import { sampleHeightAt, type ProfileSample } from './profile.ts';
 import { fresnelClearancePct } from './fresnel.ts';
-import { climateCode, polarizationCode } from './itmParams.ts';
+import { climateCode, polarizationCode, clampFrac } from './itmParams.ts';
 
 // A node as the matrix/profile payloads already shape it (tx_power already watts->dBm in the store).
 export interface SimNode {
@@ -41,8 +41,6 @@ export interface SimShared {
 
 const round2 = (x: number): number => Math.round(x * 100) / 100;
 const round3 = (x: number): number => Math.round(x * 1000) / 1000;
-// ITM conf/rel must sit in (0,1); qerfi blows up at the ends. Clamp like a fraction of a percent in.
-const clampFrac = (pct: number): number => Math.min(0.999, Math.max(0.001, pct / 100));
 
 // Distance to the geometric LOS horizon (k=4/3 effective Earth): 4.1225·(√h_a+√h_b) km on heights
 // above sea level, used to pre-filter impossible matrix pairs.

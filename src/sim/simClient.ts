@@ -64,7 +64,6 @@ export interface CoverageRun {
   rxHeightM: number; // receiver AGL tested at every cell
   azimuths?: number; // radial sweep rays (ITM cost ≈ az × rangeSteps²/2)
   rangeSteps?: number; // radial sweep samples per ray from the TX to radiusM
-  quality?: ProfileOptions; // legacy per-path fidelity, unused by the radial sweep (kept for relay/back-compat)
   onProgress?: (done: number, total: number) => void;
   onHeightmapProgress?: (loaded: number, total: number) => void;
 }
@@ -502,7 +501,7 @@ export function runCoverage(run: CoverageRun): { promise: Promise<CoverageGrid>;
   const opts: CoverageOptions = {
     west, south, east, north,
     width: run.gridSize, height: run.gridSize,
-    rxHeightM: run.rxHeightM, quality: run.quality,
+    rxHeightM: run.rxHeightM,
     // Radial sweep: the disc radius is the same radiusM the bbox was built from. The worker forwards
     // opts to computeCoverage unchanged, so threading them here is all that's needed.
     radiusM: run.radiusM, azimuths: run.azimuths, rangeSteps: run.rangeSteps,

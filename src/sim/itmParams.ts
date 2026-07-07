@@ -26,3 +26,6 @@ export function climateCode(climate: string): number {
 export function polarizationCode(polarization: string): number {
   return POLARIZATION_MAP[polarization] ?? POLARIZATION_MAP.vertical;
 }
+
+// ITM conf/rel must sit in (0,1); qerfi blows up at the ends.
+export const clampFrac = (pct: number): number => Math.min(0.999, Math.max(0.001, pct / 100));

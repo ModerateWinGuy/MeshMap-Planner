@@ -17,12 +17,9 @@
 import type { Heightmap, LodHeightmap } from '../viewshed/heightmap.ts';
 import { type ItmModule, itmP2P } from './itm/index.ts';
 import { sampleLodHeightAt } from './profile.ts';
-import { climateCode, polarizationCode } from './itmParams.ts';
+import { climateCode, polarizationCode, clampFrac } from './itmParams.ts';
 import type { SimShared } from './links.ts';
 import type { CoverageNode, CoverageOptions, CoverageGrid } from './coverageTypes.ts';
-
-// ITM conf/rel must sit in (0,1); qerfi blows up at the ends. Clamp like links.ts clampFrac does.
-const clampFrac = (pct: number): number => Math.min(0.999, Math.max(0.001, pct / 100));
 
 // Relay (and any caller still handing in a plain square) is wrapped into a single-level stack so the
 // sweep below has one sampling path. A single level covers the whole disc, so the sampler never falls

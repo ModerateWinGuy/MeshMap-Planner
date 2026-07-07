@@ -2,8 +2,6 @@
 // relay.ts) can be developed against a stable contract. Coverage produces a per-cell received-power
 // grid; relay intersects two such grids.
 
-import type { ProfileOptions } from './profile.ts';
-
 // A transmitter for a coverage pass (tx_power already watts->dBm, as the store payloads provide it).
 export interface CoverageNode {
   lat: number;
@@ -25,7 +23,6 @@ export interface CoverageOptions {
   width: number; // OUTPUT raster columns (the rasterization target — cheap, decoupled from ITM cost)
   height: number; // OUTPUT raster rows
   rxHeightM: number; // receiver AGL used at each tested cell
-  quality?: ProfileOptions; // profile sampling fidelity (per-path); unused by the radial sweep, kept for relay/back-compat
   // Radial-sweep params (optional so relay, which calls computeCoverage without them, defaults sanely).
   radiusM?: number; // disc radius from the TX (centre of the bbox). Default: half the bbox lat span in metres.
   azimuths?: number; // number of rays. Default 720.

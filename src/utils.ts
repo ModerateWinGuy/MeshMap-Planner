@@ -1,9 +1,5 @@
 import type { Node } from './types.ts';
 
-export function cloneObject(item: any) {
-  return JSON.parse(JSON.stringify(item));
-}
-
 // One node carried in a share link: name + position + the node-level radio fields. Short keys keep
 // the encoded URL compact; the values mirror SplatParams transmitter/receiver (see types.ts).
 export interface SharedNode {

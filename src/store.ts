@@ -4,7 +4,7 @@ import { watch, markRaw } from 'vue';
 import { randanimalSync } from 'randanimal';
 import maplibregl from 'maplibre-gl';
 import { type Site, type SplatParams, type Node, type NodeGroup, type MatrixResult, type LinkResult, type RelayResult, type ProfileResult, type UiMode } from './types.ts';
-import { cloneObject, escapeHtml, decodeShare, type SharePayload } from './utils.ts';
+import { escapeHtml, decodeShare, type SharePayload } from './utils.ts';
 import { trackEvent } from './analytics.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
 import { createElement, Ruler, Keyboard, Search } from 'lucide';
@@ -896,12 +896,12 @@ const useStore = defineStore('store', {
       const node: Node = {
         id: crypto.randomUUID(),
         transmitter: {
-          ...(base ? cloneObject(base.transmitter) : defaultTransmitter(this.splatParams.lora?.frequencyMhz)),
+          ...(base ? structuredClone(base.transmitter) : defaultTransmitter(this.splatParams.lora?.frequencyMhz)),
           name: randanimalSync(),
           tx_lat: Number(pos.lat.toFixed(6)),
           tx_lon: Number(pos.lng.toFixed(6))
         },
-        receiver: base ? cloneObject(base.receiver) : defaultReceiver(),
+        receiver: base ? structuredClone(base.receiver) : defaultReceiver(),
         // Join the selected node's folder so adding nodes while building out a group keeps them
         // together; undefined (top-level) when nothing is selected or the selection is ungrouped.
         groupId: base?.groupId
@@ -2800,13 +2800,15 @@ const useStore = defineStore('store', {
       try {
         const grid = markRaw(await promise); // keep the grid out of Vue's deep reactivity
         const { image, coords } = bakeCoverageImage(grid, display, textureCap);
-        const params: SplatParams = cloneObject({
+        // useLocalStorage's inferred type widens simulation.quality to `string`; the runtime value is
+        // always one of SplatParams' literal options (the settings <select> only offers those).
+        const params = structuredClone({
           transmitter: node.transmitter,
           receiver: node.receiver,
           environment: this.splatParams.environment,
           simulation: this.splatParams.simulation,
           display: this.splatParams.display,
-        });
+        }) as SplatParams;
         this.localSites.push({ params, taskId, grid, visible: true, image, coords, createdAt: Date.now() });
         this.redrawSites();
         this.simulationState = 'completed';
@@ -3599,7 +3601,6 @@ const useStore = defineStore('store', {
         west, south, east, north,
         width: gridSize, height: gridSize,
         rxHeightM: RELAY_RX_HEIGHT_M,
-        quality: this._simQuality(),
       };
 
       const params: RelayParams = {
@@ -3750,12 +3751,12 @@ const useStore = defineStore('store', {
       const node: Node = {
         id: crypto.randomUUID(),
         transmitter: {
-          ...(base ? cloneObject(base.transmitter) : defaultTransmitter(this.splatParams.lora?.frequencyMhz)),
+          ...(base ? structuredClone(base.transmitter) : defaultTransmitter(this.splatParams.lora?.frequencyMhz)),
           name: name ?? randanimalSync(),
           tx_lat: Number(lat.toFixed(6)),
           tx_lon: Number(lon.toFixed(6))
         },
-        receiver: base ? cloneObject(base.receiver) : defaultReceiver()
+        receiver: base ? structuredClone(base.receiver) : defaultReceiver()
       };
       this.nodes.push(node);
       this.selectedNodeId = node.id;
