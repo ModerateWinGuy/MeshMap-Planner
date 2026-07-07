@@ -135,6 +135,11 @@
         <LocationSearchPanel v-if="store.locationSearchActive && regime !== 'phone'" />
         <ContextMenu v-if="store.contextMenu" />
         <ProfilePanel v-if="profileActive && regime !== 'phone'" />
+        <div
+          v-if="store.coverageHover"
+          class="coverage-hover-tip"
+          :style="{ left: store.coverageHover.x + 'px', top: store.coverageHover.y + 'px' }"
+        >{{ store.coverageHover.dbm }} dBm</div>
       </div>
       <!-- data-bs-theme="dark" puts every Bootstrap component in this dark sidebar onto its dark-mode
            palette (Bootstrap 5.3 color modes). Without it, descendants default to light-mode colours
@@ -168,16 +173,50 @@
         <!-- Computed-coverage results: pinned below the mode area so they stay visible (and
              toggleable) in every mode. -->
         <ul class="list-group mt-3 results-pinned">
-          <li class="list-group-item d-flex justify-content-between align-items-center" v-for="(site, index) in store.$state.localSites" :key="site.taskId">
-            <span :class="{ 'text-muted': site.visible === false }">{{ site.params.transmitter.name }}</span>
-            <div class="d-flex align-items-center gap-2">
-              <button type="button" @click="store.toggleSiteVisibility(index)" class="btn btn-sm p-0 border-0 bg-transparent lh-1" :aria-label="site.visible === false ? 'Show result' : 'Hide result'" :title="site.visible === false ? 'Show result' : 'Hide result'">
-                <EyeOff v-if="site.visible === false" :size="18" />
-                <Eye v-else :size="18" />
-              </button>
-              <button type="button" @click="store.removeSite(index)" class="btn btn-sm p-0 border-0 bg-transparent lh-1" aria-label="Remove result" title="Remove result">
-                <X :size="18" />
-              </button>
+          <li class="list-group-item" v-for="(site, index) in store.$state.localSites" :key="site.taskId">
+            <div class="d-flex justify-content-between align-items-center">
+              <div class="text-truncate">
+                <div :class="{ 'text-muted': site.visible === false }">{{ site.params.transmitter.name }}</div>
+                <div class="small text-muted">{{ siteSubtitle(site) }}</div>
+              </div>
+              <div class="d-flex align-items-center gap-2 flex-shrink-0">
+                <button type="button" @click="toggleSiteExpanded(site.taskId)" class="btn btn-sm p-0 border-0 bg-transparent lh-1" :aria-label="expandedSites.has(site.taskId) ? 'Hide display settings' : 'Edit display settings'" :title="expandedSites.has(site.taskId) ? 'Hide display settings' : 'Edit display settings'">
+                  <ChevronDown v-if="expandedSites.has(site.taskId)" :size="18" />
+                  <ChevronRight v-else :size="18" />
+                </button>
+                <button type="button" @click="store.toggleSiteVisibility(index)" class="btn btn-sm p-0 border-0 bg-transparent lh-1" :aria-label="site.visible === false ? 'Show result' : 'Hide result'" :title="site.visible === false ? 'Show result' : 'Hide result'">
+                  <EyeOff v-if="site.visible === false" :size="18" />
+                  <Eye v-else :size="18" />
+                </button>
+                <button type="button" @click="store.removeSite(index)" class="btn btn-sm p-0 border-0 bg-transparent lh-1" aria-label="Remove result" title="Remove result">
+                  <X :size="18" />
+                </button>
+              </div>
+            </div>
+            <!-- Per-layer live recolor: same fields as Display.vue's "next run" panel, but scoped to
+                 this site's own params.display and re-baked from its retained grid on change. -->
+            <div v-if="expandedSites.has(site.taskId)" class="mt-2 pt-2 border-top">
+              <div class="row g-2">
+                <div class="col-6">
+                  <label class="form-label small mb-1">Min dBm</label>
+                  <input v-model.number="site.params.display.min_dbm" @change="store.recolorSite(index)" type="number" step="0.1" class="form-control form-control-sm" />
+                </div>
+                <div class="col-6">
+                  <label class="form-label small mb-1">Max dBm</label>
+                  <input v-model.number="site.params.display.max_dbm" @change="store.recolorSite(index)" type="number" step="0.1" class="form-control form-control-sm" />
+                </div>
+              </div>
+              <label class="form-label small mb-1 mt-2">Color Scale</label>
+              <select v-model="site.params.display.color_scale" @change="store.recolorSite(index)" class="form-select form-select-sm">
+                <option v-for="opt in COLOR_SCALE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <div class="mt-2 small">
+                <div class="legend-bar" :style="{ background: gradientCss(site.params.display.color_scale) }"></div>
+                <div class="d-flex justify-content-between text-muted">
+                  <span>{{ site.params.display.min_dbm }} dBm</span>
+                  <span>{{ site.params.display.max_dbm }} dBm</span>
+                </div>
+              </div>
             </div>
           </li>
         </ul>
@@ -254,7 +293,7 @@ import SimLoadingBar from "./components/SimLoadingBar.vue"
 import MeasurePanel from "./components/MeasurePanel.vue"
 import LocationSearchPanel from "./components/LocationSearchPanel.vue"
 import ContextMenu from "./components/ContextMenu.vue"
-import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical, ScanEye, Share2, Check, FolderInput, Bug, ChevronLeft, ChevronRight } from "@lucide/vue"
+import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical, ScanEye, Share2, Check, FolderInput, Bug, ChevronLeft, ChevronRight, ChevronDown } from "@lucide/vue"
 import type { Component } from "vue"
 
 import { useStore } from './store.ts'
@@ -262,7 +301,8 @@ import { installKeyboardShortcuts } from './keyboard.ts'
 import { useShareLink } from './shareLink.ts'
 import { nodeToShared } from './utils.ts'
 import { trackEvent } from './analytics.ts'
-import type { UiMode } from './types.ts'
+import { gradientCss, COLOR_SCALE_OPTIONS } from './sim/colormap.ts'
+import type { UiMode, Site } from './types.ts'
 const store = useStore()
 
 // Phone (<768px) and tablet (768-1023px) get a different layout shell; desktop (>=1024px) renders
@@ -326,6 +366,23 @@ const activeModeLabel = computed(() => MODES.find((m) => m.id === store.activeMo
 const profileActive = computed(() =>
   !!store.profileResult || store.profileState === 'running' || store.profileState === 'failed'
 )
+
+// Coverage results list: which rows have their inline display-settings editor expanded. View-only
+// state (not persisted, not on the Site itself), keyed by taskId.
+const expandedSites = ref(new Set<string>())
+function toggleSiteExpanded(taskId: string) {
+  if (expandedSites.value.has(taskId)) {
+    expandedSites.value.delete(taskId)
+  } else {
+    expandedSites.value.add(taskId)
+  }
+}
+// Disambiguates repeat coverage runs on the same node in the results list.
+function siteSubtitle(site: Site): string {
+  const time = new Date(site.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const { tx_power, tx_height } = site.params.transmitter
+  return `${time} · ${tx_power}W · ${tx_height}m AGL`
+}
 
 // Phone bottom sheet. Not persisted (see the responsive-redesign plan's state-ownership table) —
 // reload should always land on the map-home rest state, sheet closed. `store.activeMode` (already
@@ -398,5 +455,19 @@ onUnmounted(() => {
   color: #fff;
   background: rgba(0, 0, 0, 0.6);
   border-radius: 4px;
+}
+/* Signal-strength readout that follows the cursor over a coverage overlay (see store.coverageHover).
+   Absolute within .map-col, using MapLibre's container-relative e.point coords directly. */
+.coverage-hover-tip {
+  position: absolute;
+  transform: translate(10px, -100%);
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  z-index: 5;
 }
 </style>

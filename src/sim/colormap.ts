@@ -85,6 +85,29 @@ export function colormap(name: string): ColormapFn {
   return BY_NAME[name?.toLowerCase()] ?? turbo;
 }
 
+// The color-scale choices offered in the display-settings UI (Display.vue's global panel and the
+// per-layer coverage editor in App.vue).
+export const COLOR_SCALE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'plasma', label: 'Plasma' },
+  { value: 'CMRmap', label: 'CMR map' },
+  { value: 'cool', label: 'Cool' },
+  { value: 'viridis', label: 'Viridis' },
+  { value: 'turbo', label: 'Turbo' },
+  { value: 'jet', label: 'Jet' },
+];
+
+// CSS linear-gradient sampling a colormap left (t=0) to right (t=1), for a legend swatch.
+export function gradientCss(name: string): string {
+  const fn = colormap(name);
+  const stops: string[] = [];
+  const N = 8;
+  for (let i = 0; i <= N; i++) {
+    const [r, g, b] = fn(i / N);
+    stops.push(`rgb(${r},${g},${b}) ${Math.round((i / N) * 100)}%`);
+  }
+  return `linear-gradient(to right, ${stops.join(', ')})`;
+}
+
 // Colorize a coverage grid into a width×height RGBA canvas, ready to drape as a MapLibre canvas
 // source. Row 0 of the grid is the NORTH edge, which is exactly how a canvas's first pixel row maps
 // to the top of an image source, so no vertical flip is needed.

@@ -6,12 +6,18 @@ export type UiMode = 'nodes' | 'import' | 'radio' | 'coverage' | 'linkfinder' | 
 export interface Site {
     params: SplatParams;
     taskId: string;
-    raster: any;
+    // Raw per-cell dBm grid this layer was generated from (lat-even spacing, pre-warp/colorize).
+    // Retained so min/max/color can be re-baked without re-running the simulation, and so a hover
+    // lookup can read the exact value under the cursor.
+    grid?: CoverageGrid;
     visible: boolean;
     // Coverage overlay for MapLibre: the palette-decoded RGBA canvas (markRaw'd, non-reactive)
-    // and its four corner coordinates [lng,lat] (TL, TR, BR, BL). Built once at parse time.
+    // and its four corner coordinates [lng,lat] (TL, TR, BR, BL). Rebuilt from `grid` whenever
+    // params.display changes, not just once at generation.
     image?: HTMLCanvasElement;
     coords?: [[number, number], [number, number], [number, number], [number, number]];
+    // Date.now() at generation; disambiguates repeat runs on the same node in the results list.
+    createdAt: number;
 }
 export interface Node {
     id: string;

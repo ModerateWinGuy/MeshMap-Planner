@@ -82,22 +82,13 @@
 <script setup lang="ts">
 import { computed, watchEffect } from 'vue'
 import { useStore } from '../store.ts'
-import { colormap } from '../sim/colormap.ts'
+import { gradientCss as gradientCssFor } from '../sim/colormap.ts'
 
 const store = useStore()
 
 // Legend gradient mirrors the draped heatmap: the active colormap sampled left (0 dB margin, the zone
 // edge) to right (peak margin). Kept in sync with display.color_scale so it matches what's on the map.
-const gradientCss = computed(() => {
-    const fn = colormap(store.splatParams.display.color_scale)
-    const stops: string[] = []
-    const N = 8
-    for (let i = 0; i <= N; i++) {
-        const [r, g, b] = fn(i / N)
-        stops.push(`rgb(${r},${g},${b}) ${Math.round((i / N) * 100)}%`)
-    }
-    return `linear-gradient(to right, ${stops.join(', ')})`
-})
+const gradientCss = computed(() => gradientCssFor(store.splatParams.display.color_scale))
 
 // Peak margin (dB) over the zone — the right end of the legend's range. Max of the per-island peaks,
 // which equals the grid peak the heatmap's colour ramp tops out at.
@@ -148,11 +139,3 @@ function promote(pt: { geometry: { coordinates: [number, number] } }) {
     store.promoteRelayPoint(lat, lon)
 }
 </script>
-
-<style scoped>
-.legend-bar {
-    height: 0.7em;
-    width: 100%;
-    border-radius: 2px;
-}
-</style>

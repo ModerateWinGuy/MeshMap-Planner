@@ -16,12 +16,7 @@
             <div class="col-6">
                 <label for="color_scale" class="form-label">Color Scale</label>
                 <select v-model="display.color_scale" id="color_scale" class="form-select form-select-sm" required>
-                    <option value="plasma" selected>Plasma</option>
-                    <option value="CMRmap">CMR map</option>
-                    <option value="cool">Cool</option>
-                    <option value="viridis">Viridis</option>
-                    <option value="turbo">Turbo</option>
-                    <option value="jet">Jet</option>
+                    <option v-for="opt in COLOR_SCALE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                 </select>
                 <div class="invalid-feedback">Please select a color scale.</div>
             </div>
@@ -53,6 +48,7 @@
 
 <script setup lang="ts">
 import { useStore } from "../store.ts";
+import { COLOR_SCALE_OPTIONS } from "../sim/colormap.ts";
 const display = useStore().splatParams.display;
 // Colorbar images live in public/; prefix with Vite's base so they resolve under the
 // GitHub Pages subpath (BASE_URL already ends in '/'), not the domain root.

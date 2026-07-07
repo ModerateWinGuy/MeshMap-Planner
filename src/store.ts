@@ -27,7 +27,7 @@ import { Webgl2ViewshedEngine } from './viewshed/webgl2.ts';
 import { runMatrix as runMatrixWorker, runProfile as runProfileWorker, runCoverage as runCoverageWorker, runRelay as runRelayWorker, type SimSource } from './sim/simClient.ts';
 import type { ProfileOptions } from './sim/profile.ts';
 import type { SimNode, SimShared } from './sim/links.ts';
-import type { CoverageNode, CoverageOptions } from './sim/coverageTypes.ts';
+import type { CoverageNode, CoverageOptions, CoverageGrid } from './sim/coverageTypes.ts';
 import type { RelayParams } from './sim/relay.ts';
 import { colorizeGrid } from './sim/colormap.ts';
 import { receiverSensitivityDbm, MESHTASTIC_PRESETS, DEFAULT_PRESET } from './sim/linkBudget.ts';
@@ -356,6 +356,23 @@ function fitCoverageCanvas(canvas: HTMLCanvasElement, maxTexture = MAX_TEXTURE):
   ctx.imageSmoothingEnabled = false; // nearest-neighbour keeps dBm band edges crisp
   ctx.drawImage(canvas, 0, 0, w, h);
   return out;
+}
+
+// Shared by runSimulation (initial bake) and recolorSite (re-bake on a display-setting change) —
+// both call this on the same retained raw grid, so recolor never re-runs the simulation.
+function bakeCoverageImage(
+  grid: CoverageGrid,
+  display: SplatParams['display'],
+  textureCap: number,
+): { image: HTMLCanvasElement; coords: Site['coords'] } {
+  const colored = colorizeGrid(grid, display.min_dbm, display.max_dbm, display.color_scale);
+  const warped = mercatorWarp(colored, grid.north, grid.south);
+  const image = markRaw(fitCoverageCanvas(warped, textureCap));
+  const coords: Site['coords'] = [
+    [grid.west, grid.north], [grid.east, grid.north],
+    [grid.east, grid.south], [grid.west, grid.south],
+  ];
+  return { image, coords };
 }
 
 // Folder that bulk-imported MeshCore contacts land in; reused across re-imports (see importContacts).
@@ -730,6 +747,9 @@ const useStore = defineStore('store', {
       locationSearchActive: false,
       // nodeId set => the node-variant menu (delete/share); unset => the empty-map variant (add/copy).
       contextMenu: null as { x: number; y: number; lat: number; lng: number; nodeId?: string } | null,
+      // Coverage hover readout: container-relative pixel + the dBm value under the cursor for the
+      // topmost visible coverage layer there. null when the cursor isn't over any coverage layer.
+      coverageHover: null as { x: number; y: number; dbm: number } | null,
       // shared / global params (per-node radio lives on the nodes themselves)
       splatParams: useLocalStorage('splatParams', {
         lora: {
@@ -1566,6 +1586,29 @@ const useStore = defineStore('store', {
       }
       this.localSites.splice(index, 1);
     },
+    // Removes+re-adds the layer/source rather than mutating the canvas in place, since
+    // fitCoverageCanvas's square-POT dimension tweak can change the canvas size on rebake.
+    // ponytail: re-insertion always lands just below COVERAGE_BEFORE, i.e. on top of other coverage
+    // layers — a cosmetic z-order shuffle on recolor, not worth tracking each layer's prior neighbor.
+    recolorSite(index: number) {
+      const site = this.localSites[index];
+      if (!site?.grid) {
+        return;
+      }
+      const map = this.map as maplibregl.Map | undefined;
+      const id = 'cov-' + site.taskId;
+      if (map?.getLayer(id)) {
+        map.removeLayer(id);
+      }
+      if (map?.getSource(id)) {
+        map.removeSource(id);
+      }
+      const textureCap = effectiveTextureCap(site.params.simulation.overlay_max_texture);
+      const { image, coords } = bakeCoverageImage(site.grid, site.params.display, textureCap);
+      site.image = image;
+      site.coords = coords;
+      this.redrawSites();
+    },
     redrawSites() {
       const map = this.map as maplibregl.Map | undefined;
       // Gate on an overlay layer existing (setupOverlays has run → the style is mutable), NOT
@@ -1889,6 +1932,7 @@ const useStore = defineStore('store', {
       rightMouseDownPoint = null;
       this.locationSearchActive = false;
       this.contextMenu = null;
+      this.coverageHover = null;
       // Tear down the viewshed engine (releases the GPUDevice) and cancel any pending recompute so a
       // remount (Vite HMR) re-inits a fresh device lazily instead of leaking the old one.
       if (viewshedRaf) {
@@ -2254,6 +2298,23 @@ const useStore = defineStore('store', {
       // mouseout so it can't reuse a stale position once the pointer leaves the map (see addNodeAtCursor).
       map.on('mousemove', (e: any) => { lastMapCursor = e.lngLat; });
       map.on('mouseout', () => { lastMapCursor = null; });
+      // Coverage hover readout: rAF-throttled like the 3D-link hover below, so mousemove doesn't
+      // re-scan every coverage layer's grid more than once per frame.
+      let coverageHoverScheduled = false;
+      map.on('mousemove', (e: any) => {
+        if (coverageHoverScheduled) {
+          return;
+        }
+        coverageHoverScheduled = true;
+        requestAnimationFrame(() => {
+          coverageHoverScheduled = false;
+          this.coverageHover = this._pickCoverageHover(e.lngLat, e.point);
+        });
+      });
+      // MapLibre doesn't fire 'mousemove' during an active drag-pan, so the tooltip would otherwise
+      // freeze at its pre-drag screen position while the map moves under it.
+      map.on('dragstart', () => { this.coverageHover = null; });
+      map.on('mouseout', () => { this.coverageHover = null; });
       // 'contextmenu' fires on right-mouseup for both a plain click and a rotate-drag release;
       // only treat near-zero movement since mousedown as a real menu request.
       map.on('mousedown', (e: any) => {
@@ -2737,20 +2798,8 @@ const useStore = defineStore('store', {
       coverageCancel = cancel;
 
       try {
-        const grid = await promise;
-        // Colorize the dBm grid into an RGBA canvas. The grid is latitude-even, so mercatorWarp
-        // resamples its rows into web-mercator spacing and fitCoverageCanvas dodges the square-power-
-        // of-two black-texture bug. markRaw keeps the canvas out of Vue's deep reactivity.
-        const colored = colorizeGrid(grid, display.min_dbm, display.max_dbm, display.color_scale);
-        const warped = mercatorWarp(colored, grid.north, grid.south);
-        // Cap at the user-chosen overlay texture limit (same cap that sized renderGrid), so a grid
-        // taken above the default 4096 isn't downsampled back to it on upload.
-        const image = markRaw(fitCoverageCanvas(warped, textureCap));
-        // Four corners [lng,lat]: TL, TR, BR, BL (north-up, axis-aligned).
-        const coords: Site['coords'] = [
-          [grid.west, grid.north], [grid.east, grid.north],
-          [grid.east, grid.south], [grid.west, grid.south],
-        ];
+        const grid = markRaw(await promise); // keep the grid out of Vue's deep reactivity
+        const { image, coords } = bakeCoverageImage(grid, display, textureCap);
         const params: SplatParams = cloneObject({
           transmitter: node.transmitter,
           receiver: node.receiver,
@@ -2758,7 +2807,7 @@ const useStore = defineStore('store', {
           simulation: this.splatParams.simulation,
           display: this.splatParams.display,
         });
-        this.localSites.push({ params, taskId, raster: null, visible: true, image, coords });
+        this.localSites.push({ params, taskId, grid, visible: true, image, coords, createdAt: Date.now() });
         this.redrawSites();
         this.simulationState = 'completed';
         this.progress = null;
@@ -3089,6 +3138,29 @@ const useStore = defineStore('store', {
         situation_fraction: this.splatParams.simulation.situation_fraction,
         time_fraction: this.splatParams.simulation.time_fraction,
       };
+    },
+    // Topmost visible coverage layer whose bbox contains lngLat, or null. Iterates localSites back-to-
+    // front since later-pushed layers render on top (redrawSites always inserts just below the
+    // 'coverage-top' anchor, pushing earlier layers further below it).
+    _pickCoverageHover(lngLat: maplibregl.LngLat, point: { x: number; y: number }): { x: number; y: number; dbm: number } | null {
+      for (let i = this.localSites.length - 1; i >= 0; i--) {
+        const site = this.localSites[i];
+        if (site.visible === false || !site.grid) {
+          continue;
+        }
+        const { west, south, east, north, width, height, dbm } = site.grid;
+        if (lngLat.lng < west || lngLat.lng > east || lngLat.lat < south || lngLat.lat > north) {
+          continue;
+        }
+        const row = Math.min(height - 1, Math.max(0, Math.round(((north - lngLat.lat) / (north - south)) * (height - 1))));
+        const col = Math.min(width - 1, Math.max(0, Math.round(((lngLat.lng - west) / (east - west)) * (width - 1))));
+        const v = dbm[row * width + col];
+        if (Number.isNaN(v)) {
+          continue; // no usable result here — check the layer below
+        }
+        return { x: point.x, y: point.y, dbm: Math.round(v) };
+      }
+      return null;
     },
     // Per-path terrain-profile fidelity for the client sims, from the Draft/Balanced/High preset.
     // Draft samples coarsely for speed; High follows the displayed terrain's own pixel resolution

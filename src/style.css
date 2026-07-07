@@ -114,6 +114,14 @@ body {
   flex: 0 0 auto;
 }
 
+/* Color-scale legend swatch: RelayFinder's link-margin heatmap and the coverage results list's
+   per-layer editor both paint this with a JS-built linear-gradient (see sim/colormap.ts gradientCss). */
+.legend-bar {
+  height: 0.7em;
+  width: 100%;
+  border-radius: 2px;
+}
+
 /* Viewshed/Terrain/RelayFinder panels want a comfortable minimum width for their sliders/inputs —
    scoped to .sidebar so it has no effect inside the (narrower) phone bottom-sheet body. */
 .sidebar .panel-min-width {
