@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { useLocalStorage } from '@vueuse/core';
-import { watch, markRaw } from 'vue';
+import { watch, markRaw, toRaw } from 'vue';
 import { randanimalSync } from 'randanimal';
 import maplibregl from 'maplibre-gl';
 import {
@@ -950,12 +950,14 @@ const useStore = defineStore('store', {
       const node: Node = {
         id: crypto.randomUUID(),
         transmitter: {
-          ...(base ? structuredClone(base.transmitter) : defaultTransmitter(this.splatParams.lora?.frequencyMhz)),
+          ...(base
+            ? structuredClone(toRaw(base.transmitter))
+            : defaultTransmitter(this.splatParams.lora?.frequencyMhz)),
           name: randanimalSync(),
           tx_lat: Number(pos.lat.toFixed(6)),
           tx_lon: Number(pos.lng.toFixed(6)),
         },
-        receiver: base ? structuredClone(base.receiver) : defaultReceiver(),
+        receiver: base ? structuredClone(toRaw(base.receiver)) : defaultReceiver(),
         // Join the selected node's folder so adding nodes while building out a group keeps them
         // together; undefined (top-level) when nothing is selected or the selection is ungrouped.
         groupId: base?.groupId,
@@ -2987,11 +2989,11 @@ const useStore = defineStore('store', {
         // useLocalStorage's inferred type widens simulation.quality to `string`; the runtime value is
         // always one of SplatParams' literal options (the settings <select> only offers those).
         const params = structuredClone({
-          transmitter: node.transmitter,
-          receiver: node.receiver,
-          environment: this.splatParams.environment,
-          simulation: this.splatParams.simulation,
-          display: this.splatParams.display,
+          transmitter: toRaw(node.transmitter),
+          receiver: toRaw(node.receiver),
+          environment: toRaw(this.splatParams.environment),
+          simulation: toRaw(this.splatParams.simulation),
+          display: toRaw(this.splatParams.display),
         }) as SplatParams;
         this.localSites.push({
           params,
@@ -3997,12 +3999,14 @@ const useStore = defineStore('store', {
       const node: Node = {
         id: crypto.randomUUID(),
         transmitter: {
-          ...(base ? structuredClone(base.transmitter) : defaultTransmitter(this.splatParams.lora?.frequencyMhz)),
+          ...(base
+            ? structuredClone(toRaw(base.transmitter))
+            : defaultTransmitter(this.splatParams.lora?.frequencyMhz)),
           name: name ?? randanimalSync(),
           tx_lat: Number(lat.toFixed(6)),
           tx_lon: Number(lon.toFixed(6)),
         },
-        receiver: base ? structuredClone(base.receiver) : defaultReceiver(),
+        receiver: base ? structuredClone(toRaw(base.receiver)) : defaultReceiver(),
       };
       this.nodes.push(node);
       this.selectedNodeId = node.id;
