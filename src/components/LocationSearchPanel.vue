@@ -16,7 +16,12 @@
         placeholder="Search a place or address…"
         aria-label="Search a place or address"
       />
-      <button type="submit" class="btn btn-light btn-sm flex-shrink-0" :disabled="!query.trim() || loading" aria-label="Search">
+      <button
+        type="submit"
+        class="btn btn-light btn-sm flex-shrink-0"
+        :disabled="!query.trim() || loading"
+        aria-label="Search"
+      >
         <span v-if="loading" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
         <Search v-else :size="14" />
       </button>
@@ -30,7 +35,9 @@
         class="list-group-item list-group-item-action"
         role="button"
         @click="selectResult(r)"
-      ><span class="d-block text-truncate">{{ r.name }}</span></li>
+      >
+        <span class="d-block text-truncate">{{ r.name }}</span>
+      </li>
     </ul>
     <!-- Required by Nominatim's usage policy whenever results are shown. -->
     <div v-if="results.length" class="form-text mt-1 mb-0">© OpenStreetMap contributors</div>
@@ -38,111 +45,114 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { Search } from '@lucide/vue'
-import { useStore } from '../store.ts'
-import { trackEvent } from '../analytics.ts'
+import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { Search } from '@lucide/vue';
+import { useStore } from '../store.ts';
+import { trackEvent } from '../analytics.ts';
 
 interface LocationResult {
-  name: string
-  lat: number
-  lon: number
+  name: string;
+  lat: number;
+  lon: number;
 }
 
-const { embedded = false } = defineProps<{ embedded?: boolean }>()
+const { embedded = false } = defineProps<{ embedded?: boolean }>();
 
-const store = useStore()
-const panelRef = ref<HTMLElement | null>(null)
-const inputRef = ref<HTMLInputElement | null>(null)
+const store = useStore();
+const panelRef = ref<HTMLElement | null>(null);
+const inputRef = ref<HTMLInputElement | null>(null);
 
-const query = ref('')
-const results = ref<LocationResult[]>([])
-const loading = ref(false)
-const error = ref('')
-const searched = ref(false)
+const query = ref('');
+const results = ref<LocationResult[]>([]);
+const loading = ref(false);
+const error = ref('');
+const searched = ref(false);
 
 // Guards against a slow earlier request clobbering a faster later one.
-let requestId = 0
+let requestId = 0;
 
-const SEARCH_TIMEOUT_MS = 10000
-let activeController: AbortController | null = null
+const SEARCH_TIMEOUT_MS = 10000;
+let activeController: AbortController | null = null;
 // Submit-only (no live search) per Nominatim's usage policy.
 async function onSubmit() {
-  const q = query.value.trim()
+  const q = query.value.trim();
   if (!q || loading.value) {
-    return
+    return;
   }
-  trackEvent('search-location-submit')
-  const id = ++requestId
-  loading.value = true
-  error.value = ''
-  const controller = new AbortController()
-  activeController = controller
-  const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS)
+  trackEvent('search-location-submit');
+  const id = ++requestId;
+  loading.value = true;
+  error.value = '';
+  const controller = new AbortController();
+  activeController = controller;
+  const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
   try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`,
-      { signal: controller.signal },
-    )
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`, {
+      signal: controller.signal,
+    });
     if (!res.ok) {
-      throw new Error(`Search failed (${res.status})`)
+      throw new Error(`Search failed (${res.status})`);
     }
-    const data: Array<{ display_name: string; lat: string; lon: string }> = await res.json()
+    const data: Array<{ display_name: string; lat: string; lon: string }> = await res.json();
     if (id !== requestId) {
-      return // superseded by a newer search
+      return; // superseded by a newer search
     }
-    results.value = data.map((d) => ({ name: d.display_name, lat: Number(d.lat), lon: Number(d.lon) }))
+    results.value = data.map((d) => ({
+      name: d.display_name,
+      lat: Number(d.lat),
+      lon: Number(d.lon),
+    }));
   } catch {
     if (id !== requestId) {
-      return
+      return;
     }
-    error.value = 'Search failed — try again.'
-    results.value = []
+    error.value = 'Search failed — try again.';
+    results.value = [];
   } finally {
-    clearTimeout(timer)
+    clearTimeout(timer);
     if (activeController === controller) {
-      activeController = null
+      activeController = null;
     }
     if (id === requestId) {
-      loading.value = false
-      searched.value = true
+      loading.value = false;
+      searched.value = true;
     }
   }
 }
 
 function selectResult(r: LocationResult) {
-  store.flyToLocation(r.lat, r.lon)
-  store.closeLocationSearch()
+  store.flyToLocation(r.lat, r.lon);
+  store.closeLocationSearch();
 }
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
-    store.closeLocationSearch()
+    store.closeLocationSearch();
   }
 }
 
 function onOutsideClick(e: MouseEvent) {
-  const target = e.target as HTMLElement
+  const target = e.target as HTMLElement;
   // The trigger button already toggles on its own click; closing here too would fight it.
   if (target.closest('.location-search-btn')) {
-    return
+    return;
   }
   if (panelRef.value && !panelRef.value.contains(target)) {
-    store.closeLocationSearch()
+    store.closeLocationSearch();
   }
 }
 
 onMounted(() => {
-  inputRef.value?.focus()
-  window.addEventListener('keydown', onKeydown)
-  window.addEventListener('mousedown', onOutsideClick)
-})
+  inputRef.value?.focus();
+  window.addEventListener('keydown', onKeydown);
+  window.addEventListener('mousedown', onOutsideClick);
+});
 
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeydown)
-  window.removeEventListener('mousedown', onOutsideClick)
-  activeController?.abort() // closing the panel mid-search shouldn't leave a dangling request
-})
+  window.removeEventListener('keydown', onKeydown);
+  window.removeEventListener('mousedown', onOutsideClick);
+  activeController?.abort(); // closing the panel mid-search shouldn't leave a dangling request
+});
 </script>
 
 <style scoped>

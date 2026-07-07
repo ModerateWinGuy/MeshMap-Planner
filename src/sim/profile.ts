@@ -10,9 +10,13 @@
 // whatever terrain (DEM/DSM/SRTM, at the map's zoom) is currently displayed.
 
 import {
-  type Heightmap, type CorridorTiles, type LodHeightmap,
-  lngLatToMosaicPixel, mosaicMetresPerPixel,
-  sampleCorridorHeightAt, corridorMetresPerPixel,
+  type Heightmap,
+  type CorridorTiles,
+  type LodHeightmap,
+  lngLatToMosaicPixel,
+  mosaicMetresPerPixel,
+  sampleCorridorHeightAt,
+  corridorMetresPerPixel,
 } from '../viewshed/heightmap.ts';
 
 const DEG2RAD = Math.PI / 180;
@@ -47,12 +51,13 @@ export function haversineM(lon1: number, lat1: number, lon2: number, lat2: numbe
 
 // Point a fraction f (0..1) of the way along the great circle from (lon1,lat1) to (lon2,lat2).
 // Linear lon/lat interpolation drifts off the true path on long links; this stays on the geodesic.
-export function interpGreatCircle(
-  lon1: number, lat1: number, lon2: number, lat2: number, f: number,
-): [number, number] {
-  const φ1 = lat1 * DEG2RAD, λ1 = lon1 * DEG2RAD;
-  const φ2 = lat2 * DEG2RAD, λ2 = lon2 * DEG2RAD;
-  const dφ = φ2 - φ1, dλ = λ2 - λ1;
+export function interpGreatCircle(lon1: number, lat1: number, lon2: number, lat2: number, f: number): [number, number] {
+  const φ1 = lat1 * DEG2RAD,
+    λ1 = lon1 * DEG2RAD;
+  const φ2 = lat2 * DEG2RAD,
+    λ2 = lon2 * DEG2RAD;
+  const dφ = φ2 - φ1,
+    dλ = λ2 - λ1;
   const hav = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
   const δ = 2 * Math.asin(Math.min(1, Math.sqrt(hav))); // angular distance
   if (δ < 1e-9) {
@@ -113,8 +118,10 @@ export function sampleLodHeightAt(lod: LodHeightmap, lon: number, lat: number, d
 // Shared by the square (sampleProfile) and corridor (sampleProfileCorridor) samplers — they differ
 // only in the height source and the default spacing, so the loop lives here once.
 function buildProfile(
-  txLon: number, txLat: number,
-  rxLon: number, rxLat: number,
+  txLon: number,
+  txLat: number,
+  rxLon: number,
+  rxLat: number,
   defaultSpacingM: number,
   opts: ProfileOptions,
   height: (lon: number, lat: number) => number,
@@ -144,15 +151,15 @@ function buildProfile(
 // fetches the covering mosaic (via getHeightmap) so this stays trivially testable.
 export function sampleProfile(
   hm: Heightmap,
-  txLon: number, txLat: number,
-  rxLon: number, rxLat: number,
+  txLon: number,
+  txLat: number,
+  rxLon: number,
+  rxLat: number,
   opts: ProfileOptions = {},
 ): ProfileSample {
   const midLat = (txLat + rxLat) / 2;
-  return buildProfile(
-    txLon, txLat, rxLon, rxLat,
-    mosaicMetresPerPixel(hm, midLat), opts,
-    (lon, lat) => sampleHeightAt(hm, lon, lat),
+  return buildProfile(txLon, txLat, rxLon, rxLat, mosaicMetresPerPixel(hm, midLat), opts, (lon, lat) =>
+    sampleHeightAt(hm, lon, lat),
   );
 }
 
@@ -162,15 +169,15 @@ export function sampleProfile(
 // same ProfileOptions density knob and stays byte-for-byte equal to the square for short links.
 export function sampleProfileCorridor(
   c: CorridorTiles,
-  txLon: number, txLat: number,
-  rxLon: number, rxLat: number,
+  txLon: number,
+  txLat: number,
+  rxLon: number,
+  rxLat: number,
   opts: ProfileOptions = {},
 ): ProfileSample {
   const midLat = (txLat + rxLat) / 2;
-  return buildProfile(
-    txLon, txLat, rxLon, rxLat,
-    corridorMetresPerPixel(c, midLat), opts,
-    (lon, lat) => sampleCorridorHeightAt(c, lon, lat),
+  return buildProfile(txLon, txLat, rxLon, rxLat, corridorMetresPerPixel(c, midLat), opts, (lon, lat) =>
+    sampleCorridorHeightAt(c, lon, lat),
   );
 }
 
@@ -184,24 +191,24 @@ export function sampleProfileCorridor(
 // dedicated line profile still samples the whole line at full zoom; this trades the rarely-decisive
 // mid-span detail for speed.)
 export function sampleProfileLod(
-  discA: Heightmap, discB: Heightmap, base: Heightmap,
-  txLon: number, txLat: number,
-  rxLon: number, rxLat: number,
+  discA: Heightmap,
+  discB: Heightmap,
+  base: Heightmap,
+  txLon: number,
+  txLat: number,
+  rxLon: number,
+  rxLat: number,
   nearR: number,
   opts: ProfileOptions = {},
 ): ProfileSample {
   const midLat = (txLat + rxLat) / 2;
-  return buildProfile(
-    txLon, txLat, rxLon, rxLat,
-    mosaicMetresPerPixel(discA, midLat), opts,
-    (lon, lat) => {
-      if (haversineM(lon, lat, txLon, txLat) <= nearR) {
-        return sampleHeightAt(discA, lon, lat);
-      }
-      if (haversineM(lon, lat, rxLon, rxLat) <= nearR) {
-        return sampleHeightAt(discB, lon, lat);
-      }
-      return sampleHeightAt(base, lon, lat);
-    },
-  );
+  return buildProfile(txLon, txLat, rxLon, rxLat, mosaicMetresPerPixel(discA, midLat), opts, (lon, lat) => {
+    if (haversineM(lon, lat, txLon, txLat) <= nearR) {
+      return sampleHeightAt(discA, lon, lat);
+    }
+    if (haversineM(lon, lat, rxLon, rxLat) <= nearR) {
+      return sampleHeightAt(discB, lon, lat);
+    }
+    return sampleHeightAt(base, lon, lat);
+  });
 }

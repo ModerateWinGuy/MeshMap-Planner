@@ -45,9 +45,11 @@
     :class="store.viewshedEnabled ? 'btn-primary' : 'btn-light'"
     :aria-pressed="store.viewshedEnabled"
     :disabled="!store.selectedNode"
-    :title="store.selectedNode
-      ? 'Toggle the line-of-sight viewshed — green where the selected node has clear LOS'
-      : 'Select a node to show its viewshed'"
+    :title="
+      store.selectedNode
+        ? 'Toggle the line-of-sight viewshed — green where the selected node has clear LOS'
+        : 'Select a node to show its viewshed'
+    "
     @click="store.toggleViewshed()"
   >
     <ScanEye :size="16" />
@@ -58,9 +60,11 @@
     class="btn btn-sm shadow w-100 mt-2 d-flex align-items-center justify-content-center gap-1"
     :class="store.nodesLocked ? 'btn-primary' : 'btn-light'"
     :aria-pressed="store.nodesLocked"
-    :title="store.nodesLocked
-      ? 'Nodes locked in place — click to allow dragging'
-      : 'Lock nodes in place to prevent accidental dragging'"
+    :title="
+      store.nodesLocked
+        ? 'Nodes locked in place — click to allow dragging'
+        : 'Lock nodes in place to prevent accidental dragging'
+    "
     @click="store.toggleNodesLock()"
   >
     <component :is="store.nodesLocked ? Lock : LockOpen" :size="16" />
@@ -69,8 +73,8 @@
 </template>
 
 <script setup lang="ts">
-import { useStore } from '../store.ts'
-import { Lock, LockOpen, Waypoints, ScanEye } from '@lucide/vue'
-import BasemapPicker from './BasemapPicker.vue'
-const store = useStore()
+import { useStore } from '../store.ts';
+import { Lock, LockOpen, Waypoints, ScanEye } from '@lucide/vue';
+import BasemapPicker from './BasemapPicker.vue';
+const store = useStore();
 </script>

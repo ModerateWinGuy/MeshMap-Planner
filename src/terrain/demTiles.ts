@@ -76,8 +76,22 @@ export function enabledOverlaySpecs(providers: DemProvider[]): OverlaySpec[] {
 // asking users to add it themselves.
 export function builtinDemProviders(): DemProvider[] {
   return [
-    { id: 'builtin-linz-dem', name: 'LINZ DEM — bare earth (NZ)', urlTemplate: LINZ_DEM_TEMPLATE, encoding: 'mapbox', enabled: false, builtin: true },
-    { id: 'builtin-linz-dsm', name: 'LINZ DSM — surface, incl. buildings (NZ)', urlTemplate: LINZ_DSM_TEMPLATE, encoding: 'mapbox', enabled: false, builtin: true },
+    {
+      id: 'builtin-linz-dem',
+      name: 'LINZ DEM — bare earth (NZ)',
+      urlTemplate: LINZ_DEM_TEMPLATE,
+      encoding: 'mapbox',
+      enabled: false,
+      builtin: true,
+    },
+    {
+      id: 'builtin-linz-dsm',
+      name: 'LINZ DSM — surface, incl. buildings (NZ)',
+      urlTemplate: LINZ_DSM_TEMPLATE,
+      encoding: 'mapbox',
+      enabled: false,
+      builtin: true,
+    },
   ];
 }
 
@@ -357,7 +371,12 @@ export function registerDemProtocol(
     const x = +m[2];
     const y = +m[3];
     const rgba = await composeTerrariumTileRGBACached(
-      z, x, y, MAPTERHORN_TEMPLATE, getOverlays(), abortController.signal,
+      z,
+      x,
+      y,
+      MAPTERHORN_TEMPLATE,
+      getOverlays(),
+      abortController.signal,
     );
     if (!rgba) throw new Error(`no terrain data for ${z}/${x}/${y}`);
     return { data: await rgbaToPng(rgba) };
@@ -400,20 +419,22 @@ export async function testProviderTile(
   if (tile[i + 3] < 128) {
     return {
       ok: false,
-      message: 'Fetched, but the centre pixel is marked no-data here — try testing over an area this provider covers (pan the map first).',
+      message:
+        'Fetched, but the centre pixel is marked no-data here — try testing over an area this provider covers (pan the map first).',
     };
   }
-  const h = encoding === 'mapbox'
-    ? decodeMapbox(tile[i], tile[i + 1], tile[i + 2])
-    : decodeTerrarium(tile[i], tile[i + 1], tile[i + 2]);
+  const h =
+    encoding === 'mapbox'
+      ? decodeMapbox(tile[i], tile[i + 1], tile[i + 2])
+      : decodeTerrarium(tile[i], tile[i + 1], tile[i + 2]);
   if (!Number.isFinite(h) || h < -500 || h > 9000) {
-    return { ok: false, message: `Decoded an implausible elevation (${h.toFixed(0)} m) — double check the encoding setting.` };
+    return {
+      ok: false,
+      message: `Decoded an implausible elevation (${h.toFixed(0)} m) — double check the encoding setting.`,
+    };
   }
   return { ok: true, message: `Looks good — ${h.toFixed(0)} m at the map centre.` };
 }
 
 // MapLibre v5's AddProtocolAction shape, kept local so this module doesn't import maplibre types.
-type AddProtocolFn = (
-  params: { url: string },
-  abortController: AbortController,
-) => Promise<{ data: ArrayBuffer }>;
+type AddProtocolFn = (params: { url: string }, abortController: AbortController) => Promise<{ data: ArrayBuffer }>;

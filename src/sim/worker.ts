@@ -6,10 +6,7 @@
 import type { Heightmap, LodHeightmap } from '../viewshed/heightmap.ts';
 import type { ProfileSample } from './profile.ts';
 import { loadItm, type ItmModule } from './itm/index.ts';
-import {
-  computeLinkFromSample, computeProfileFromSample,
-  type SimNode, type SimShared,
-} from './links.ts';
+import { computeLinkFromSample, computeProfileFromSample, type SimNode, type SimShared } from './links.ts';
 import { computeCoverage } from './coverage.ts';
 import { relayOverlap, type RelayParams } from './relay.ts';
 import type { CoverageNode, CoverageOptions } from './coverageTypes.ts';
@@ -34,9 +31,15 @@ export interface WireHeightmap {
 function rebuild(h: WireHeightmap): Heightmap {
   return {
     data: new Uint8Array(h.buffer),
-    width: h.width, height: h.height,
-    west: h.west, north: h.north, east: h.east, south: h.south,
-    z: h.z, originX: h.originX, originY: h.originY,
+    width: h.width,
+    height: h.height,
+    west: h.west,
+    north: h.north,
+    east: h.east,
+    south: h.south,
+    z: h.z,
+    originX: h.originX,
+    originY: h.originY,
     sourceKey: '',
   };
 }
@@ -129,7 +132,9 @@ async function handleMatrixLink(msg: MatrixLinkMsg): Promise<void> {
   const { sample, tx, rx, shared, sensitivity, id } = msg;
   const profile: ProfileSample = {
     heights: new Float64Array(sample.heightsBuffer),
-    spacingM: sample.spacingM, distanceM: sample.distanceM, terrain: sample.terrain,
+    spacingM: sample.spacingM,
+    distanceM: sample.distanceM,
+    terrain: sample.terrain,
   };
   const link = computeLinkFromSample(mod, profile, tx, rx, shared, sensitivity);
   ctx.postMessage({ type: 'matrix-link-done', id, link });
@@ -151,7 +156,11 @@ async function handleProfileSample(msg: ProfileSampleMsg): Promise<void> {
     const result = computeProfileFromSample(mod, profile, tx, rx, shared, sensitivity);
     ctx.postMessage({ type: 'profile-done', reqId, result });
   } catch (err) {
-    ctx.postMessage({ type: 'profile-error', reqId, error: err instanceof Error ? err.message : String(err) });
+    ctx.postMessage({
+      type: 'profile-error',
+      reqId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -178,8 +187,12 @@ async function handleCoverage(msg: CoverageMsg): Promise<void> {
       reqId,
       grid: {
         buffer: grid.dbm.buffer,
-        width: grid.width, height: grid.height,
-        west: grid.west, south: grid.south, east: grid.east, north: grid.north,
+        width: grid.width,
+        height: grid.height,
+        west: grid.west,
+        south: grid.south,
+        east: grid.east,
+        north: grid.north,
       },
     },
     [grid.dbm.buffer],
@@ -202,7 +215,12 @@ async function handleRelay(msg: RelayMsg): Promise<void> {
         // Report against a 0..total scale so the main thread can drive a fraction without knowing the
         // two-pass split; total is fixed at the grid cell count, done sweeps 0..total across both passes.
         const total = msg.opts.width * msg.opts.height;
-        ctx.postMessage({ type: 'relay-progress', reqId, done: Math.round(fraction * total), total });
+        ctx.postMessage({
+          type: 'relay-progress',
+          reqId,
+          done: Math.round(fraction * total),
+          total,
+        });
       }
     };
     const gridA = computeCoverage(mod, hm, msg.txA, msg.shared, msg.opts, (done, total) => {
@@ -217,7 +235,11 @@ async function handleRelay(msg: RelayMsg): Promise<void> {
     const transfer = result.marginGrid ? [result.marginGrid.dbm.buffer] : [];
     ctx.postMessage({ type: 'relay-done', reqId, result }, transfer);
   } catch (err) {
-    ctx.postMessage({ type: 'relay-error', reqId, error: err instanceof Error ? err.message : String(err) });
+    ctx.postMessage({
+      type: 'relay-error',
+      reqId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 

@@ -20,8 +20,8 @@
 </template>
 
 <script setup lang="ts">
-import { RadioTower, Map as MapIcon, Link, MoreHorizontal } from "@lucide/vue"
-import type { UiMode } from '../types.ts'
+import { RadioTower, Map as MapIcon, Link, MoreHorizontal } from '@lucide/vue';
+import type { UiMode } from '../types.ts';
 
 // Subset of App.vue's MODES — only the modes that get their own bottom tab. The remaining modes
 // (Simulation Settings, Settings, Import, Viewshed) live behind "More" — see App.vue's overflow sheet.
@@ -29,8 +29,8 @@ const TABS = [
   { id: 'nodes' as UiMode, label: 'Nodes', icon: RadioTower },
   { id: 'coverage' as UiMode, label: 'Coverage', icon: MapIcon },
   { id: 'linkfinder' as UiMode, label: 'Links', icon: Link },
-]
+];
 
-defineProps<{ openMode: UiMode | null }>()
-const emit = defineEmits<{ tap: [mode: UiMode]; toggleMore: [] }>()
+defineProps<{ openMode: UiMode | null }>();
+const emit = defineEmits<{ tap: [mode: UiMode]; toggleMore: [] }>();
 </script>

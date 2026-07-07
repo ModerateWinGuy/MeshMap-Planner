@@ -4,11 +4,11 @@
 declare global {
   interface Window {
     goatcounter?: {
-      count: (opts: { path: string; title?: string; event?: boolean }) => void
-    }
+      count: (opts: { path: string; title?: string; event?: boolean }) => void;
+    };
   }
 }
 
 export function trackEvent(path: string, title?: string) {
-  window.goatcounter?.count({ path, title, event: true })
+  window.goatcounter?.count({ path, title, event: true });
 }

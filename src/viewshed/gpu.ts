@@ -145,7 +145,11 @@ export class ViewshedEngine implements ViewshedComputeEngine {
       const module = device.createShaderModule({ code: SHADER });
       this.layout = device.createBindGroupLayout({
         entries: [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'float', viewDimension: '2d' } },
+          {
+            binding: 0,
+            visibility: GPUShaderStage.COMPUTE,
+            texture: { sampleType: 'float', viewDimension: '2d' },
+          },
           { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
           { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
         ],
@@ -154,7 +158,10 @@ export class ViewshedEngine implements ViewshedComputeEngine {
         layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
         compute: { module, entryPoint: 'main' },
       });
-      this.paramsBuf = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+      this.paramsBuf = device.createBuffer({
+        size: 64,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
       this.device = device;
       return true;
     } catch {
@@ -182,8 +189,14 @@ export class ViewshedEngine implements ViewshedComputeEngine {
     }
     this.outBuf?.destroy();
     this.readBuf?.destroy();
-    this.outBuf = this.device!.createBuffer({ size: bytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-    this.readBuf = this.device!.createBuffer({ size: bytes, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    this.outBuf = this.device!.createBuffer({
+      size: bytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    this.readBuf = this.device!.createBuffer({
+      size: bytes,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
     this.outBytes = bytes;
   }
 
@@ -211,14 +224,22 @@ export class ViewshedEngine implements ViewshedComputeEngine {
 
     // Geometry: observer in output-pixel space, metres-per-output-pixel, and the output→mosaic scale.
     const { obsOutX, obsOutY, outToMosaicX, outToMosaicY, mppOut } = viewshedOutputGeometry(
-      hm, opts.obsLon, opts.obsLat, outW, outH,
+      hm,
+      opts.obsLon,
+      opts.obsLat,
+      outW,
+      outH,
     );
 
     const p = new Float32Array(16);
-    p[0] = outW; p[1] = outH;
-    p[2] = hm.width; p[3] = hm.height;
-    p[4] = obsOutX; p[5] = obsOutY;
-    p[6] = outToMosaicX; p[7] = outToMosaicY;
+    p[0] = outW;
+    p[1] = outH;
+    p[2] = hm.width;
+    p[3] = hm.height;
+    p[4] = obsOutX;
+    p[5] = obsOutY;
+    p[6] = outToMosaicX;
+    p[7] = outToMosaicY;
     p[8] = mppOut;
     p[9] = opts.txHeight;
     p[10] = opts.targetHeight;

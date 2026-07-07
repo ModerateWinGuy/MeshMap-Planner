@@ -29,29 +29,32 @@ export const MESHTASTIC_PRESETS: Record<string, LoRaPreset> = {
 // MeshCore's named "Select Radio Settings" list (region presets bundle frequency + modem speed).
 // Source: the MeshCore companion app's radio settings picker.
 export const MESHCORE_PRESETS: Record<string, LoRaPreset> = {
-  'Australia': { frequencyMhz: 915.8, spreadingFactor: 10, bandwidthKhz: 250 },
+  Australia: { frequencyMhz: 915.8, spreadingFactor: 10, bandwidthKhz: 250 },
   'Australia (Narrow)': { frequencyMhz: 916.575, spreadingFactor: 7, bandwidthKhz: 62.5 },
   'Australia (Mid)': { frequencyMhz: 915.075, spreadingFactor: 9, bandwidthKhz: 125 },
   'Australia: SA, WA': { frequencyMhz: 923.125, spreadingFactor: 8, bandwidthKhz: 62.5 },
   'Australia: QLD': { frequencyMhz: 923.125, spreadingFactor: 8, bandwidthKhz: 62.5 },
-  'Brazil': { frequencyMhz: 923.125, spreadingFactor: 8, bandwidthKhz: 62.5 },
+  Brazil: { frequencyMhz: 923.125, spreadingFactor: 8, bandwidthKhz: 62.5 },
   'EU/UK (Narrow)': { frequencyMhz: 869.618, spreadingFactor: 8, bandwidthKhz: 62.5 },
   'EU/UK (Deprecated)': { frequencyMhz: 869.525, spreadingFactor: 11, bandwidthKhz: 250 },
   'Czech Republic (Narrow)': { frequencyMhz: 869.432, spreadingFactor: 7, bandwidthKhz: 62.5 },
   'EU 433MHz (Long Range)': { frequencyMhz: 433.65, spreadingFactor: 11, bandwidthKhz: 250 },
   'EU 433MHz (Narrow)': { frequencyMhz: 433.65, spreadingFactor: 8, bandwidthKhz: 62.5 },
-  'Netherlands': { frequencyMhz: 869.618, spreadingFactor: 7, bandwidthKhz: 62.5 },
+  Netherlands: { frequencyMhz: 869.618, spreadingFactor: 7, bandwidthKhz: 62.5 },
   'New Zealand': { frequencyMhz: 917.375, spreadingFactor: 11, bandwidthKhz: 250 },
   'New Zealand (Narrow)': { frequencyMhz: 917.375, spreadingFactor: 7, bandwidthKhz: 62.5 },
   'Portugal 433': { frequencyMhz: 433.375, spreadingFactor: 9, bandwidthKhz: 62.5 },
   'Portugal 868': { frequencyMhz: 869.618, spreadingFactor: 7, bandwidthKhz: 62.5 },
-  'Switzerland': { frequencyMhz: 869.618, spreadingFactor: 8, bandwidthKhz: 62.5 },
+  Switzerland: { frequencyMhz: 869.618, spreadingFactor: 8, bandwidthKhz: 62.5 },
   'USA/Canada (Recommended)': { frequencyMhz: 910.525, spreadingFactor: 7, bandwidthKhz: 62.5 },
   'Vietnam (Narrow)': { frequencyMhz: 920.25, spreadingFactor: 8, bandwidthKhz: 62.5 },
   'Vietnam (Deprecated)': { frequencyMhz: 920.25, spreadingFactor: 11, bandwidthKhz: 250 },
 };
 
-export const PRESET_TABLE: Record<string, LoRaPreset> = { ...MESHTASTIC_PRESETS, ...MESHCORE_PRESETS };
+export const PRESET_TABLE: Record<string, LoRaPreset> = {
+  ...MESHTASTIC_PRESETS,
+  ...MESHCORE_PRESETS,
+};
 
 export const DEFAULT_PRESET = 'LongFast';
 
@@ -79,7 +82,7 @@ export const NOISE_FIGURE_DB = 6.0;
 export function receiverSensitivityDbm(
   spreadingFactor: number,
   bandwidthKhz: number,
-  noiseFigureDb: number = NOISE_FIGURE_DB
+  noiseFigureDb: number = NOISE_FIGURE_DB,
 ): number {
   const sf = Math.min(MAX_SF, Math.max(MIN_SF, Math.round(spreadingFactor)));
   const bandwidthHz = bandwidthKhz * 1000.0;

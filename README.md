@@ -26,7 +26,7 @@ The minimal steps for creating a mesh coverage prediction are:
 4. Drag the node to exactly where you want it if you need to adjust the position
 5. Configure your node's settings in the node settings panel (In the nodes tab)
 6. Go to the coverage tab and click "Run Simulation" or press the keyboard shortcut "C"
-   
+
 ### Link Profile
 
 To generate a link profile:
@@ -37,6 +37,7 @@ To generate a link profile:
 4. Click 3D and Links on the left hand side of the map will allow you to visualize all of the calculated links in 3D.
 
 ### Relay Finder
+
 The relay finder calculates the coverage for two nodes and then shows where they overlap, for when you want to find a way to link two nodes.
 
 Simply select one node, shift click another, and then you'll get a heatmap like the coverage map that shows the overlap. It'll also present some points that show some possible node locations with good margins that you can use to create nodes from.

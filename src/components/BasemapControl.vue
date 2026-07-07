@@ -8,7 +8,7 @@
 </template>
 
 <script setup lang="ts">
-import BasemapButtons from './BasemapButtons.vue'
+import BasemapButtons from './BasemapButtons.vue';
 </script>
 
 <style scoped>

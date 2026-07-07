@@ -3,7 +3,17 @@ import { useLocalStorage } from '@vueuse/core';
 import { watch, markRaw } from 'vue';
 import { randanimalSync } from 'randanimal';
 import maplibregl from 'maplibre-gl';
-import { type Site, type SplatParams, type Node, type NodeGroup, type MatrixResult, type LinkResult, type RelayResult, type ProfileResult, type UiMode } from './types.ts';
+import {
+  type Site,
+  type SplatParams,
+  type Node,
+  type NodeGroup,
+  type MatrixResult,
+  type LinkResult,
+  type RelayResult,
+  type ProfileResult,
+  type UiMode,
+} from './types.ts';
 import { escapeHtml, decodeShare, type SharePayload } from './utils.ts';
 import { trackEvent } from './analytics.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
@@ -24,7 +34,13 @@ import {
 } from './terrain/demTiles.ts';
 import { ViewshedEngine, type ViewshedComputeEngine } from './viewshed/gpu.ts';
 import { Webgl2ViewshedEngine } from './viewshed/webgl2.ts';
-import { runMatrix as runMatrixWorker, runProfile as runProfileWorker, runCoverage as runCoverageWorker, runRelay as runRelayWorker, type SimSource } from './sim/simClient.ts';
+import {
+  runMatrix as runMatrixWorker,
+  runProfile as runProfileWorker,
+  runCoverage as runCoverageWorker,
+  runRelay as runRelayWorker,
+  type SimSource,
+} from './sim/simClient.ts';
 import type { ProfileOptions } from './sim/profile.ts';
 import type { SimNode, SimShared } from './sim/links.ts';
 import type { CoverageNode, CoverageOptions, CoverageGrid } from './sim/coverageTypes.ts';
@@ -85,7 +101,9 @@ export const BASEMAPS = [
     // smallest payload. Needs VITE_LINZ_API_KEY (same free key as the DEM overlay; empty → blank).
     id: 'linz-aerial',
     label: 'Aerial Imagery',
-    tiles: [`https://basemaps.linz.govt.nz/v1/tiles/aerial/WebMercatorQuad/{z}/{x}/{y}.webp?api=${import.meta.env.VITE_LINZ_API_KEY ?? ''}`],
+    tiles: [
+      `https://basemaps.linz.govt.nz/v1/tiles/aerial/WebMercatorQuad/{z}/{x}/{y}.webp?api=${import.meta.env.VITE_LINZ_API_KEY ?? ''}`,
+    ],
     attribution: 'Aerial imagery © LINZ, CC-BY 4.0',
     maxzoom: 22,
   },
@@ -197,17 +215,21 @@ function linkPopupHtml(link: LinkResult, aName: string, bName: string): string {
       `Path loss: ${link.path_loss_db ?? '—'} dB<br>` +
       `Fresnel zone: ${link.fresnel_pct ?? '—'} % clear<br>` +
       `Distance: ${link.distance_km ?? '—'} km`;
-  return `<strong>${escapeHtml(aName)} ↔ ${escapeHtml(bName)}</strong><br>${details}`
-    + `<br><button type="button" class="link-profile-btn btn btn-sm btn-primary mt-2 w-100">Show line profile</button>`;
+  return (
+    `<strong>${escapeHtml(aName)} ↔ ${escapeHtml(bName)}</strong><br>${details}` +
+    `<br><button type="button" class="link-profile-btn btn btn-sm btn-primary mt-2 w-100">Show line profile</button>`
+  );
 }
 
 // The popup shown when a second node is shift-clicked: the pair, a button to compute the link +
 // show its profile, and a button to search for a relay site between them (wired to runProfile /
 // runRelay by showPairPopup). No metrics yet — they don't exist until the link is calculated.
 function pairPopupHtml(aName: string, bName: string): string {
-  return `<strong>${escapeHtml(aName)} ↔ ${escapeHtml(bName)}</strong>`
-    + `<br><button type="button" class="pair-profile-btn btn btn-sm btn-primary mt-2 w-100">Calculate link &amp; show profile</button>`
-    + `<br><button type="button" class="pair-relay-btn btn btn-sm btn-primary mt-2 w-100">Find relay zone</button>`;
+  return (
+    `<strong>${escapeHtml(aName)} ↔ ${escapeHtml(bName)}</strong>` +
+    `<br><button type="button" class="pair-profile-btn btn btn-sm btn-primary mt-2 w-100">Calculate link &amp; show profile</button>` +
+    `<br><button type="button" class="pair-relay-btn btn btn-sm btn-primary mt-2 w-100">Find relay zone</button>`
+  );
 }
 
 // The single raster-dem source backing the 3D terrain mesh, the hillshade, and the client-side sim
@@ -253,8 +275,19 @@ function buildStyle(
   // every basemap hidden (a blank map).
   const visibleId = BASEMAPS.some((b) => b.id === activeBasemap) ? activeBasemap : BASEMAPS[0].id;
   BASEMAPS.forEach((b) => {
-    sources[b.id] = { type: 'raster', tiles: b.tiles, tileSize: 256, attribution: b.attribution, maxzoom: b.maxzoom };
-    layers.push({ id: `basemap-${b.id}`, type: 'raster', source: b.id, layout: { visibility: b.id === visibleId ? 'visible' : 'none' } });
+    sources[b.id] = {
+      type: 'raster',
+      tiles: b.tiles,
+      tileSize: 256,
+      attribution: b.attribution,
+      maxzoom: b.maxzoom,
+    };
+    layers.push({
+      id: `basemap-${b.id}`,
+      type: 'raster',
+      source: b.id,
+      layout: { visibility: b.id === visibleId ? 'visible' : 'none' },
+    });
   });
   sources['terrain-dem'] = terrainDemSource(hasAnyOverlay);
   const style: any = { version: 8, sources, layers };
@@ -274,7 +307,10 @@ function migrateLegacyLinzEnabled(): Record<string, boolean> {
   try {
     const wasOn = JSON.parse(localStorage.getItem('linzOverlay') ?? 'false') === true;
     const model = JSON.parse(localStorage.getItem('linzModel') ?? '"dem"');
-    return { 'builtin-linz-dem': wasOn && model === 'dem', 'builtin-linz-dsm': wasOn && model === 'dsm' };
+    return {
+      'builtin-linz-dem': wasOn && model === 'dem',
+      'builtin-linz-dsm': wasOn && model === 'dsm',
+    };
   } catch {
     return {};
   }
@@ -369,8 +405,10 @@ function bakeCoverageImage(
   const warped = mercatorWarp(colored, grid.north, grid.south);
   const image = markRaw(fitCoverageCanvas(warped, textureCap));
   const coords: Site['coords'] = [
-    [grid.west, grid.north], [grid.east, grid.north],
-    [grid.east, grid.south], [grid.west, grid.south],
+    [grid.west, grid.north],
+    [grid.east, grid.north],
+    [grid.east, grid.south],
+    [grid.west, grid.south],
   ];
   return { image, coords };
 }
@@ -389,7 +427,7 @@ function defaultTransmitter(freqOverride?: number): SplatParams['transmitter'] {
     tx_power: 0.1,
     tx_freq: freqOverride ?? 907.0,
     tx_height: 2.0,
-    tx_gain: 2.0
+    tx_gain: 2.0,
   };
 }
 
@@ -398,7 +436,7 @@ function defaultReceiver(): SplatParams['receiver'] {
     rx_sensitivity: -130.0,
     // Most LoRa devices have the antenna mounted directly on the housing, so cable loss is
     // negligible by default.
-    rx_loss: 0
+    rx_loss: 0,
   };
 }
 
@@ -406,7 +444,7 @@ function seedNode(): Node {
   return {
     id: crypto.randomUUID(),
     transmitter: defaultTransmitter(),
-    receiver: defaultReceiver()
+    receiver: defaultReceiver(),
   };
 }
 
@@ -681,7 +719,10 @@ const useStore = defineStore('store', {
       // default so the map keeps the zero-overhead direct-Mapterhorn path until the user opts in. The default
       // migrates any pre-existing linzOverlay/linzModel value so upgrading users don't lose their
       // setting.
-      builtinProviderEnabled: useLocalStorage<Record<string, boolean>>('builtinProviderEnabled', migrateLegacyLinzEnabled()),
+      builtinProviderEnabled: useLocalStorage<Record<string, boolean>>(
+        'builtinProviderEnabled',
+        migrateLegacyLinzEnabled(),
+      ),
       // The 3D line-of-sight links (chords through the air + masts + drop-curtains). When off, the
       // flat 2D draped links show at full opacity instead. Only render with 3D terrain on. Persisted.
       links3dEnabled: useLocalStorage('links3dEnabled', true),
@@ -746,43 +787,53 @@ const useStore = defineStore('store', {
       measureCursor: null as [number, number] | null,
       locationSearchActive: false,
       // nodeId set => the node-variant menu (delete/share); unset => the empty-map variant (add/copy).
-      contextMenu: null as { x: number; y: number; lat: number; lng: number; nodeId?: string } | null,
+      contextMenu: null as {
+        x: number;
+        y: number;
+        lat: number;
+        lng: number;
+        nodeId?: string;
+      } | null,
       // Coverage hover readout: container-relative pixel + the dBm value under the cursor for the
       // topmost visible coverage layer there. null when the cursor isn't over any coverage layer.
       coverageHover: null as { x: number; y: number; dbm: number } | null,
       // shared / global params (per-node radio lives on the nodes themselves)
-      splatParams: useLocalStorage('splatParams', {
-        lora: {
-          preset: DEFAULT_PRESET,
-          spreadingFactor: MESHTASTIC_PRESETS[DEFAULT_PRESET].spreadingFactor,
-          bandwidthKhz: MESHTASTIC_PRESETS[DEFAULT_PRESET].bandwidthKhz,
-          frequencyMhz: undefined as number | undefined
+      splatParams: useLocalStorage(
+        'splatParams',
+        {
+          lora: {
+            preset: DEFAULT_PRESET,
+            spreadingFactor: MESHTASTIC_PRESETS[DEFAULT_PRESET].spreadingFactor,
+            bandwidthKhz: MESHTASTIC_PRESETS[DEFAULT_PRESET].bandwidthKhz,
+            frequencyMhz: undefined as number | undefined,
+          },
+          environment: {
+            radio_climate: 'continental_temperate',
+            polarization: 'vertical',
+            clutter_height: 1.0,
+            ground_dielectric: 15.0,
+            ground_conductivity: 0.005,
+            atmosphere_bending: 301.0,
+          },
+          simulation: {
+            situation_fraction: 95.0,
+            time_fraction: 95.0,
+            simulation_extent: 30.0,
+            filter_radio_horizon: true,
+            max_link_distance_km: 0, // off by default; applies to "Compute all" only
+            quality: 'balanced',
+            overlay_max_texture: 4096,
+          },
+          display: {
+            color_scale: 'plasma',
+            min_dbm: -130.0,
+            max_dbm: -80.0,
+            overlay_transparency: 50,
+          },
         },
-        environment: {
-          radio_climate: 'continental_temperate',
-          polarization: 'vertical',
-          clutter_height: 1.0,
-          ground_dielectric: 15.0,
-          ground_conductivity: 0.005,
-          atmosphere_bending: 301.0
-        },
-        simulation: {
-          situation_fraction: 95.0,
-          time_fraction: 95.0,
-          simulation_extent: 30.0,
-          filter_radio_horizon: true,
-          max_link_distance_km: 0, // off by default; applies to "Compute all" only
-          quality: 'balanced',
-          overlay_max_texture: 4096
-        },
-        display: {
-          color_scale: 'plasma',
-          min_dbm: -130.0,
-          max_dbm: -80.0,
-          overlay_transparency: 50
-        }
-      }, { mergeDefaults: true }) // merge so previously-stored params gain new keys (e.g. lora)
-    }
+        { mergeDefaults: true },
+      ), // merge so previously-stored params gain new keys (e.g. lora)
+    };
   },
   getters: {
     // The basemaps shown in the switcher. The NZ aerial (LINZ) basemap is NZ-only, so it's hidden
@@ -796,7 +847,10 @@ const useStore = defineStore('store', {
     // enabled state lives separately (builtinProviderEnabled, keyed by id) since their urlTemplate/name
     // always come fresh from demTiles.ts rather than being frozen into a persisted provider object.
     allDemProviders(state): DemProvider[] {
-      const builtins = builtinDemProviders().map((p) => ({ ...p, enabled: state.builtinProviderEnabled[p.id] ?? false }));
+      const builtins = builtinDemProviders().map((p) => ({
+        ...p,
+        enabled: state.builtinProviderEnabled[p.id] ?? false,
+      }));
       return [...builtins, ...state.customDemProviders];
     },
     selectedNode(state): Node | undefined {
@@ -818,8 +872,7 @@ const useStore = defineStore('store', {
     // access — cheap at this scale, and keeps it reactive on `groups`.
     nodeHidden(state): (node: Node) => boolean {
       const hiddenGroups = new Set(state.groups.filter((g) => g.hidden).map((g) => g.id));
-      return (node: Node): boolean =>
-        Boolean(node.hidden) || (node.groupId != null && hiddenGroups.has(node.groupId));
+      return (node: Node): boolean => Boolean(node.hidden) || (node.groupId != null && hiddenGroups.has(node.groupId));
     },
     // The 3D links only make sense (and queryTerrainElevation only works) with terrain on, and they
     // can be switched off independently. Gates rendering, click-picking and the 2D-line dimming.
@@ -836,7 +889,7 @@ const useStore = defineStore('store', {
       let total = 0;
       for (let i = 1; i < pts.length; i++) {
         total += new maplibregl.LngLat(pts[i - 1][0], pts[i - 1][1]).distanceTo(
-          new maplibregl.LngLat(pts[i][0], pts[i][1])
+          new maplibregl.LngLat(pts[i][0], pts[i][1]),
         );
       }
       return total;
@@ -877,7 +930,8 @@ const useStore = defineStore('store', {
       // The link whose profile is open is always shown, even when a filter above would drop it (a
       // non-viable link with "hide invalid" on, an unselected link with "selected only" on, or a
       // hidden endpoint) — the user explicitly opened its profile to inspect the 2D line / 3D beam.
-      const pa = state.profileFromId, pb = state.profileToId;
+      const pa = state.profileFromId,
+        pb = state.profileToId;
       if (pa && pb) {
         const profiled = all.find((l) => (l.a === pa && l.b === pb) || (l.a === pb && l.b === pa));
         if (profiled && !links.includes(profiled)) {
@@ -899,12 +953,12 @@ const useStore = defineStore('store', {
           ...(base ? structuredClone(base.transmitter) : defaultTransmitter(this.splatParams.lora?.frequencyMhz)),
           name: randanimalSync(),
           tx_lat: Number(pos.lat.toFixed(6)),
-          tx_lon: Number(pos.lng.toFixed(6))
+          tx_lon: Number(pos.lng.toFixed(6)),
         },
         receiver: base ? structuredClone(base.receiver) : defaultReceiver(),
         // Join the selected node's folder so adding nodes while building out a group keeps them
         // together; undefined (top-level) when nothing is selected or the selection is ungrouped.
-        groupId: base?.groupId
+        groupId: base?.groupId,
       };
       this.nodes.push(node);
       this.selectedNodeId = node.id;
@@ -999,12 +1053,25 @@ const useStore = defineStore('store', {
           : this.measurePoints;
       const lineFc =
         linePts.length >= 2
-          ? { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: linePts }, properties: {} }] }
+          ? {
+              type: 'FeatureCollection',
+              features: [
+                {
+                  type: 'Feature',
+                  geometry: { type: 'LineString', coordinates: linePts },
+                  properties: {},
+                },
+              ],
+            }
           : EMPTY_FC;
       const ptFc = {
         type: 'FeatureCollection',
         // index lets the mousedown handler tell which vertex was grabbed for dragging.
-        features: this.measurePoints.map((c, i) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: { index: i } })),
+        features: this.measurePoints.map((c, i) => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: c },
+          properties: { index: i },
+        })),
       };
       (map.getSource('measure-line') as maplibregl.GeoJSONSource).setData(lineFc as any);
       (map.getSource('measure-pts') as maplibregl.GeoJSONSource).setData(ptFc as any);
@@ -1018,7 +1085,7 @@ const useStore = defineStore('store', {
       }
       node.hidden = !node.hidden;
       this.renderNodeMarkers(); // drop or restore this node's marker
-      this.redrawLinks();       // re-filter the links touching it (2D + 3D)
+      this.redrawLinks(); // re-filter the links touching it (2D + 3D)
     },
     // Record a node's position BEFORE a coordinate change so Ctrl+Z can restore it. Called from the
     // marker dragstart (pre-drag position) and the panel lat/lon edit commit (pre-edit position).
@@ -1129,10 +1196,10 @@ const useStore = defineStore('store', {
             ...defaultTransmitter(),
             name: row.name,
             tx_lat: Number(row.lat.toFixed(6)),
-            tx_lon: Number(row.lon.toFixed(6))
+            tx_lon: Number(row.lon.toFixed(6)),
           },
           receiver: defaultReceiver(),
-          groupId
+          groupId,
         };
         this.nodes.push(node);
       }
@@ -1146,7 +1213,13 @@ const useStore = defineStore('store', {
     // real frequency when the source provided one, and stores its public key (meshKey) for exact
     // re-sync/cross-source dedupe. Returns how many were added.
     importPublicMapNodes(
-      rows: Array<{ name: string; lat: number; lon: number; freq: number | null; meshKey: string | null }>
+      rows: Array<{
+        name: string;
+        lat: number;
+        lon: number;
+        freq: number | null;
+        meshKey: string | null;
+      }>,
     ): number {
       if (!rows.length) {
         return 0;
@@ -1158,7 +1231,7 @@ const useStore = defineStore('store', {
           ...defaultTransmitter(),
           name: row.name,
           tx_lat: Number(row.lat.toFixed(6)),
-          tx_lon: Number(row.lon.toFixed(6))
+          tx_lon: Number(row.lon.toFixed(6)),
         };
         if (row.freq != null && Number.isFinite(row.freq)) {
           transmitter.tx_freq = row.freq;
@@ -1168,7 +1241,7 @@ const useStore = defineStore('store', {
           transmitter,
           receiver: defaultReceiver(),
           groupId,
-          ...(row.meshKey ? { meshKey: row.meshKey } : {})
+          ...(row.meshKey ? { meshKey: row.meshKey } : {}),
         };
         this.nodes.push(node);
       }
@@ -1215,7 +1288,7 @@ const useStore = defineStore('store', {
           (n) =>
             n.transmitter.name === sn.name &&
             Number(n.transmitter.tx_lat.toFixed(6)) === lat &&
-            Number(n.transmitter.tx_lon.toFixed(6)) === lon
+            Number(n.transmitter.tx_lon.toFixed(6)) === lon,
         );
         if (existing) {
           ids.push(existing.id);
@@ -1282,7 +1355,11 @@ const useStore = defineStore('store', {
         bounds.extend(p);
       }
       // Bottom padding leaves room for the docked profile strip that a link share opens.
-      map.fitBounds(bounds, { padding: { top: 60, right: 60, bottom: 160, left: 60 }, maxZoom: 14, duration: 800 });
+      map.fitBounds(bounds, {
+        padding: { top: 60, right: 60, bottom: 160, left: 60 },
+        maxZoom: 14,
+        duration: 800,
+      });
     },
     renameGroup(id: string, name: string) {
       const group = this.groups.find((g) => g.id === id);
@@ -1457,7 +1534,13 @@ const useStore = defineStore('store', {
             e.stopPropagation();
             // clientX/Y are viewport-relative; convert to map-container-relative to match e.point elsewhere.
             const rect = (this.map as maplibregl.Map).getContainer().getBoundingClientRect();
-            this.openContextMenu(e.clientX - rect.left, e.clientY - rect.top, node.transmitter.tx_lat, node.transmitter.tx_lon, node.id);
+            this.openContextMenu(
+              e.clientX - rect.left,
+              e.clientY - rect.top,
+              node.transmitter.tx_lat,
+              node.transmitter.tx_lon,
+              node.id,
+            );
           });
           // MapLibre markers have no click event; listen on the element. stopPropagation keeps the
           // pin click from also firing the map click used by "Set with map".
@@ -1477,7 +1560,7 @@ const useStore = defineStore('store', {
             new maplibregl.Marker({ element: el, draggable: !this.nodesLocked, anchor: 'bottom' })
               .setLngLat(lngLat)
               // setText (not setHTML) so a node name can't inject HTML.
-              .setPopup(new maplibregl.Popup({ offset: 30 }).setText(node.transmitter.name))
+              .setPopup(new maplibregl.Popup({ offset: 30 }).setText(node.transmitter.name)),
             // no .addTo(map): cullMarkers() attaches only the in-view subset (see attachedMarkers).
           );
           marker.on('dragstart', () => {
@@ -1535,12 +1618,13 @@ const useStore = defineStore('store', {
       const b = map.getBounds();
       const padW = (b.getEast() - b.getWest()) * 0.5;
       const padH = (b.getNorth() - b.getSouth()) * 0.5;
-      const west = b.getWest() - padW, east = b.getEast() + padW;
-      const south = b.getSouth() - padH, north = b.getNorth() + padH;
+      const west = b.getWest() - padW,
+        east = b.getEast() + padW;
+      const south = b.getSouth() - padH,
+        north = b.getNorth() + padH;
       const wraps = west > east; // view straddling ±180
       const inView = (lng: number, lat: number): boolean =>
-        lat >= south && lat <= north &&
-        (wraps ? (lng >= west || lng <= east) : (lng >= west && lng <= east));
+        lat >= south && lat <= north && (wraps ? lng >= west || lng <= east : lng >= west && lng <= east);
 
       // Always keep the selected node attached: it's the viewshed/link focus and the only live-drag
       // target, so detaching its element under the pointer would abort a drag.
@@ -1626,7 +1710,12 @@ const useStore = defineStore('store', {
         }
         const id = 'cov-' + site.taskId;
         if (!map.getSource(id)) {
-          map.addSource(id, { type: 'canvas', canvas: site.image, coordinates: site.coords, animate: false } as any);
+          map.addSource(id, {
+            type: 'canvas',
+            canvas: site.image,
+            coordinates: site.coords,
+            animate: false,
+          } as any);
           map.addLayer(
             {
               id,
@@ -1634,7 +1723,7 @@ const useStore = defineStore('store', {
               source: id,
               paint: { 'raster-opacity': opacity, 'raster-resampling': 'nearest' },
             } as any,
-            map.getLayer(COVERAGE_BEFORE) ? COVERAGE_BEFORE : undefined
+            map.getLayer(COVERAGE_BEFORE) ? COVERAGE_BEFORE : undefined,
           );
         }
         map.setLayoutProperty(id, 'visibility', site.visible === false ? 'none' : 'visible');
@@ -1766,7 +1855,12 @@ const useStore = defineStore('store', {
         return;
       }
       const canvas = fitCoverageCanvas(viewshedResultCanvas);
-      map.addSource(VIEWSHED_ID, { type: 'canvas', canvas, coordinates: viewshedCoords, animate: false } as any);
+      map.addSource(VIEWSHED_ID, {
+        type: 'canvas',
+        canvas,
+        coordinates: viewshedCoords,
+        animate: false,
+      } as any);
       map.addLayer(
         {
           id: VIEWSHED_ID,
@@ -2010,7 +2104,7 @@ const useStore = defineStore('store', {
           // A top-down view renders identically to flat (see toggleTerrain), so open tilted when 3D
           // is on to make the relief visible.
           pitch: this.terrainEnabled ? 60 : 0,
-        })
+        }),
       );
       // The compass gives tilt/rotate handles; visualizePitch shows the current pitch on the control.
       this.map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), 'bottom-left');
@@ -2068,11 +2162,11 @@ const useStore = defineStore('store', {
                 this.requestViewshed(); // manual lat/lon edits (not a drag) move the observer too
               }
             }
-          }
+          },
         ),
         watch(
           () => this.splatParams.display.overlay_transparency,
-          () => this.applyCoverageOpacity()
+          () => this.applyCoverageOpacity(),
         ),
         // Recompute the viewshed when its inputs change: radius, target height, or the selected node's
         // antenna height (the observer eye). Coordinate moves are covered by the drag handler and the
@@ -2086,7 +2180,7 @@ const useStore = defineStore('store', {
             if (this.viewshedEnabled) {
               this.requestViewshed();
             }
-          }
+          },
         ),
         // Recompute the SELECTED node's links (the fast per-node path) only when something that changes
         // their viability is actually EDITED — the node's own radio params + coordinates, or a shared
@@ -2106,11 +2200,20 @@ const useStore = defineStore('store', {
             const r = n?.receiver;
             const env = this.splatParams.environment;
             const sig = [
-              t?.tx_lat, t?.tx_lon, t?.tx_power, t?.tx_gain, t?.tx_freq, t?.tx_height,
+              t?.tx_lat,
+              t?.tx_lon,
+              t?.tx_power,
+              t?.tx_gain,
+              t?.tx_freq,
+              t?.tx_height,
               r?.rx_loss,
               this.splatParams.lora?.preset,
-              env.radio_climate, env.polarization, env.clutter_height,
-              env.ground_dielectric, env.ground_conductivity, env.atmosphere_bending,
+              env.radio_climate,
+              env.polarization,
+              env.clutter_height,
+              env.ground_dielectric,
+              env.ground_conductivity,
+              env.atmosphere_bending,
             ].join(':');
             return `${n?.id ?? ''}|${sig}`;
           },
@@ -2133,7 +2236,7 @@ const useStore = defineStore('store', {
                 this.runNodeLinks();
               }
             }, 300);
-          }
+          },
         ),
         // Refresh an open profile when either of its endpoints moves or changes height — a map
         // drag-drop, a manual lat/lon edit, or an AGL height edit. Tracks coords + heights for both
@@ -2160,8 +2263,8 @@ const useStore = defineStore('store', {
                 this.runProfile(this.profileFromId, this.profileToId);
               }
             }, 300);
-          }
-        )
+          },
+        ),
       );
     },
     // Add the empty overlay sources and their style layers once, bottom-to-top among overlays:
@@ -2195,14 +2298,27 @@ const useStore = defineStore('store', {
       // Dashed (non-viable) vs solid (viable) links: line-dasharray isn't data-drivable, so two
       // layers share the source, split by a filter on the `viable` property.
       map.addLayer({
-        id: 'links-solid', type: 'line', source: 'links',
+        id: 'links-solid',
+        type: 'line',
+        source: 'links',
         filter: ['==', ['get', 'viable'], true],
-        paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'width'], 'line-opacity': ['get', 'opacity'] },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': ['get', 'width'],
+          'line-opacity': ['get', 'opacity'],
+        },
       } as any);
       map.addLayer({
-        id: 'links-dashed', type: 'line', source: 'links',
+        id: 'links-dashed',
+        type: 'line',
+        source: 'links',
         filter: ['==', ['get', 'viable'], false],
-        paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'width'], 'line-opacity': ['get', 'opacity'], 'line-dasharray': [2, 2] },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': ['get', 'width'],
+          'line-opacity': ['get', 'opacity'],
+          'line-dasharray': [2, 2],
+        },
       } as any);
       // The 3D line-of-sight links (chords through the air + AGL masts), drawn on top of the 2D
       // lines. queryTerrainElevation only reads loaded tiles, so rebuild as the view changes and as
@@ -2296,8 +2412,12 @@ const useStore = defineStore('store', {
       });
       // Track the pointer's lng/lat so the "A" hotkey can drop a node under the cursor; cleared on
       // mouseout so it can't reuse a stale position once the pointer leaves the map (see addNodeAtCursor).
-      map.on('mousemove', (e: any) => { lastMapCursor = e.lngLat; });
-      map.on('mouseout', () => { lastMapCursor = null; });
+      map.on('mousemove', (e: any) => {
+        lastMapCursor = e.lngLat;
+      });
+      map.on('mouseout', () => {
+        lastMapCursor = null;
+      });
       // Coverage hover readout: rAF-throttled like the 3D-link hover below, so mousemove doesn't
       // re-scan every coverage layer's grid more than once per frame.
       let coverageHoverScheduled = false;
@@ -2313,8 +2433,12 @@ const useStore = defineStore('store', {
       });
       // MapLibre doesn't fire 'mousemove' during an active drag-pan, so the tooltip would otherwise
       // freeze at its pre-drag screen position while the map moves under it.
-      map.on('dragstart', () => { this.coverageHover = null; });
-      map.on('mouseout', () => { this.coverageHover = null; });
+      map.on('dragstart', () => {
+        this.coverageHover = null;
+      });
+      map.on('mouseout', () => {
+        this.coverageHover = null;
+      });
       // 'contextmenu' fires on right-mouseup for both a plain click and a rotate-drag release;
       // only treat near-zero movement since mousedown as a real menu request.
       map.on('mousedown', (e: any) => {
@@ -2352,7 +2476,9 @@ const useStore = defineStore('store', {
       });
       this.set3dLinksVisible(this.links3dActive);
       map.addLayer({
-        id: 'relay-pts', type: 'circle', source: 'relay-pts',
+        id: 'relay-pts',
+        type: 'circle',
+        source: 'relay-pts',
         paint: {
           'circle-radius': 7,
           'circle-color': ['get', 'fill'],
@@ -2364,26 +2490,39 @@ const useStore = defineStore('store', {
       // The point-to-point profile path. A bright dashed line on top of everything so the slice the
       // bottom-strip chart describes is obvious against the basemap, links and coverage.
       map.addLayer({
-        id: 'profile-path-line', type: 'line', source: 'profile-path',
+        id: 'profile-path-line',
+        type: 'line',
+        source: 'profile-path',
         layout: { 'line-cap': 'round' },
         paint: { 'line-color': '#22d3ee', 'line-width': 3, 'line-dasharray': [1.5, 1.5] },
       } as any);
       // The dashed ground link previewing a shift-clicked node pair, before it's computed. Amber to
       // echo the selected pin's highlight and to read as "pending" against the cyan profile path.
       map.addLayer({
-        id: 'pair-link-line', type: 'line', source: 'pair-link',
+        id: 'pair-link-line',
+        type: 'line',
+        source: 'pair-link',
         layout: { 'line-cap': 'round' },
         paint: { 'line-color': '#ffb703', 'line-width': 2.5, 'line-dasharray': [2, 2] },
       } as any);
       // Magenta to stand apart from the cyan profile path and amber pair preview.
       map.addLayer({
-        id: 'measure-line-line', type: 'line', source: 'measure-line',
+        id: 'measure-line-line',
+        type: 'line',
+        source: 'measure-line',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': '#f72585', 'line-width': 2.5, 'line-dasharray': [2, 1.5] },
       } as any);
       map.addLayer({
-        id: 'measure-pts-circle', type: 'circle', source: 'measure-pts',
-        paint: { 'circle-radius': 5, 'circle-color': '#f72585', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 },
+        id: 'measure-pts-circle',
+        type: 'circle',
+        source: 'measure-pts',
+        paint: {
+          'circle-radius': 5,
+          'circle-color': '#f72585',
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 2,
+        },
       } as any);
       map.on('click', (e: any) => {
         if (!this.measureActive) {
@@ -2485,18 +2624,33 @@ const useStore = defineStore('store', {
           if (!f) {
             return;
           }
-          const popup = new maplibregl.Popup({ offset: 8 }).setLngLat(e.lngLat).setHTML(String(f.properties?.popupHtml ?? '')).addTo(map);
+          const popup = new maplibregl.Popup({ offset: 8 })
+            .setLngLat(e.lngLat)
+            .setHTML(String(f.properties?.popupHtml ?? ''))
+            .addTo(map);
           const a = f.properties?.a as string | undefined;
           const b = f.properties?.b as string | undefined;
           const btn = popup.getElement()?.querySelector('.link-profile-btn');
-          btn?.addEventListener('click', () => {
-            this.runProfile(a ?? null, b ?? null);
-            popup.remove();
-          }, { once: true });
+          btn?.addEventListener(
+            'click',
+            () => {
+              this.runProfile(a ?? null, b ?? null);
+              popup.remove();
+            },
+            { once: true },
+          );
         });
         // Keep the measure crosshair while the tool is on rather than flipping to the link pointer.
-        map.on('mouseenter', layer, () => { if (!this.measureActive) { map.getCanvas().style.cursor = 'pointer'; } });
-        map.on('mouseleave', layer, () => { if (!this.measureActive) { map.getCanvas().style.cursor = ''; } });
+        map.on('mouseenter', layer, () => {
+          if (!this.measureActive) {
+            map.getCanvas().style.cursor = 'pointer';
+          }
+        });
+        map.on('mouseleave', layer, () => {
+          if (!this.measureActive) {
+            map.getCanvas().style.cursor = '';
+          }
+        });
       }
       // Relay candidate points carry a "Promote to node" button in their popup.
       map.on('click', 'relay-pts', (e: any) => {
@@ -2508,15 +2662,30 @@ const useStore = defineStore('store', {
           return;
         }
         const [lon, lat] = f.geometry.coordinates as [number, number]; // geometry coords stay numeric
-        const popup = new maplibregl.Popup({ offset: 12 }).setLngLat([lon, lat]).setHTML(String(f.properties?.popupHtml ?? '')).addTo(map);
+        const popup = new maplibregl.Popup({ offset: 12 })
+          .setLngLat([lon, lat])
+          .setHTML(String(f.properties?.popupHtml ?? ''))
+          .addTo(map);
         const btn = popup.getElement()?.querySelector('.relay-promote-btn');
-        btn?.addEventListener('click', () => {
-          this.promoteRelayPoint(lat, lon);
-          popup.remove();
-        }, { once: true });
+        btn?.addEventListener(
+          'click',
+          () => {
+            this.promoteRelayPoint(lat, lon);
+            popup.remove();
+          },
+          { once: true },
+        );
       });
-      map.on('mouseenter', 'relay-pts', () => { if (!this.measureActive) { map.getCanvas().style.cursor = 'pointer'; } });
-      map.on('mouseleave', 'relay-pts', () => { if (!this.measureActive) { map.getCanvas().style.cursor = ''; } });
+      map.on('mouseenter', 'relay-pts', () => {
+        if (!this.measureActive) {
+          map.getCanvas().style.cursor = 'pointer';
+        }
+      });
+      map.on('mouseleave', 'relay-pts', () => {
+        if (!this.measureActive) {
+          map.getCanvas().style.cursor = '';
+        }
+      });
     },
     setBasemap(id: string) {
       this.activeBasemap = id;
@@ -2658,7 +2827,13 @@ const useStore = defineStore('store', {
     },
     addCustomDemProvider(name: string, urlTemplate: string, encoding: 'mapbox' | 'terrarium') {
       trackEvent('terrain-provider-add-custom');
-      this.customDemProviders.push({ id: crypto.randomUUID(), name, urlTemplate, encoding, enabled: true });
+      this.customDemProviders.push({
+        id: crypto.randomUUID(),
+        name,
+        urlTemplate,
+        encoding,
+        enabled: true,
+      });
       this.applyTerrainOverlays();
     },
     updateCustomDemProvider(id: string, patch: Partial<Omit<DemProvider, 'id' | 'builtin'>>) {
@@ -2695,22 +2870,25 @@ const useStore = defineStore('store', {
     // Add the relief-shading layer over the terrain raster-dem. beforeId keeps it below the data
     // overlays; omit it on first setup, where the relay/coverage layers are added afterwards anyway.
     addHillshadeLayer(map: maplibregl.Map, beforeId?: string) {
-      map.addLayer({
-        id: 'hillshade',
-        type: 'hillshade',
-        source: 'terrain-dem',
-        layout: { visibility: this.hillshadeEnabled ? 'visible' : 'none' },
-        paint: {
-          // Multidirectional gives the soft, ambient-occlusion-like look; illumination-anchor 'map'
-          // keeps the light fixed to the ground rather than the camera.
-          'hillshade-method': 'multidirectional',
-          'hillshade-exaggeration': this.hillshadeExaggeration,
-          'hillshade-illumination-anchor': 'map',
-          // Shadows only: the default white highlight brightens sunlit slopes, which washes out
-          // solid-colour basemaps. Transparent highlight leaves just the darkening.
-          'hillshade-highlight-color': 'rgba(255, 248, 227, 0.48)',
-        },
-      } as any, beforeId);
+      map.addLayer(
+        {
+          id: 'hillshade',
+          type: 'hillshade',
+          source: 'terrain-dem',
+          layout: { visibility: this.hillshadeEnabled ? 'visible' : 'none' },
+          paint: {
+            // Multidirectional gives the soft, ambient-occlusion-like look; illumination-anchor 'map'
+            // keeps the light fixed to the ground rather than the camera.
+            'hillshade-method': 'multidirectional',
+            'hillshade-exaggeration': this.hillshadeExaggeration,
+            'hillshade-illumination-anchor': 'map',
+            // Shadows only: the default white highlight brightens sunlit slopes, which washes out
+            // solid-colour basemaps. Transparent highlight leaves just the darkening.
+            'hillshade-highlight-color': 'rgba(255, 248, 227, 0.48)',
+          },
+        } as any,
+        beforeId,
+      );
     },
     resetView() {
       this.map?.easeTo({ pitch: 0, bearing: 0 });
@@ -2789,10 +2967,16 @@ const useStore = defineStore('store', {
         rangeSteps,
         // Terrain fetch fills 0->0.4, the radial sweep fills 0.4->1.0, mirroring runMatrix's split.
         onHeightmapProgress: (loaded, total) => {
-          this.progress = { message: `Loading terrain ${loaded}/${total}…`, fraction: total ? 0.4 * (loaded / total) : 0 };
+          this.progress = {
+            message: `Loading terrain ${loaded}/${total}…`,
+            fraction: total ? 0.4 * (loaded / total) : 0,
+          };
         },
         onProgress: (done, total) => {
-          this.progress = { message: `Computing coverage ${done}/${total}…`, fraction: 0.4 + (total ? 0.6 * (done / total) : 0) };
+          this.progress = {
+            message: `Computing coverage ${done}/${total}…`,
+            fraction: 0.4 + (total ? 0.6 * (done / total) : 0),
+          };
         },
       });
       coverageCancel = cancel;
@@ -2809,7 +2993,15 @@ const useStore = defineStore('store', {
           simulation: this.splatParams.simulation,
           display: this.splatParams.display,
         }) as SplatParams;
-        this.localSites.push({ params, taskId, grid, visible: true, image, coords, createdAt: Date.now() });
+        this.localSites.push({
+          params,
+          taskId,
+          grid,
+          visible: true,
+          image,
+          coords,
+          createdAt: Date.now(),
+        });
         this.redrawSites();
         this.simulationState = 'completed';
         this.progress = null;
@@ -2927,9 +3119,7 @@ const useStore = defineStore('store', {
         layer.setBeamCursor(null);
         return;
       }
-      const pk = links3dPicks.find(
-        (p) => (p.a === fromId && p.b === toId) || (p.a === toId && p.b === fromId),
-      );
+      const pk = links3dPicks.find((p) => (p.a === fromId && p.b === toId) || (p.a === toId && p.b === fromId));
       const n = pk ? pk.pts.length / 3 : 0;
       if (!pk || n < 2) {
         layer.setBeamCursor(null);
@@ -3015,10 +3205,14 @@ const useStore = defineStore('store', {
         .setHTML(linkPopupHtml(link, nodeA.transmitter.name, nodeB.transmitter.name))
         .addTo(map);
       const btn = popup.getElement()?.querySelector('.link-profile-btn');
-      btn?.addEventListener('click', () => {
-        this.runProfile(a, b);
-        popup.remove();
-      }, { once: true });
+      btn?.addEventListener(
+        'click',
+        () => {
+          this.runProfile(a, b);
+          popup.remove();
+        },
+        { once: true },
+      );
     },
     // Shift-click pairing: stage a second node against the selected one. Draws the dashed preview
     // link and opens a popup whose button computes the link + profile. The pair is transient — any
@@ -3061,17 +3255,19 @@ const useStore = defineStore('store', {
       }
       src.setData({
         type: 'FeatureCollection',
-        features: [{
-          type: 'Feature',
-          geometry: {
-            type: 'LineString',
-            coordinates: [
-              [a.transmitter.tx_lon, a.transmitter.tx_lat],
-              [b.transmitter.tx_lon, b.transmitter.tx_lat],
-            ],
+        features: [
+          {
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: [
+                [a.transmitter.tx_lon, a.transmitter.tx_lat],
+                [b.transmitter.tx_lon, b.transmitter.tx_lat],
+              ],
+            },
+            properties: {},
           },
-          properties: {},
-        }],
+        ],
       } as any);
     },
     // Popup anchored at the pair target with a button that runs the profile (which also computes the
@@ -3092,19 +3288,27 @@ const useStore = defineStore('store', {
         .setHTML(pairPopupHtml(a.transmitter.name, b.transmitter.name))
         .addTo(map);
       const btn = popup.getElement()?.querySelector('.pair-profile-btn');
-      btn?.addEventListener('click', () => {
-        const from = this.selectedNodeId;
-        const to = this.pairTargetId;
-        this.clearPairTarget(); // closes this popup; runProfile draws its own cyan profile path
-        this.runProfile(from, to);
-      }, { once: true });
+      btn?.addEventListener(
+        'click',
+        () => {
+          const from = this.selectedNodeId;
+          const to = this.pairTargetId;
+          this.clearPairTarget(); // closes this popup; runProfile draws its own cyan profile path
+          this.runProfile(from, to);
+        },
+        { once: true },
+      );
       const relayBtn = popup.getElement()?.querySelector('.pair-relay-btn');
-      relayBtn?.addEventListener('click', () => {
-        const from = this.selectedNodeId;
-        const to = this.pairTargetId;
-        this.clearPairTarget(); // closes this popup
-        this.startRelaySearch(from!, to!);
-      }, { once: true });
+      relayBtn?.addEventListener(
+        'click',
+        () => {
+          const from = this.selectedNodeId;
+          const to = this.pairTargetId;
+          this.clearPairTarget(); // closes this popup
+          this.startRelaySearch(from!, to!);
+        },
+        { once: true },
+      );
       // Dismissing the popup (its X or a click away) cancels the pending pair. Guarded by the ref
       // check so clearPairTarget's own remove() doesn't re-enter.
       popup.on('close', () => {
@@ -3144,7 +3348,10 @@ const useStore = defineStore('store', {
     // Topmost visible coverage layer whose bbox contains lngLat, or null. Iterates localSites back-to-
     // front since later-pushed layers render on top (redrawSites always inserts just below the
     // 'coverage-top' anchor, pushing earlier layers further below it).
-    _pickCoverageHover(lngLat: maplibregl.LngLat, point: { x: number; y: number }): { x: number; y: number; dbm: number } | null {
+    _pickCoverageHover(
+      lngLat: maplibregl.LngLat,
+      point: { x: number; y: number },
+    ): { x: number; y: number; dbm: number } | null {
       for (let i = this.localSites.length - 1; i >= 0; i--) {
         const site = this.localSites[i];
         if (site.visible === false || !site.grid) {
@@ -3154,7 +3361,10 @@ const useStore = defineStore('store', {
         if (lngLat.lng < west || lngLat.lng > east || lngLat.lat < south || lngLat.lat > north) {
           continue;
         }
-        const row = Math.min(height - 1, Math.max(0, Math.round(((north - lngLat.lat) / (north - south)) * (height - 1))));
+        const row = Math.min(
+          height - 1,
+          Math.max(0, Math.round(((north - lngLat.lat) / (north - south)) * (height - 1))),
+        );
         const col = Math.min(width - 1, Math.max(0, Math.round(((lngLat.lng - west) / (east - west)) * (width - 1))));
         const v = dbm[row * width + col];
         if (Number.isNaN(v)) {
@@ -3233,7 +3443,13 @@ const useStore = defineStore('store', {
 
       if (sourceNodeId === undefined || !this.matrixResult) {
         // Full matrix, or the first per-node run: start from a blank result and fill in as links land.
-        this.matrixResult = { nodes: [], preset, sensitivity_dbm: sensitivityRounded, links: [], computedSourceIds: [] };
+        this.matrixResult = {
+          nodes: [],
+          preset,
+          sensitivity_dbm: sensitivityRounded,
+          links: [],
+          computedSourceIds: [],
+        };
       } else {
         // Per-node into an existing matrix: keep the other nodes' links; the header reflects this run.
         this.matrixResult.preset = preset;
@@ -3259,7 +3475,10 @@ const useStore = defineStore('store', {
         maxDistanceKm: sourceNodeId === undefined ? (this.splatParams.simulation.max_link_distance_km ?? 0) : 0,
         onLink: (link, done, total) => {
           this.upsertMatrixLink(link);
-          this.progress = { message: `Computing links ${done}/${total}…`, fraction: total ? done / total : 0 };
+          this.progress = {
+            message: `Computing links ${done}/${total}…`,
+            fraction: total ? done / total : 0,
+          };
           const now = performance.now();
           if (now - lastDraw >= 150) {
             lastDraw = now;
@@ -3399,7 +3618,10 @@ const useStore = defineStore('store', {
         // its matrix margin are computed from the same terrain at the same density — they agree.
         quality: this._simPathQuality(),
         onHeightmapProgress: (loaded, total) => {
-          this.progress = { message: `Loading terrain ${loaded}/${total}…`, fraction: total ? 0.8 * (loaded / total) : 0 };
+          this.progress = {
+            message: `Loading terrain ${loaded}/${total}…`,
+            fraction: total ? 0.8 * (loaded / total) : 0,
+          };
         },
       });
       profileCancel = cancel;
@@ -3499,17 +3721,19 @@ const useStore = defineStore('store', {
       }
       src.setData({
         type: 'FeatureCollection',
-        features: [{
-          type: 'Feature',
-          geometry: {
-            type: 'LineString',
-            coordinates: [
-              [a.transmitter.tx_lon, a.transmitter.tx_lat],
-              [b.transmitter.tx_lon, b.transmitter.tx_lat],
-            ],
+        features: [
+          {
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: [
+                [a.transmitter.tx_lon, a.transmitter.tx_lat],
+                [b.transmitter.tx_lon, b.transmitter.tx_lat],
+              ],
+            },
+            properties: {},
           },
-          properties: {},
-        }],
+        ],
       } as any);
     },
     clearProfile() {
@@ -3575,7 +3799,7 @@ const useStore = defineStore('store', {
       // by relayOverlap).
       const midLat = (a.transmitter.tx_lat + b.transmitter.tx_lat) / 2;
       const padLat = searchRadiusM / 111320;
-      const padLon = searchRadiusM / (111320 * Math.max(0.01, Math.cos(midLat * Math.PI / 180)));
+      const padLon = searchRadiusM / (111320 * Math.max(0.01, Math.cos((midLat * Math.PI) / 180)));
       const west = Math.min(a.transmitter.tx_lon, b.transmitter.tx_lon) - padLon;
       const east = Math.max(a.transmitter.tx_lon, b.transmitter.tx_lon) + padLon;
       const south = Math.min(a.transmitter.tx_lat, b.transmitter.tx_lat) - padLat;
@@ -3588,7 +3812,7 @@ const useStore = defineStore('store', {
       const TARGET_CELL_M = 120;
       const MAX_GRID = 768;
       const spanLatM = (north - south) * 111320;
-      const spanLonM = (east - west) * 111320 * Math.max(0.01, Math.cos(midLat * Math.PI / 180));
+      const spanLonM = (east - west) * 111320 * Math.max(0.01, Math.cos((midLat * Math.PI) / 180));
       const spanM = Math.max(spanLatM, spanLonM);
       let gridSize = Math.max(64, Math.ceil(spanM / TARGET_CELL_M));
       if (gridSize > MAX_GRID) {
@@ -3598,8 +3822,12 @@ const useStore = defineStore('store', {
       }
 
       const opts: CoverageOptions = {
-        west, south, east, north,
-        width: gridSize, height: gridSize,
+        west,
+        south,
+        east,
+        north,
+        width: gridSize,
+        height: gridSize,
         rxHeightM: RELAY_RX_HEIGHT_M,
       };
 
@@ -3625,10 +3853,16 @@ const useStore = defineStore('store', {
         params,
         // Terrain fetch fills 0->0.3, the two-pass compute fills 0.3->1.0.
         onHeightmapProgress: (loaded, total) => {
-          this.progress = { message: `Loading terrain ${loaded}/${total}…`, fraction: total ? 0.3 * (loaded / total) : 0 };
+          this.progress = {
+            message: `Loading terrain ${loaded}/${total}…`,
+            fraction: total ? 0.3 * (loaded / total) : 0,
+          };
         },
         onProgress: (done, total) => {
-          this.progress = { message: `Searching for relay sites ${done}/${total}…`, fraction: 0.3 + (total ? 0.7 * (done / total) : 0) };
+          this.progress = {
+            message: `Searching for relay sites ${done}/${total}…`,
+            fraction: 0.3 + (total ? 0.7 * (done / total) : 0),
+          };
         },
       });
       relayCancel = cancel;
@@ -3654,8 +3888,10 @@ const useStore = defineStore('store', {
           const warped = mercatorWarp(colored, grid.north, grid.south);
           this.relayImage = markRaw(fitCoverageCanvas(warped));
           this.relayCoords = [
-            [grid.west, grid.north], [grid.east, grid.north],
-            [grid.east, grid.south], [grid.west, grid.south],
+            [grid.west, grid.north],
+            [grid.east, grid.north],
+            [grid.east, grid.south],
+            [grid.west, grid.south],
           ];
         } else {
           this.relayImage = null;
@@ -3698,9 +3934,19 @@ const useStore = defineStore('store', {
       if (map.getSource('relay-cov')) map.removeSource('relay-cov');
       if (this.relayImage && this.relayCoords && map.getLayer(RELAY_BEFORE)) {
         const opacity = 1 - (this.splatParams.display.overlay_transparency ?? 0) / 100;
-        map.addSource('relay-cov', { type: 'canvas', canvas: this.relayImage, coordinates: this.relayCoords, animate: false } as any);
+        map.addSource('relay-cov', {
+          type: 'canvas',
+          canvas: this.relayImage,
+          coordinates: this.relayCoords,
+          animate: false,
+        } as any);
         map.addLayer(
-          { id: 'relay-cov', type: 'raster', source: 'relay-cov', paint: { 'raster-opacity': opacity, 'raster-resampling': 'nearest' } } as any,
+          {
+            id: 'relay-cov',
+            type: 'raster',
+            source: 'relay-cov',
+            paint: { 'raster-opacity': opacity, 'raster-resampling': 'nearest' },
+          } as any,
           RELAY_BEFORE,
         );
       }
@@ -3754,16 +4000,16 @@ const useStore = defineStore('store', {
           ...(base ? structuredClone(base.transmitter) : defaultTransmitter(this.splatParams.lora?.frequencyMhz)),
           name: name ?? randanimalSync(),
           tx_lat: Number(lat.toFixed(6)),
-          tx_lon: Number(lon.toFixed(6))
+          tx_lon: Number(lon.toFixed(6)),
         },
-        receiver: base ? structuredClone(base.receiver) : defaultReceiver()
+        receiver: base ? structuredClone(base.receiver) : defaultReceiver(),
       };
       this.nodes.push(node);
       this.selectedNodeId = node.id;
       this.renderNodeMarkers();
       this.redrawLinks(); // selection changed → re-filter the selected node's non-viable links
-    }
-  }
+    },
+  },
 });
 
-export { useStore }
+export { useStore };

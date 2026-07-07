@@ -146,8 +146,11 @@ export class Webgl2ViewshedEngine implements ViewshedComputeEngine {
     try {
       const canvas = document.createElement('canvas');
       const gl = canvas.getContext('webgl2', {
-        antialias: false, depth: false, stencil: false,
-        alpha: true, premultipliedAlpha: false,
+        antialias: false,
+        depth: false,
+        stencil: false,
+        alpha: true,
+        premultipliedAlpha: false,
       });
       if (!gl) {
         return false;
@@ -243,7 +246,11 @@ export class Webgl2ViewshedEngine implements ViewshedComputeEngine {
     this.ensureOutputFbo(outW, outH);
 
     const { obsOutX, obsOutY, outToMosaicX, outToMosaicY, mppOut } = viewshedOutputGeometry(
-      hm, opts.obsLon, opts.obsLat, outW, outH,
+      hm,
+      opts.obsLon,
+      opts.obsLat,
+      outW,
+      outH,
     );
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);

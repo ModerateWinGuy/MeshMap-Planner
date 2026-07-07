@@ -53,7 +53,9 @@ export const meshMapperSource: PublicNodeSource = {
     }
     const warnings: string[] = [];
     if (capped) {
-      warnings.push(`Large area — fetched only the ${codes.length} nearest MeshMapper regions. Zoom in for full coverage.`);
+      warnings.push(
+        `Large area — fetched only the ${codes.length} nearest MeshMapper regions. Zoom in for full coverage.`,
+      );
     }
     if (failed) {
       warnings.push(`${failed} MeshMapper region${failed === 1 ? '' : 's'} could not be fetched.`);

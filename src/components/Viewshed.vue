@@ -3,11 +3,11 @@
     <div class="row">
       <div class="col-12">
         <div class="form-text">
-          A fast, in-browser <strong>line-of-sight checker</strong>: everything the selected node can
-          see is tinted <span class="text-success fw-semibold">green</span>. It reads whatever surface the map's 3D terrain is currently showing (bare-earth DEM,
-          surface DSM, or the simulation grid), so switch terrain source in <strong>Settings</strong> to
-          compare. This is a quick approximation - the <strong>Coverage</strong> (SPLAT) run remains the
-          authoritative radio model.
+          A fast, in-browser <strong>line-of-sight checker</strong>: everything the selected node can see is tinted
+          <span class="text-success fw-semibold">green</span>. It reads whatever surface the map's 3D terrain is
+          currently showing (bare-earth DEM, surface DSM, or the simulation grid), so switch terrain source in
+          <strong>Settings</strong> to compare. This is a quick approximation - the <strong>Coverage</strong> (SPLAT)
+          run remains the authoritative radio model.
         </div>
       </div>
     </div>
@@ -18,8 +18,7 @@
         <div class="alert alert-warning py-2 px-3 mb-0 d-flex align-items-start gap-2">
           <TriangleAlert :size="18" class="flex-shrink-0 mt-1" />
           <span>
-            Viewshed needs a browser with <strong>WebGPU or WebGL2</strong> support. The rest of the
-            app is unaffected.
+            Viewshed needs a browser with <strong>WebGPU or WebGL2</strong> support. The rest of the app is unaffected.
           </span>
         </div>
       </div>
@@ -43,7 +42,8 @@
           <div v-if="!store.selectedNode" class="form-text">Add or select a node to begin.</div>
           <div v-else-if="store.viewshedProgress" class="form-text d-flex align-items-center gap-2">
             <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-            Loading terrain… {{ store.viewshedProgress.loaded }}/{{ store.viewshedProgress.total }} tiles
+            Loading terrain… {{ store.viewshedProgress.loaded }}/{{ store.viewshedProgress.total }}
+            tiles
           </div>
           <div v-else-if="store.viewshedState === 'computing'" class="form-text d-flex align-items-center gap-2">
             <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
@@ -68,8 +68,8 @@
             />
             <label class="form-check-label" for="viewshed_live">Live recompute while dragging</label>
             <InfoTip>
-              On = recompute continuously as you drag the node (needs a fast GPU; runs at lower detail
-              mid-drag). Off = recompute when you drop it or change a setting.
+              On = recompute continuously as you drag the node (needs a fast GPU; runs at lower detail mid-drag). Off =
+              recompute when you drop it or change a setting.
             </InfoTip>
           </div>
         </div>
@@ -100,9 +100,7 @@
             <label for="viewshed_target_height" class="form-label mb-0">
               Receiver height: {{ store.viewshedTargetHeight }} m
             </label>
-            <InfoTip>
-              Height above ground at the tested cells. The observer uses the node's antenna height.
-            </InfoTip>
+            <InfoTip> Height above ground at the tested cells. The observer uses the node's antenna height. </InfoTip>
           </div>
           <input
             type="range"
@@ -142,8 +140,8 @@
 </template>
 
 <script setup lang="ts">
-import { TriangleAlert } from '@lucide/vue'
-import { useStore } from '../store.ts'
-import InfoTip from './InfoTip.vue'
-const store = useStore()
+import { TriangleAlert } from '@lucide/vue';
+import { useStore } from '../store.ts';
+import InfoTip from './InfoTip.vue';
+const store = useStore();
 </script>

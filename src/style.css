@@ -150,7 +150,7 @@ body {
 }
 
 .spinner-border-sm {
-    margin-right: 0.5rem; /* Optional: Add spacing between spinner and text */
+  margin-right: 0.5rem; /* Optional: Add spacing between spinner and text */
 }
 
 /* The icon is a Lucide SVG (stroke = currentColor), so `color` drives it; active = filled red to
@@ -496,7 +496,10 @@ body {
   .sidebar {
     width: 300px;
     flex: 0 0 300px;
-    transition: flex-basis 0.2s ease, width 0.2s ease, padding 0.2s ease;
+    transition:
+      flex-basis 0.2s ease,
+      width 0.2s ease,
+      padding 0.2s ease;
   }
   .sidebar.collapsed {
     width: 0;

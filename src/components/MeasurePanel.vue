@@ -12,7 +12,12 @@
       <template v-else>Click to add points; double-click to finish.</template>
     </div>
     <div class="d-flex gap-2">
-      <button type="button" class="btn btn-outline-light btn-sm flex-fill" :disabled="!store.measurePoints.length" @click="store.clearMeasure()">
+      <button
+        type="button"
+        class="btn btn-outline-light btn-sm flex-fill"
+        :disabled="!store.measurePoints.length"
+        @click="store.clearMeasure()"
+      >
         <Eraser :size="14" /> Clear
       </button>
       <button type="button" class="btn btn-light btn-sm flex-fill" @click="store.toggleMeasure()">
@@ -23,16 +28,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Ruler, Eraser, X } from '@lucide/vue'
-import { useStore } from '../store.ts'
+import { computed } from 'vue';
+import { Ruler, Eraser, X } from '@lucide/vue';
+import { useStore } from '../store.ts';
 
-const store = useStore()
+const store = useStore();
 
 const formatted = computed(() => {
-  const m = store.measureDistanceM
-  return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(2)} km`
-})
+  const m = store.measureDistanceM;
+  return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(2)} km`;
+});
 </script>
 
 <style scoped>

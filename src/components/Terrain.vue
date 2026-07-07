@@ -3,11 +3,10 @@
     <div class="row">
       <div class="col-12">
         <div class="form-text">
-          Toggle <strong>3D terrain</strong> with the <strong>3D</strong> button on the map
-          (top-left, under the basemap buttons). It drapes the map over an elevation mesh
-          (Mapterhorn); tilt with right-drag (or the compass control) to read hill elevation.
-          The <strong>Shade</strong> button beside it adds relief shading that reads hills on flat
-          basemaps — works in both top-down and 3D view.
+          Toggle <strong>3D terrain</strong> with the <strong>3D</strong> button on the map (top-left, under the basemap
+          buttons). It drapes the map over an elevation mesh (Mapterhorn); tilt with right-drag (or the compass control)
+          to read hill elevation. The <strong>Shade</strong> button beside it adds relief shading that reads hills on
+          flat basemaps — works in both top-down and 3D view.
         </div>
       </div>
     </div>
@@ -31,9 +30,9 @@
           />
           <label class="form-check-label" for="nz_basemap_enabled">Show NZ satellite basemap (LINZ)</label>
           <InfoTip>
-            Adds a <strong>Satellite (NZ)</strong> option to the basemap buttons, using LINZ aerial
-            photography — higher detail than the global Esri imagery, but New Zealand only (blank
-            elsewhere). Off by default; enable it if you're mapping in NZ. Imagery © LINZ, CC&#8209;BY&nbsp;4.0.
+            Adds a <strong>Satellite (NZ)</strong> option to the basemap buttons, using LINZ aerial photography — higher
+            detail than the global Esri imagery, but New Zealand only (blank elsewhere). Off by default; enable it if
+            you're mapping in NZ. Imagery © LINZ, CC&#8209;BY&nbsp;4.0.
           </InfoTip>
         </div>
       </div>
@@ -94,8 +93,8 @@
           />
           <label class="form-check-label" for="links3d_enabled">Show 3D line-of-sight links</label>
           <InfoTip>
-            Draw links as 3D lines flying through the air between antenna tops, with terrain-clipping
-            sections in yellow. When off, links stay as flat lines draped on the ground.
+            Draw links as 3D lines flying through the air between antenna tops, with terrain-clipping sections in
+            yellow. When off, links stay as flat lines draped on the ground.
           </InfoTip>
         </div>
       </div>
@@ -114,8 +113,7 @@
           />
           <label class="form-check-label" for="link_curtain_enabled">Show link drop-curtain</label>
           <InfoTip>
-            A translucent wall dropped from each link to the ground, showing its track and where it clips
-            terrain.
+            A translucent wall dropped from each link to the ground, showing its track and where it clips terrain.
           </InfoTip>
         </div>
       </div>
@@ -159,9 +157,8 @@
           />
           <label class="form-check-label" for="profile_flat_signal_line">Show signal as straight line</label>
           <InfoTip>
-            In the Link Profile chart, draw the signal line straight and let the terrain curve up/down
-            instead — the same physical geometry, just flipped so the terrain shows Earth's curvature
-            rather than the signal.
+            In the Link Profile chart, draw the signal line straight and let the terrain curve up/down instead — the
+            same physical geometry, just flipped so the terrain shows Earth's curvature rather than the signal.
           </InfoTip>
         </div>
       </div>
@@ -178,8 +175,8 @@
 </template>
 
 <script setup lang="ts">
-import { useStore } from '../store.ts'
-import InfoTip from './InfoTip.vue'
-import DemProviders from './DemProviders.vue'
-const store = useStore()
+import { useStore } from '../store.ts';
+import InfoTip from './InfoTip.vue';
+import DemProviders from './DemProviders.vue';
+const store = useStore();
 </script>

@@ -3,12 +3,7 @@
 // receivable. Computes per-cell margins, 4-connected islands, band colouring, and point ranking.
 
 import type { CoverageGrid } from './coverageTypes.ts';
-import type {
-  RelayResult,
-  RelayZoneProps,
-  RelayPointProps,
-  FeatureCollection,
-} from '../types.ts';
+import type { RelayResult, RelayZoneProps, RelayPointProps, FeatureCollection } from '../types.ts';
 
 export interface RelayParams {
   sensitivity_dbm: number;
@@ -30,11 +25,7 @@ const KM_PER_DEG_LON_EQUATOR = 111.32;
 // Background marker shared by the component labels and the per-cell band grid.
 const BACKGROUND = -1;
 
-export function relayOverlap(
-  gridA: CoverageGrid,
-  gridB: CoverageGrid,
-  params: RelayParams,
-): RelayResult {
+export function relayOverlap(gridA: CoverageGrid, gridB: CoverageGrid, params: RelayParams): RelayResult {
   if (
     gridA.width !== gridB.width ||
     gridA.height !== gridB.height ||
@@ -139,11 +130,7 @@ export function relayOverlap(
 
 // 4-connected flood fill of a boolean cell mask (dependency-free stack fill). Returns labels
 // (BACKGROUND for off cells, 0..count-1 for islands) and count.
-function labelComponents(
-  mask: Uint8Array,
-  width: number,
-  height: number,
-): { labels: Int32Array; count: number } {
+function labelComponents(mask: Uint8Array, width: number, height: number): { labels: Int32Array; count: number } {
   const labels = new Int32Array(width * height).fill(BACKGROUND);
   const stack: number[] = []; // packed r*width+c indices
   let count = 0;
@@ -232,16 +219,7 @@ function islandPolygons(
     const cellHKm = cellDegLat * KM_PER_DEG_LAT;
     const areaKm2 = cellSum * cellWKm * cellHKm;
 
-    const geometry = traceIslandGeometry(
-      labels,
-      islandId,
-      width,
-      height,
-      west,
-      north,
-      cellDegLon,
-      cellDegLat,
-    );
+    const geometry = traceIslandGeometry(labels, islandId, width, height, west, north, cellDegLon, cellDegLat);
 
     features.push({
       type: 'Feature',
@@ -276,9 +254,7 @@ function traceIslandGeometry(
   north: number,
   cellDegLon: number,
   cellDegLat: number,
-):
-  | { type: 'Polygon'; coordinates: Ring[] }
-  | { type: 'MultiPolygon'; coordinates: Ring[][] } {
+): { type: 'Polygon'; coordinates: Ring[] } | { type: 'MultiPolygon'; coordinates: Ring[][] } {
   // Boundary edges keyed by their two grid-corner endpoints. Corner (gr,gc) packs as gr*(width+1)+gc
   // where gr in 0..height, gc in 0..width. Each edge is directed so the island interior is on its
   // left, which lets us walk loops by always turning toward the next outgoing edge at a corner.
@@ -421,9 +397,7 @@ function rankPoints(
       if (features.length >= topN) break;
       const r = (i / width) | 0;
       const c = i - r * width;
-      const tooClose = chosen.some(
-        ([rr, cc]) => Math.abs(r - rr) < minSep && Math.abs(c - cc) < minSep,
-      );
+      const tooClose = chosen.some(([rr, cc]) => Math.abs(r - rr) < minSep && Math.abs(c - cc) < minSep);
       if (tooClose) continue;
       chosen.push([r, c]);
       makeFeature(features.length + 1, labels[i], r, c);

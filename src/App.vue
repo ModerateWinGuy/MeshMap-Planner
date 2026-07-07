@@ -28,7 +28,11 @@
               @click="shareSelectedNode"
             >
               <RadioTower :size="15" />
-              <span class="text-truncate">Selected node<template v-if="store.selectedNode">: {{ store.selectedNode.transmitter.name }}</template></span>
+              <span class="text-truncate"
+                >Selected node<template v-if="store.selectedNode"
+                  >: {{ store.selectedNode.transmitter.name }}</template
+                ></span
+              >
             </button>
           </li>
           <li><hr class="dropdown-divider" /></li>
@@ -51,7 +55,11 @@
              swaps the sidebar's contents below. Absolutely centered so it stays mid-navbar
              regardless of the brand width; the checked segment becomes a solid white pill — the
              active highlight (see the .mode-toggle rules in style.css). -->
-        <div class="btn-group mode-toggle position-absolute top-50 start-50 translate-middle" role="group" aria-label="Mode">
+        <div
+          class="btn-group mode-toggle position-absolute top-50 start-50 translate-middle"
+          role="group"
+          aria-label="Mode"
+        >
           <template v-for="m in MODES" :key="m.id">
             <input
               type="radio"
@@ -105,7 +113,11 @@
                   @click="shareSelectedNode"
                 >
                   <RadioTower :size="15" />
-                  <span class="text-truncate">Selected node<template v-if="store.selectedNode">: {{ store.selectedNode.transmitter.name }}</template></span>
+                  <span class="text-truncate"
+                    >Selected node<template v-if="store.selectedNode"
+                      >: {{ store.selectedNode.transmitter.name }}</template
+                    ></span
+                  >
                 </button>
               </li>
               <li><hr class="dropdown-divider" /></li>
@@ -139,7 +151,9 @@
           v-if="store.coverageHover"
           class="coverage-hover-tip"
           :style="{ left: store.coverageHover.x + 'px', top: store.coverageHover.y + 'px' }"
-        >{{ store.coverageHover.dbm }} dBm</div>
+        >
+          {{ store.coverageHover.dbm }} dBm
+        </div>
       </div>
       <!-- data-bs-theme="dark" puts every Bootstrap component in this dark sidebar onto its dark-mode
            palette (Bootstrap 5.3 color modes). Without it, descendants default to light-mode colours
@@ -176,19 +190,39 @@
           <li class="list-group-item" v-for="(site, index) in store.$state.localSites" :key="site.taskId">
             <div class="d-flex justify-content-between align-items-center">
               <div class="text-truncate">
-                <div :class="{ 'text-muted': site.visible === false }">{{ site.params.transmitter.name }}</div>
+                <div :class="{ 'text-muted': site.visible === false }">
+                  {{ site.params.transmitter.name }}
+                </div>
                 <div class="small text-muted">{{ siteSubtitle(site) }}</div>
               </div>
               <div class="d-flex align-items-center gap-2 flex-shrink-0">
-                <button type="button" @click="toggleSiteExpanded(site.taskId)" class="btn btn-sm p-0 border-0 bg-transparent lh-1" :aria-label="expandedSites.has(site.taskId) ? 'Hide display settings' : 'Edit display settings'" :title="expandedSites.has(site.taskId) ? 'Hide display settings' : 'Edit display settings'">
+                <button
+                  type="button"
+                  @click="toggleSiteExpanded(site.taskId)"
+                  class="btn btn-sm p-0 border-0 bg-transparent lh-1"
+                  :aria-label="expandedSites.has(site.taskId) ? 'Hide display settings' : 'Edit display settings'"
+                  :title="expandedSites.has(site.taskId) ? 'Hide display settings' : 'Edit display settings'"
+                >
                   <ChevronDown v-if="expandedSites.has(site.taskId)" :size="18" />
                   <ChevronRight v-else :size="18" />
                 </button>
-                <button type="button" @click="store.toggleSiteVisibility(index)" class="btn btn-sm p-0 border-0 bg-transparent lh-1" :aria-label="site.visible === false ? 'Show result' : 'Hide result'" :title="site.visible === false ? 'Show result' : 'Hide result'">
+                <button
+                  type="button"
+                  @click="store.toggleSiteVisibility(index)"
+                  class="btn btn-sm p-0 border-0 bg-transparent lh-1"
+                  :aria-label="site.visible === false ? 'Show result' : 'Hide result'"
+                  :title="site.visible === false ? 'Show result' : 'Hide result'"
+                >
                   <EyeOff v-if="site.visible === false" :size="18" />
                   <Eye v-else :size="18" />
                 </button>
-                <button type="button" @click="store.removeSite(index)" class="btn btn-sm p-0 border-0 bg-transparent lh-1" aria-label="Remove result" title="Remove result">
+                <button
+                  type="button"
+                  @click="store.removeSite(index)"
+                  class="btn btn-sm p-0 border-0 bg-transparent lh-1"
+                  aria-label="Remove result"
+                  title="Remove result"
+                >
                   <X :size="18" />
                 </button>
               </div>
@@ -199,16 +233,34 @@
               <div class="row g-2">
                 <div class="col-6">
                   <label class="form-label small mb-1">Min dBm</label>
-                  <input v-model.number="site.params.display.min_dbm" @change="store.recolorSite(index)" type="number" step="0.1" class="form-control form-control-sm" />
+                  <input
+                    v-model.number="site.params.display.min_dbm"
+                    @change="store.recolorSite(index)"
+                    type="number"
+                    step="0.1"
+                    class="form-control form-control-sm"
+                  />
                 </div>
                 <div class="col-6">
                   <label class="form-label small mb-1">Max dBm</label>
-                  <input v-model.number="site.params.display.max_dbm" @change="store.recolorSite(index)" type="number" step="0.1" class="form-control form-control-sm" />
+                  <input
+                    v-model.number="site.params.display.max_dbm"
+                    @change="store.recolorSite(index)"
+                    type="number"
+                    step="0.1"
+                    class="form-control form-control-sm"
+                  />
                 </div>
               </div>
               <label class="form-label small mb-1 mt-2">Color Scale</label>
-              <select v-model="site.params.display.color_scale" @change="store.recolorSite(index)" class="form-select form-select-sm">
-                <option v-for="opt in COLOR_SCALE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              <select
+                v-model="site.params.display.color_scale"
+                @change="store.recolorSite(index)"
+                class="form-select form-select-sm"
+              >
+                <option v-for="opt in COLOR_SCALE_OPTIONS" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
               </select>
               <div class="mt-2 small">
                 <div class="legend-bar" :style="{ background: gradientCss(site.params.display.color_scale) }"></div>
@@ -225,7 +277,11 @@
     <BasemapControl v-if="regime !== 'phone'" />
     <template v-if="regime === 'phone'">
       <MapToolRow />
-      <BottomTabBar :open-mode="sheetOpen ? store.activeMode : null" @tap="onTabTap" @toggle-more="moreSheetOpen = !moreSheetOpen" />
+      <BottomTabBar
+        :open-mode="sheetOpen ? store.activeMode : null"
+        @tap="onTabTap"
+        @toggle-more="moreSheetOpen = !moreSheetOpen"
+      />
       <BottomSheet v-model="sheetOpen" v-model:detent="sheetDetent" :title="activeModeLabel">
         <ModePanels node-footer="external" />
         <template v-if="store.activeMode === 'nodes'" #footer>
@@ -253,7 +309,11 @@
            (which the fixed bottom tab bar would otherwise cover). -->
       <BottomSheet
         :model-value="store.locationSearchActive"
-        @update:model-value="(open: boolean) => { if (!open) store.closeLocationSearch() }"
+        @update:model-value="
+          (open: boolean) => {
+            if (!open) store.closeLocationSearch();
+          }
+        "
         detent="peek"
         :detents="['peek']"
         title="Search location"
@@ -264,7 +324,11 @@
            doesn't get stuck under the top tool row or fight the bottom tab bar for screen space. -->
       <BottomSheet
         :model-value="profileActive"
-        @update:model-value="(open: boolean) => { if (!open) store.clearProfile() }"
+        @update:model-value="
+          (open: boolean) => {
+            if (!open) store.clearProfile();
+          }
+        "
         detent="half"
         title="Link Profile"
       >
@@ -275,75 +339,93 @@
 </template>
 
 <script setup lang="ts">
-import "maplibre-gl/dist/maplibre-gl.css"
+import 'maplibre-gl/dist/maplibre-gl.css';
 // Bootstrap's CSS is imported in main.ts (before style.css) so our theme overrides win; only the JS
 // bundle (popovers/dropdowns) is needed here.
-import "bootstrap/dist/js/bootstrap.bundle.min.js"
-import { computed, onMounted, onUnmounted, ref } from "vue"
-import ModePanels from "./components/ModePanels.vue"
-import BasemapControl from "./components/BasemapControl.vue"
-import BottomTabBar from "./components/BottomTabBar.vue"
-import BottomSheet from "./components/BottomSheet.vue"
-import NodePanelFooter from "./components/NodePanelFooter.vue"
-import MapToolRow from "./components/MapToolRow.vue"
-import SharedLinkBanner from "./components/SharedLinkBanner.vue"
-import ProfilePanel from "./components/ProfilePanel.vue"
-import MapLoadingBar from "./components/MapLoadingBar.vue"
-import SimLoadingBar from "./components/SimLoadingBar.vue"
-import MeasurePanel from "./components/MeasurePanel.vue"
-import LocationSearchPanel from "./components/LocationSearchPanel.vue"
-import ContextMenu from "./components/ContextMenu.vue"
-import { Eye, EyeOff, X, Radio, RadioTower, Map as MapIcon, Link, WifiCog, SlidersVertical, ScanEye, Share2, Check, FolderInput, Bug, ChevronLeft, ChevronRight, ChevronDown } from "@lucide/vue"
-import type { Component } from "vue"
+import 'bootstrap/dist/js/bootstrap.bundle.min.js';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
+import ModePanels from './components/ModePanels.vue';
+import BasemapControl from './components/BasemapControl.vue';
+import BottomTabBar from './components/BottomTabBar.vue';
+import BottomSheet from './components/BottomSheet.vue';
+import NodePanelFooter from './components/NodePanelFooter.vue';
+import MapToolRow from './components/MapToolRow.vue';
+import SharedLinkBanner from './components/SharedLinkBanner.vue';
+import ProfilePanel from './components/ProfilePanel.vue';
+import MapLoadingBar from './components/MapLoadingBar.vue';
+import SimLoadingBar from './components/SimLoadingBar.vue';
+import MeasurePanel from './components/MeasurePanel.vue';
+import LocationSearchPanel from './components/LocationSearchPanel.vue';
+import ContextMenu from './components/ContextMenu.vue';
+import {
+  Eye,
+  EyeOff,
+  X,
+  Radio,
+  RadioTower,
+  Map as MapIcon,
+  Link,
+  WifiCog,
+  SlidersVertical,
+  ScanEye,
+  Share2,
+  Check,
+  FolderInput,
+  Bug,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+} from '@lucide/vue';
+import type { Component } from 'vue';
 
-import { useStore } from './store.ts'
-import { installKeyboardShortcuts } from './keyboard.ts'
-import { useShareLink } from './shareLink.ts'
-import { nodeToShared } from './utils.ts'
-import { trackEvent } from './analytics.ts'
-import { gradientCss, COLOR_SCALE_OPTIONS } from './sim/colormap.ts'
-import type { UiMode, Site } from './types.ts'
-const store = useStore()
+import { useStore } from './store.ts';
+import { installKeyboardShortcuts } from './keyboard.ts';
+import { useShareLink } from './shareLink.ts';
+import { nodeToShared } from './utils.ts';
+import { trackEvent } from './analytics.ts';
+import { gradientCss, COLOR_SCALE_OPTIONS } from './sim/colormap.ts';
+import type { UiMode, Site } from './types.ts';
+const store = useStore();
 
 // Phone (<768px) and tablet (768-1023px) get a different layout shell; desktop (>=1024px) renders
 // today's markup untouched. matchMedia (not a resize listener) only fires on the 2 regime
 // transitions, never on every drag-resize pixel; CSS media queries still own the actual chrome sizing.
-const PHONE_MAX = 767
-const TABLET_MAX = 1023
+const PHONE_MAX = 767;
+const TABLET_MAX = 1023;
 function useRegime() {
-  const phoneMq = window.matchMedia(`(max-width: ${PHONE_MAX}px)`)
-  const tabletMq = window.matchMedia(`(min-width: ${PHONE_MAX + 1}px) and (max-width: ${TABLET_MAX}px)`)
+  const phoneMq = window.matchMedia(`(max-width: ${PHONE_MAX}px)`);
+  const tabletMq = window.matchMedia(`(min-width: ${PHONE_MAX + 1}px) and (max-width: ${TABLET_MAX}px)`);
   const regime = ref<'phone' | 'tablet' | 'desktop'>(
-    phoneMq.matches ? 'phone' : tabletMq.matches ? 'tablet' : 'desktop'
-  )
+    phoneMq.matches ? 'phone' : tabletMq.matches ? 'tablet' : 'desktop',
+  );
   const update = () => {
-    regime.value = phoneMq.matches ? 'phone' : tabletMq.matches ? 'tablet' : 'desktop'
-  }
+    regime.value = phoneMq.matches ? 'phone' : tabletMq.matches ? 'tablet' : 'desktop';
+  };
   onMounted(() => {
-    phoneMq.addEventListener('change', update)
-    tabletMq.addEventListener('change', update)
-  })
+    phoneMq.addEventListener('change', update);
+    tabletMq.addEventListener('change', update);
+  });
   onUnmounted(() => {
-    phoneMq.removeEventListener('change', update)
-    tabletMq.removeEventListener('change', update)
-  })
-  return regime
+    phoneMq.removeEventListener('change', update);
+    tabletMq.removeEventListener('change', update);
+  });
+  return regime;
 }
-const regime = useRegime()
+const regime = useRegime();
 
 // Share-menu actions. `shareCopied` flips the toggle to a brief "Copied!" after any item copies.
-const { copied: shareCopied, share: shareLink } = useShareLink()
+const { copied: shareCopied, share: shareLink } = useShareLink();
 function shareSelectedNode() {
-  const n = store.selectedNode
+  const n = store.selectedNode;
   if (n) {
-    trackEvent('share-node')
-    shareLink({ v: 1, t: 'nodes', n: [nodeToShared(n)] })
+    trackEvent('share-node');
+    shareLink({ v: 1, t: 'nodes', n: [nodeToShared(n)] });
   }
 }
 function shareSite() {
   if (store.nodes.length) {
-    trackEvent('share-site')
-    shareLink({ v: 1, t: 'nodes', n: store.nodes.map(nodeToShared) })
+    trackEvent('share-site');
+    shareLink({ v: 1, t: 'nodes', n: store.nodes.map(nodeToShared) });
   }
 }
 
@@ -357,75 +439,78 @@ const MODES = [
   { id: 'radio', label: 'Simulation Settings', icon: WifiCog },
   { id: 'settings', label: 'Settings', icon: SlidersVertical },
   { id: 'import', label: 'Import', icon: FolderInput },
-] as const satisfies ReadonlyArray<{ id: UiMode; label: string; icon: Component }>
+] as const satisfies ReadonlyArray<{ id: UiMode; label: string; icon: Component }>;
 
-const activeModeLabel = computed(() => MODES.find((m) => m.id === store.activeMode)?.label ?? '')
+const activeModeLabel = computed(() => MODES.find((m) => m.id === store.activeMode)?.label ?? '');
 
 // Whether a point-to-point link profile exists to show — shared by the desktop/tablet docked strip
 // and the phone sheet below, so the two stay in sync without duplicating the condition.
-const profileActive = computed(() =>
-  !!store.profileResult || store.profileState === 'running' || store.profileState === 'failed'
-)
+const profileActive = computed(
+  () => !!store.profileResult || store.profileState === 'running' || store.profileState === 'failed',
+);
 
 // Coverage results list: which rows have their inline display-settings editor expanded. View-only
 // state (not persisted, not on the Site itself), keyed by taskId.
-const expandedSites = ref(new Set<string>())
+const expandedSites = ref(new Set<string>());
 function toggleSiteExpanded(taskId: string) {
   if (expandedSites.value.has(taskId)) {
-    expandedSites.value.delete(taskId)
+    expandedSites.value.delete(taskId);
   } else {
-    expandedSites.value.add(taskId)
+    expandedSites.value.add(taskId);
   }
 }
 // Disambiguates repeat coverage runs on the same node in the results list.
 function siteSubtitle(site: Site): string {
-  const time = new Date(site.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  const { tx_power, tx_height } = site.params.transmitter
-  return `${time} · ${tx_power}W · ${tx_height}m AGL`
+  const time = new Date(site.createdAt).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const { tx_power, tx_height } = site.params.transmitter;
+  return `${time} · ${tx_power}W · ${tx_height}m AGL`;
 }
 
 // Phone bottom sheet. Not persisted (see the responsive-redesign plan's state-ownership table) —
 // reload should always land on the map-home rest state, sheet closed. `store.activeMode` (already
 // persisted) stays the single source of truth for *which* mode is showing across all three regimes;
 // these two only track whether the sheet for that mode is currently raised.
-const sheetOpen = ref(false)
-const sheetDetent = ref<'peek' | 'half' | 'full'>('half')
+const sheetOpen = ref(false);
+const sheetDetent = ref<'peek' | 'half' | 'full'>('half');
 function onTabTap(mode: UiMode) {
   if (sheetOpen.value && store.activeMode === mode) {
-    sheetOpen.value = false // re-tapping the lit tab closes its sheet
-    return
+    sheetOpen.value = false; // re-tapping the lit tab closes its sheet
+    return;
   }
-  store.activeMode = mode
-  sheetOpen.value = true
-  sheetDetent.value = 'half'
+  store.activeMode = mode;
+  sheetOpen.value = true;
+  sheetDetent.value = 'half';
 }
 
 // "More" overflow: the 3 modes that don't have their own bottom tab. Reuses BottomSheet for visual/
 // behavioral consistency (same scrim, same drag-to-dismiss) rather than a second sheet pattern.
-const moreSheetOpen = ref(false)
-const overflowModes = MODES.filter((m) => m.id === 'radio' || m.id === 'settings' || m.id === 'import')
+const moreSheetOpen = ref(false);
+const overflowModes = MODES.filter((m) => m.id === 'radio' || m.id === 'settings' || m.id === 'import');
 function openOverflow(mode: UiMode) {
-  store.activeMode = mode
-  moreSheetOpen.value = false
-  sheetOpen.value = true
-  sheetDetent.value = 'half'
+  store.activeMode = mode;
+  moreSheetOpen.value = false;
+  sheetOpen.value = true;
+  sheetDetent.value = 'half';
 }
 
 // The map belongs to the app shell, not any one panel — init/destroy here so switching modes (which
 // only toggles panel visibility via v-show) never tears the map down.
-let removeKeyboardShortcuts: (() => void) | null = null
+let removeKeyboardShortcuts: (() => void) | null = null;
 onMounted(() => {
-  store.initMap()
-  removeKeyboardShortcuts = installKeyboardShortcuts(store)
-})
+  store.initMap();
+  removeKeyboardShortcuts = installKeyboardShortcuts(store);
+});
 onUnmounted(() => {
   // Tear the map down on unmount so a remount (Vite HMR) can't leave the old map's layers subscribed
   // to its handlers — that orphaned state is what throws "map is null" and drifts layers on the next
   // interaction.
-  store.destroyMap()
-  removeKeyboardShortcuts?.()
-  removeKeyboardShortcuts = null
-})
+  store.destroyMap();
+  removeKeyboardShortcuts?.();
+  removeKeyboardShortcuts = null;
+});
 </script>
 
 <style>

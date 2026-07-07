@@ -5,7 +5,13 @@
 // The heightmap buffer is structured-cloned (not transferred) into the worker so getHeightmap's LRU
 // cache keeps an intact copy for the next call.
 
-import { getHeightmap, getCorridor, getLodHeightmap, type Heightmap, type LodHeightmap } from '../viewshed/heightmap.ts';
+import {
+  getHeightmap,
+  getCorridor,
+  getLodHeightmap,
+  type Heightmap,
+  type LodHeightmap,
+} from '../viewshed/heightmap.ts';
 import { type OverlaySpec } from '../terrain/demTiles.ts';
 import { haversineM, sampleProfileCorridor, sampleProfileLod, type ProfileSample } from './profile.ts';
 import type { ProfileOptions } from './profile.ts';
@@ -88,8 +94,22 @@ let reqCounter = 0;
 let linkSeq = 0;
 const matrixLinkHandlers = new Map<number, { resolve: (link: LinkResult) => void; reject: (e: unknown) => void }>();
 const profileHandlers = new Map<number, { resolve: (r: ProfileResult) => void; reject: (e: unknown) => void }>();
-const coverageHandlers = new Map<number, { onProgress?: CoverageRun['onProgress']; resolve: (g: CoverageGrid) => void; reject: (e: unknown) => void }>();
-const relayHandlers = new Map<number, { onProgress?: RelayRun['onProgress']; resolve: (r: RelayResult) => void; reject: (e: unknown) => void }>();
+const coverageHandlers = new Map<
+  number,
+  {
+    onProgress?: CoverageRun['onProgress'];
+    resolve: (g: CoverageGrid) => void;
+    reject: (e: unknown) => void;
+  }
+>();
+const relayHandlers = new Map<
+  number,
+  {
+    onProgress?: RelayRun['onProgress'];
+    resolve: (r: RelayResult) => void;
+    reject: (e: unknown) => void;
+  }
+>();
 
 function getWorker(): Worker {
   if (!worker) {
@@ -139,8 +159,12 @@ function getWorker(): Worker {
           // Reconstruct the typed-array view over the transferred buffer; the geometry rides alongside.
           h?.resolve({
             dbm: new Float32Array(m.grid.buffer),
-            width: m.grid.width, height: m.grid.height,
-            west: m.grid.west, south: m.grid.south, east: m.grid.east, north: m.grid.north,
+            width: m.grid.width,
+            height: m.grid.height,
+            west: m.grid.west,
+            south: m.grid.south,
+            east: m.grid.east,
+            north: m.grid.north,
           });
           break;
         }
@@ -168,9 +192,15 @@ function getWorker(): Worker {
 function wire(hm: Heightmap): WireHeightmap {
   return {
     buffer: hm.data.buffer,
-    width: hm.width, height: hm.height,
-    west: hm.west, north: hm.north, east: hm.east, south: hm.south,
-    z: hm.z, originX: hm.originX, originY: hm.originY,
+    width: hm.width,
+    height: hm.height,
+    west: hm.west,
+    north: hm.north,
+    east: hm.east,
+    south: hm.south,
+    z: hm.z,
+    originX: hm.originX,
+    originY: hm.originY,
   };
 }
 
@@ -180,13 +210,18 @@ function wire(hm: Heightmap): WireHeightmap {
 function wireLod(lod: LodHeightmap): WireLodHeightmap {
   return {
     levels: lod.levels.map((l) => ({ ...wire(l.hm), innerRadiusM: l.innerRadiusM })),
-    lon: lod.lon, lat: lod.lat,
+    lon: lod.lon,
+    lat: lod.lat,
   };
 }
 
 // Square fetch region (centre + half-extent metres) covering a set of points, with a floor so a
 // tight cluster still fetches a usable mosaic. getHeightmap pads this further (FETCH_PAD).
-function coveringRegion(pts: Array<{ lon: number; lat: number }>): { lon: number; lat: number; radiusM: number } {
+function coveringRegion(pts: Array<{ lon: number; lat: number }>): {
+  lon: number;
+  lat: number;
+  radiusM: number;
+} {
   const lons = pts.map((p) => p.lon);
   const lats = pts.map((p) => p.lat);
   const lon = (Math.min(...lons) + Math.max(...lons)) / 2;
@@ -220,7 +255,7 @@ function spatialSort(nodes: SimNode[]): SimNode[] {
     const qx = Math.max(0, Math.min(65535, Math.floor(x * 65535)));
     const qy = Math.max(0, Math.min(65535, Math.floor(y * 65535)));
     // >>> 0 keeps the result an unsigned 32-bit int (the high bit set by interleaving would read negative).
-    return ((part1by1(qx) | (part1by1(qy) << 1)) >>> 0);
+    return (part1by1(qx) | (part1by1(qy) << 1)) >>> 0;
   };
   return nodes
     .map((n) => ({ n, code: morton(n) }))
@@ -247,7 +282,10 @@ const LINK_POOL = 6;
 // work once `signal` aborts (in-flight calls settle on their own); the caller discards the partial
 // result. Local to the matrix — the only fan-out fetch that needs it.
 async function mapPool<T, R>(
-  items: T[], concurrency: number, signal: AbortSignal, fn: (item: T) => Promise<R>,
+  items: T[],
+  concurrency: number,
+  signal: AbortSignal,
+  fn: (item: T) => Promise<R>,
 ): Promise<R[]> {
   const results = new Array<R>(items.length);
   let next = 0;
@@ -275,8 +313,13 @@ function getDisc(cache: Map<string, Promise<Heightmap>>, source: SimSource, node
     return cached;
   }
   const p = getHeightmap({
-    urlTemplate: source.urlTemplate, overlays: source.overlays, maxzoom: source.maxzoom,
-    lon: node.lon, lat: node.lat, radiusM: NEAR_R_M, mapZoom: source.maxzoom, // mapZoom=maxzoom → full zoom
+    urlTemplate: source.urlTemplate,
+    overlays: source.overlays,
+    maxzoom: source.maxzoom,
+    lon: node.lon,
+    lat: node.lat,
+    radiusM: NEAR_R_M,
+    mapZoom: source.maxzoom, // mapZoom=maxzoom → full zoom
   });
   cache.set(node.id, p);
   while (cache.size > DISC_CACHE_MAX) {
@@ -290,19 +333,29 @@ function getDisc(cache: Map<string, Promise<Heightmap>>, source: SimSource, node
 // Compute one link in the worker from its already-sampled profile; resolves when the worker posts back.
 // The heights buffer is transferred (the worker rebuilds the Float64Array over it).
 function computeLinkInWorker(
-  sample: ProfileSample, tx: SimNode, rx: SimNode, shared: SimShared, sensitivity: number,
+  sample: ProfileSample,
+  tx: SimNode,
+  rx: SimNode,
+  shared: SimShared,
+  sensitivity: number,
 ): Promise<LinkResult> {
   const id = ++linkSeq;
   return new Promise<LinkResult>((resolve, reject) => {
     matrixLinkHandlers.set(id, { resolve, reject });
     getWorker().postMessage(
       {
-        type: 'matrix-link', id,
+        type: 'matrix-link',
+        id,
         sample: {
           heightsBuffer: sample.heights.buffer,
-          spacingM: sample.spacingM, distanceM: sample.distanceM, terrain: sample.terrain,
+          spacingM: sample.spacingM,
+          distanceM: sample.distanceM,
+          terrain: sample.terrain,
         },
-        tx, rx, shared, sensitivity,
+        tx,
+        rx,
+        shared,
+        sensitivity,
       },
       [sample.heights.buffer],
     );
@@ -331,8 +384,11 @@ function maxBudgetRangeKm(tx: SimNode, rx: SimNode, sensitivity: number): number
 // node, with it as TX (the line-profile direction); otherwise every unordered pair. base=null skips just
 // the horizon gate (the budget gate is always lossless, so it still applies).
 function buildPairs(
-  nodes: SimNode[], sourceNodeId: string | undefined, base: Heightmap | null,
-  sensitivity: number, maxDistanceKm: number,
+  nodes: SimNode[],
+  sourceNodeId: string | undefined,
+  base: Heightmap | null,
+  sensitivity: number,
+  maxDistanceKm: number,
 ): Array<[number, number]> {
   const ground = base ? nodes.map((n) => groundElevationM(base, n)) : null;
   // capKm: an extra hard distance gate, only meaningful for the full matrix; Infinity disables it.
@@ -389,13 +445,24 @@ export function runMatrix(run: MatrixRun): { promise: Promise<void>; cancel: () 
     // One coarse square covering all nodes: the span middle of every link AND the horizon-filter ground.
     const region = coveringRegion(run.nodes);
     const base = await getHeightmap({
-      urlTemplate: run.source.urlTemplate, overlays: run.source.overlays, maxzoom: run.source.maxzoom,
-      lon: region.lon, lat: region.lat, radiusM: region.radiusM, mapZoom: run.source.mapZoom,
+      urlTemplate: run.source.urlTemplate,
+      overlays: run.source.overlays,
+      maxzoom: run.source.maxzoom,
+      lon: region.lon,
+      lat: region.lat,
+      radiusM: region.radiusM,
+      mapZoom: run.source.mapZoom,
     });
     if (ctrl.signal.aborted) {
       throw new DOMException('cancelled', 'AbortError');
     }
-    const pairs = buildPairs(nodes, run.sourceNodeId, run.filterHorizon ? base : null, run.sensitivity, run.maxDistanceKm ?? 0);
+    const pairs = buildPairs(
+      nodes,
+      run.sourceNodeId,
+      run.filterHorizon ? base : null,
+      run.sensitivity,
+      run.maxDistanceKm ?? 0,
+    );
     const total = pairs.length;
     if (total === 0) {
       return;
@@ -413,7 +480,17 @@ export function runMatrix(run: MatrixRun): { promise: Promise<void>; cancel: () 
         if (ctrl.signal.aborted) {
           return;
         }
-        const sample = sampleProfileLod(discA, discB, base, tx.lon, tx.lat, rx.lon, rx.lat, NEAR_R_M, run.quality ?? {});
+        const sample = sampleProfileLod(
+          discA,
+          discB,
+          base,
+          tx.lon,
+          tx.lat,
+          rx.lon,
+          rx.lat,
+          NEAR_R_M,
+          run.quality ?? {},
+        );
         link = await computeLinkInWorker(sample, tx, rx, run.shared, run.sensitivity);
       } catch (err) {
         // One pair failing (e.g. a disc fetch error) must not abort the whole run.
@@ -444,7 +521,10 @@ export function runMatrix(run: MatrixRun): { promise: Promise<void>; cancel: () 
 // only along the TX->RX line, so it fetches just the CORRIDOR of tiles that line crosses (at the
 // source's finest zoom — a long link stays detailed instead of coarsening a whole square) and samples
 // the line here on the main thread; only the resulting ProfileSample crosses to the worker for ITM.
-export function runProfile(run: ProfileRun): { promise: Promise<ProfileResult>; cancel: () => void } {
+export function runProfile(run: ProfileRun): {
+  promise: Promise<ProfileResult>;
+  cancel: () => void;
+} {
   const reqId = ++reqCounter;
   // Aborts the corridor fetch when the run is superseded (e.g. a node was dragged again), so it stops
   // fetching mid-flight rather than running every tile to completion.
@@ -452,8 +532,13 @@ export function runProfile(run: ProfileRun): { promise: Promise<ProfileResult>; 
   const promise = (async (): Promise<ProfileResult> => {
     const corridor = await getCorridor(
       {
-        urlTemplate: run.source.urlTemplate, overlays: run.source.overlays, maxzoom: run.source.maxzoom,
-        txLon: run.tx.lon, txLat: run.tx.lat, rxLon: run.rx.lon, rxLat: run.rx.lat,
+        urlTemplate: run.source.urlTemplate,
+        overlays: run.source.overlays,
+        maxzoom: run.source.maxzoom,
+        txLon: run.tx.lon,
+        txLat: run.tx.lat,
+        rxLon: run.rx.lon,
+        rxLat: run.rx.lat,
       },
       run.onHeightmapProgress ? (loaded, total) => run.onHeightmapProgress!(loaded, total) : undefined,
       ctrl.signal,
@@ -464,12 +549,18 @@ export function runProfile(run: ProfileRun): { promise: Promise<ProfileResult>; 
       // Transfer the heights buffer (the worker rebuilds the Float64Array over it); terrain rides along.
       getWorker().postMessage(
         {
-          type: 'profile-sample', reqId,
+          type: 'profile-sample',
+          reqId,
           sample: {
             heightsBuffer: sample.heights.buffer,
-            spacingM: sample.spacingM, distanceM: sample.distanceM, terrain: sample.terrain,
+            spacingM: sample.spacingM,
+            distanceM: sample.distanceM,
+            terrain: sample.terrain,
           },
-          tx: run.tx, rx: run.rx, shared: run.shared, sensitivity: run.sensitivity,
+          tx: run.tx,
+          rx: run.rx,
+          shared: run.shared,
+          sensitivity: run.sensitivity,
         },
         [sample.heights.buffer],
       );
@@ -488,37 +579,57 @@ export function runProfile(run: ProfileRun): { promise: Promise<ProfileResult>; 
 
 // Run a client-side coverage pass: one ITM evaluation per output cell of a gridSize² lon/lat bbox
 // centred on tx. Returns a cancel handle that supersedes the run exactly like runMatrix.
-export function runCoverage(run: CoverageRun): { promise: Promise<CoverageGrid>; cancel: () => void } {
+export function runCoverage(run: CoverageRun): {
+  promise: Promise<CoverageGrid>;
+  cancel: () => void;
+} {
   const reqId = ++reqCounter;
   // Square bbox of half-extent radiusM around tx. dLon widens with latitude (a degree of longitude
   // shrinks toward the poles); the cos floor keeps the divisor finite near the poles.
   const dLat = run.radiusM / 111320;
-  const dLon = run.radiusM / (111320 * Math.max(0.01, Math.cos(run.tx.lat * Math.PI / 180)));
+  const dLon = run.radiusM / (111320 * Math.max(0.01, Math.cos((run.tx.lat * Math.PI) / 180)));
   const west = run.tx.lon - dLon;
   const east = run.tx.lon + dLon;
   const south = run.tx.lat - dLat;
   const north = run.tx.lat + dLat;
   const opts: CoverageOptions = {
-    west, south, east, north,
-    width: run.gridSize, height: run.gridSize,
+    west,
+    south,
+    east,
+    north,
+    width: run.gridSize,
+    height: run.gridSize,
     rxHeightM: run.rxHeightM,
     // Radial sweep: the disc radius is the same radiusM the bbox was built from. The worker forwards
     // opts to computeCoverage unchanged, so threading them here is all that's needed.
-    radiusM: run.radiusM, azimuths: run.azimuths, rangeSteps: run.rangeSteps,
+    radiusM: run.radiusM,
+    azimuths: run.azimuths,
+    rangeSteps: run.rangeSteps,
   };
   const promise = (async (): Promise<CoverageGrid> => {
     // Concentric LOD stack (z-max near the TX, coarser outward; see getLodHeightmap) instead of one
     // map-zoom square. mapZoom is intentionally dropped here — coverage terrain detail is no longer
     // tied to the map's current zoom, so a zoomed-out map no longer flattens the sweep's terrain.
     const lod = await getLodHeightmap(
-      { urlTemplate: run.source.urlTemplate, overlays: run.source.overlays, maxzoom: run.source.maxzoom, lon: run.tx.lon, lat: run.tx.lat, radiusM: run.radiusM },
+      {
+        urlTemplate: run.source.urlTemplate,
+        overlays: run.source.overlays,
+        maxzoom: run.source.maxzoom,
+        lon: run.tx.lon,
+        lat: run.tx.lat,
+        radiusM: run.radiusM,
+      },
       run.onHeightmapProgress ? (loaded, total) => run.onHeightmapProgress!(loaded, total) : undefined,
     );
     return new Promise<CoverageGrid>((resolve, reject) => {
       coverageHandlers.set(reqId, { onProgress: run.onProgress, resolve, reject });
       getWorker().postMessage({
-        type: 'coverage', reqId, lod: wireLod(lod),
-        tx: run.tx, shared: run.shared, opts,
+        type: 'coverage',
+        reqId,
+        lod: wireLod(lod),
+        tx: run.tx,
+        shared: run.shared,
+        opts,
       });
     });
   })();
@@ -544,14 +655,28 @@ export function runRelay(run: RelayRun): { promise: Promise<RelayResult>; cancel
   const radiusM = haversineM(lon, lat, east, north); // half-diagonal of the bbox
   const promise = (async (): Promise<RelayResult> => {
     const hm = await getHeightmap(
-      { urlTemplate: run.source.urlTemplate, overlays: run.source.overlays, maxzoom: run.source.maxzoom, lon, lat, radiusM, mapZoom: run.source.mapZoom },
+      {
+        urlTemplate: run.source.urlTemplate,
+        overlays: run.source.overlays,
+        maxzoom: run.source.maxzoom,
+        lon,
+        lat,
+        radiusM,
+        mapZoom: run.source.mapZoom,
+      },
       run.onHeightmapProgress ? (p) => run.onHeightmapProgress!(p.loaded, p.total) : undefined,
     );
     return new Promise<RelayResult>((resolve, reject) => {
       relayHandlers.set(reqId, { onProgress: run.onProgress, resolve, reject });
       getWorker().postMessage({
-        type: 'relay', reqId, heightmap: wire(hm),
-        txA: run.txA, txB: run.txB, shared: run.shared, opts: run.opts, params: run.params,
+        type: 'relay',
+        reqId,
+        heightmap: wire(hm),
+        txA: run.txA,
+        txB: run.txB,
+        shared: run.shared,
+        opts: run.opts,
+        params: run.params,
       });
     });
   })();

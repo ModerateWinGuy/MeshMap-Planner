@@ -113,9 +113,15 @@ export function computeLinkFromSample(
   sensitivity: number,
 ): LinkResult {
   const link: LinkResult = {
-    a: tx.id, b: rx.id,
-    distance_km: null, path_loss_db: null, rx_power_dbm: null,
-    fresnel_pct: null, margin_db: null, viable: false, error: null,
+    a: tx.id,
+    b: rx.id,
+    distance_km: null,
+    path_loss_db: null,
+    rx_power_dbm: null,
+    fresnel_pct: null,
+    margin_db: null,
+    viable: false,
+    error: null,
   };
   try {
     const e = evaluateSample(mod, sample, tx, rx, shared, sensitivity);

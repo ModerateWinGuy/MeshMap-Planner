@@ -42,7 +42,7 @@ export function parseMeshcoreContacts(rawJson: unknown, existingNodes: Node[]): 
   const contacts = (rawJson as { contacts: unknown[] }).contacts;
 
   const seen = new Set(
-    existingNodes.map((n) => dedupeKey(n.transmitter.name, n.transmitter.tx_lat, n.transmitter.tx_lon))
+    existingNodes.map((n) => dedupeKey(n.transmitter.name, n.transmitter.tx_lat, n.transmitter.tx_lon)),
   );
 
   const candidates: ContactCandidate[] = [];

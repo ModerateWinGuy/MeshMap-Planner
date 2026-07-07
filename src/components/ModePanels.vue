@@ -27,8 +27,19 @@
     <hr />
     <Listener />
     <div class="mt-3 d-flex gap-2">
-      <button :disabled="store.simulationState === 'running' || !store.selectedNode" @click="store.runSimulation()" type="button" class="btn btn-success btn-sm w-100" id="runSimulation">
-        <span :class="{ 'd-none': store.simulationState !== 'running' }" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+      <button
+        :disabled="store.simulationState === 'running' || !store.selectedNode"
+        @click="store.runSimulation()"
+        type="button"
+        class="btn btn-success btn-sm w-100"
+        id="runSimulation"
+      >
+        <span
+          :class="{ 'd-none': store.simulationState !== 'running' }"
+          class="spinner-border spinner-border-sm"
+          role="status"
+          aria-hidden="true"
+        ></span>
         <span class="button-text">{{ buttonText() }}</span>
       </button>
     </div>
@@ -50,8 +61,8 @@
     <!-- These importers are MeshCore-specific: a MeshCore contacts export, or live nodes from the
          MeshCore public maps. Spelled out here so users don't expect other mesh networks. -->
     <p class="small text-secondary mb-3">
-      Import nodes from <strong>MeshCore</strong> — from a contacts export file, or pulled live from
-      the public maps for your current view.
+      Import nodes from <strong>MeshCore</strong> — from a contacts export file, or pulled live from the public maps for
+      your current view.
     </p>
     <ContactImport />
     <hr />
@@ -64,32 +75,32 @@
 </template>
 
 <script setup lang="ts">
-import NodePanel from "./NodePanel.vue"
-import LinkMatrix from "./LinkMatrix.vue"
-import RelayFinder from "./RelayFinder.vue"
-import Transmitter from "./Transmitter.vue"
-import Environment from "./Environment.vue"
-import LoRaPreset from "./LoRaPreset.vue"
-import Simulation from "./Simulation.vue"
-import Display from "./Display.vue"
-import Listener from "./Listener.vue"
-import Viewshed from "./Viewshed.vue"
-import Terrain from "./Terrain.vue"
-import ContactImport from "./ContactImport.vue"
-import PublicMapSync from "./PublicMapSync.vue"
-import { useStore } from '../store.ts'
+import NodePanel from './NodePanel.vue';
+import LinkMatrix from './LinkMatrix.vue';
+import RelayFinder from './RelayFinder.vue';
+import Transmitter from './Transmitter.vue';
+import Environment from './Environment.vue';
+import LoRaPreset from './LoRaPreset.vue';
+import Simulation from './Simulation.vue';
+import Display from './Display.vue';
+import Listener from './Listener.vue';
+import Viewshed from './Viewshed.vue';
+import Terrain from './Terrain.vue';
+import ContactImport from './ContactImport.vue';
+import PublicMapSync from './PublicMapSync.vue';
+import { useStore } from '../store.ts';
 
-const store = useStore()
+const store = useStore();
 
-const { nodeFooter = 'inline' } = defineProps<{ nodeFooter?: 'inline' | 'external' }>()
+const { nodeFooter = 'inline' } = defineProps<{ nodeFooter?: 'inline' | 'external' }>();
 
 const buttonText = () => {
   if ('running' === store.simulationState) {
-    return 'Running'
+    return 'Running';
   } else if ('failed' === store.simulationState) {
-    return 'Failed'
+    return 'Failed';
   } else {
-    return 'Run Simulation'
+    return 'Run Simulation';
   }
-}
+};
 </script>

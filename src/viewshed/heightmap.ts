@@ -195,7 +195,11 @@ function coverTiles(req: HeightmapRequest, west: number, east: number, south: nu
 // Padded square bbox (degrees) around a centre: half-extent radiusM widened by FETCH_PAD, with the
 // longitude span growing toward the poles (the cos floor keeps the divisor finite). Shared by
 // getHeightmap and heightmapTileCount so a planned tile count always matches the actual fetch.
-function coverBbox(lon: number, lat: number, radiusM: number): { west: number; east: number; south: number; north: number } {
+function coverBbox(
+  lon: number,
+  lat: number,
+  radiusM: number,
+): { west: number; east: number; south: number; north: number } {
   const r = radiusM * FETCH_PAD;
   const dLat = r / 111320;
   const dLon = r / (111320 * Math.max(0.01, Math.cos((lat * Math.PI) / 180)));
@@ -340,12 +344,13 @@ function haversineM(lon1: number, lat1: number, lon2: number, lat2: number): num
   const a = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
   return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(a)));
 }
-function interpGreatCircle(
-  lon1: number, lat1: number, lon2: number, lat2: number, f: number,
-): [number, number] {
-  const φ1 = lat1 * DEG2RAD, λ1 = lon1 * DEG2RAD;
-  const φ2 = lat2 * DEG2RAD, λ2 = lon2 * DEG2RAD;
-  const dφ = φ2 - φ1, dλ = λ2 - λ1;
+function interpGreatCircle(lon1: number, lat1: number, lon2: number, lat2: number, f: number): [number, number] {
+  const φ1 = lat1 * DEG2RAD,
+    λ1 = lon1 * DEG2RAD;
+  const φ2 = lat2 * DEG2RAD,
+    λ2 = lon2 * DEG2RAD;
+  const dφ = φ2 - φ1,
+    dλ = λ2 - λ1;
   const hav = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
   const δ = 2 * Math.asin(Math.min(1, Math.sqrt(hav)));
   if (δ < 1e-9) {
@@ -633,8 +638,13 @@ export async function getLodHeightmap(
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<LodHeightmap> {
   const reqs: HeightmapRequest[] = buildLodLadder(req.maxzoom, req.radiusM).map((rung) => ({
-    urlTemplate: req.urlTemplate, overlays: req.overlays, maxzoom: req.maxzoom,
-    lon: req.lon, lat: req.lat, radiusM: rung.rM, mapZoom: rung.z,
+    urlTemplate: req.urlTemplate,
+    overlays: req.overlays,
+    maxzoom: req.maxzoom,
+    lon: req.lon,
+    lat: req.lat,
+    radiusM: rung.rM,
+    mapZoom: rung.z,
   }));
   const counts = reqs.map(heightmapTileCount);
   const grandTotal = counts.reduce((sum, n) => sum + n, 0);

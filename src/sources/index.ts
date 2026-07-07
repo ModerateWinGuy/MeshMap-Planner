@@ -44,7 +44,7 @@ export async function syncPublicNodes(
   enabledIds: string[],
   bbox: Bbox,
   existingNodes: Node[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<SyncResult> {
   const sources = PUBLIC_NODE_SOURCES.filter((s) => enabledIds.includes(s.id));
   const order = new Map(PUBLIC_NODE_SOURCES.map((s, i) => [s.id, i] as const));
@@ -82,8 +82,7 @@ export async function syncPublicNodes(
     const cRank = order.get(c.sourceId) ?? Infinity;
     const prevRank = order.get(prev.sourceId) ?? Infinity;
     const better =
-      (c.freq != null && prev.freq == null) ||
-      ((c.freq == null) === (prev.freq == null) && cRank < prevRank);
+      (c.freq != null && prev.freq == null) || ((c.freq == null) === (prev.freq == null) && cRank < prevRank);
     if (better) {
       best.set(id, c);
     }
@@ -108,7 +107,13 @@ export async function syncPublicNodes(
       duplicates++;
       continue;
     }
-    rows.push({ name: c.name, lat: round6(c.lat), lon: round6(c.lon), freq: c.freq, meshKey: c.key });
+    rows.push({
+      name: c.name,
+      lat: round6(c.lat),
+      lon: round6(c.lon),
+      freq: c.freq,
+      meshKey: c.key,
+    });
   }
 
   return { rows, duplicates, perSource, warnings };
