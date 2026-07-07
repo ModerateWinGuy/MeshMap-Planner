@@ -148,7 +148,7 @@ function snapTo(release: number, vel: number) {
     .concat([{ id: 'closed', t: containerHeightPx.value }])
     .sort((a, b) => a.t - b.t)
 
-  let chosen = points[0]
+  let chosen: (typeof points)[number]
   if (Math.abs(vel) > VELOCITY_CLOSE_THRESHOLD) {
     if (vel > 0) {
       chosen = points.find((p) => p.t > release + 1) ?? points[points.length - 1]
