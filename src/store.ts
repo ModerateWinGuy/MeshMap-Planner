@@ -780,6 +780,9 @@ const useStore = defineStore('store', {
       // When set, node markers are non-draggable so they can't be moved by accident. Persisted so
       // the lock survives a reload. Manual lat/lon edits in the panel still apply either way.
       nodesLocked: useLocalStorage('nodesLocked', false),
+      // When set (default), only the selected node's marker is draggable, so panning near other pins
+      // can't accidentally move them. Off = every unlocked marker is draggable, the old behaviour.
+      dragOnlySelected: useLocalStorage('dragOnlySelected', true),
       // Tablet layout: collapses the sidebar to give the map full width. A standing layout
       // preference (like activeBasemap/terrainEnabled), not transient UI state, so it's persisted.
       sidebarCollapsed: useLocalStorage('sidebarCollapsed', false),
@@ -996,6 +999,10 @@ const useStore = defineStore('store', {
     },
     toggleNodesLock() {
       this.nodesLocked = !this.nodesLocked;
+      this.renderNodeMarkers(); // re-render flips setDraggable on every existing marker
+    },
+    toggleDragOnlySelected() {
+      this.dragOnlySelected = !this.dragOnlySelected;
       this.renderNodeMarkers(); // re-render flips setDraggable on every existing marker
     },
     toggleSidebarCollapsed() {
@@ -1572,7 +1579,11 @@ const useStore = defineStore('store', {
             }
           });
           marker = markRaw(
-            new maplibregl.Marker({ element: el, draggable: !this.nodesLocked, anchor: 'bottom' })
+            new maplibregl.Marker({
+              element: el,
+              draggable: !this.nodesLocked && (this.dragOnlySelected ? selected : true),
+              anchor: 'bottom',
+            })
               .setLngLat(lngLat)
               // setText (not setHTML) so a node name can't inject HTML.
               .setPopup(new maplibregl.Popup({ offset: 30 }).setText(node.transmitter.name)),
@@ -1611,7 +1622,7 @@ const useStore = defineStore('store', {
           this.nodeMarkers[node.id] = marker;
         } else {
           marker.setLngLat(lngLat);
-          marker.setDraggable(!this.nodesLocked); // re-render is the only path that toggles the lock
+          marker.setDraggable(!this.nodesLocked && (this.dragOnlySelected ? selected : true)); // re-render is the only path that toggles the lock
           stylePinElement(marker.getElement(), selected, node.transmitter.name, color); // re-style in place; don't churn markers
           marker.getPopup()?.setText(node.transmitter.name);
         }

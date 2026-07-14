@@ -151,6 +151,27 @@
             class="form-check-input"
             type="checkbox"
             role="switch"
+            id="drag_only_selected"
+            :checked="store.dragOnlySelected"
+            @change="store.toggleDragOnlySelected()"
+          />
+          <label class="form-check-label" for="drag_only_selected">Only drag the selected node</label>
+          <InfoTip>
+            When on, dragging a marker only moves the currently selected node — other pins near your cursor won't move
+            by accident. Turn off to make every unlocked node draggable, as before. Works alongside the node lock button
+            on the map, which disables dragging entirely.
+          </InfoTip>
+        </div>
+      </div>
+    </div>
+
+    <div class="row mt-3">
+      <div class="col-12">
+        <div class="form-check form-switch">
+          <input
+            class="form-check-input"
+            type="checkbox"
+            role="switch"
             id="profile_flat_signal_line"
             :checked="store.profileFlatSignalLine"
             @change="store.toggleProfileFlatSignalLine()"
