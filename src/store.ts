@@ -748,6 +748,9 @@ const useStore = defineStore('store', {
       // reads relief on flat solid-colour basemaps too. hillshade-exaggeration is a 0..1 intensity.
       hillshadeEnabled: useLocalStorage('hillshadeEnabled', false),
       hillshadeExaggeration: useLocalStorage('hillshadeExaggeration', 0.3),
+      // 3D building extrusions (OpenFreeMap vector tiles, OpenMapTiles schema). Only meaningful once
+      // tilted and zoomed in — see 'buildings-3d' layer's minzoom.
+      buildingsEnabled: useLocalStorage('buildingsEnabled', false),
       // Browser-computed line-of-sight viewshed (WebGPU). A fast, visible-only green footprint of what
       // the selected node can see — an alternative to the slow backend SPLAT run for nearby checks.
       // Reads whatever surface the map's terrain-dem source is currently using. Persisted prefs;
@@ -852,6 +855,16 @@ const useStore = defineStore('store', {
         enabled: state.builtinProviderEnabled[p.id] ?? false,
       }));
       return [...builtins, ...state.customDemProviders];
+    },
+    // allDemProviders as they should affect the MAP's own 3D terrain mesh / hillshade. Excludes
+    // 'builtin-osm-buildings' ONLY while the visual buildings-3d layer is also on — with both on, the
+    // sharp vector layer and the raster-resolution terrain "bump" (blocky edges, sloped shoulders) show
+    // the same buildings twice, which looks messy. With the visual layer off, there's nothing to double
+    // up with, so let the bump show — it's the only visual indication of buildings in that case.
+    // profile/coverage/relay/viewshed read allDemProviders directly and are unaffected by this getter.
+    mapDemProviders(): DemProvider[] {
+      if (!this.buildingsEnabled) return this.allDemProviders;
+      return this.allDemProviders.map((p) => (p.id === 'builtin-osm-buildings' ? { ...p, enabled: false } : p));
     },
     selectedNode(state): Node | undefined {
       return state.nodes.find((n) => n.id === state.selectedNodeId) ?? state.nodes[0];
@@ -2080,7 +2093,7 @@ const useStore = defineStore('store', {
       // demTiles.ts). Registered once, globally, before the map reads a style that may reference it
       // (when a provider is persisted on). getOverlays is a closure read fresh on every tile request,
       // so a provider add/edit/delete/toggle is picked up without re-registering the protocol.
-      registerDemProtocol(maplibregl, () => enabledOverlaySpecs(this.allDemProviders));
+      registerDemProtocol(maplibregl, () => enabledOverlaySpecs(this.mapDemProviders));
       // markRaw is essential: this.map lives in Pinia state, so without it Vue deep-proxies the Map
       // and its internal registries, breaking MapLibre's identity-based event bookkeeping — the same
       // hazard that applied to Leaflet (see the leaflet-markraw memory).
@@ -2091,7 +2104,7 @@ const useStore = defineStore('store', {
             this.activeBasemap,
             this.terrainEnabled,
             this.terrainExaggeration,
-            this.allDemProviders.some((p) => p.enabled),
+            this.mapDemProviders.some((p) => p.enabled),
           ),
           center,
           zoom: 10,
@@ -2291,6 +2304,15 @@ const useStore = defineStore('store', {
       // basemaps and below every data overlay (coverage inserts before 'coverage-top', so it lands
       // on top of this) — the heatmap stays vibrant while only the basemap gets shaded.
       this.addHillshadeLayer(map);
+
+      // 3D building extrusions, added right after hillshade so they sit above the basemap/relief but
+      // below every data overlay (links, coverage, relay) added next.
+      map.addSource('openfreemap', {
+        type: 'vector',
+        url: 'https://tiles.openfreemap.org/planet',
+        attribution: 'OpenFreeMap © OpenMapTiles Data from OpenStreetMap',
+      });
+      this.addBuildingsLayer(map);
 
       // Invisible ordering anchors: coverage rasters insert before 'coverage-top', the relay heatmap
       // before 'relay-top'. Added in this order so relay drapes above coverage, both below the
@@ -2783,6 +2805,20 @@ const useStore = defineStore('store', {
         map.setLayoutProperty('hillshade', 'visibility', this.hillshadeEnabled ? 'visible' : 'none');
       }
     },
+    toggleBuildings() {
+      this.buildingsEnabled = !this.buildingsEnabled;
+      const map = this.map as maplibregl.Map | undefined;
+      if (map && map.getLayer('buildings-3d')) {
+        map.setLayoutProperty('buildings-3d', 'visibility', this.buildingsEnabled ? 'visible' : 'none');
+      }
+      // Extrusions look flat from directly overhead — nudge the camera in, same as toggleTerrain.
+      if (this.buildingsEnabled && map && map.getPitch() < 20) {
+        map.easeTo({ pitch: 60 });
+      }
+      // mapDemProviders depends on buildingsEnabled (see there) — re-sync the terrain-dem source so the
+      // OSM-Buildings bump shows/hides on the terrain mesh to match, when that provider is on.
+      this.applyTerrainOverlays();
+    },
     setHillshadeExaggeration(x: number) {
       this.hillshadeExaggeration = x;
       const map = this.map as maplibregl.Map | undefined;
@@ -2802,7 +2838,7 @@ const useStore = defineStore('store', {
       // compositor otherwise. setTiles reloads the source, so the 3D mesh and the hillshade re-read the
       // new surface without a removeSource/addSource teardown (which would tear down terrain + the
       // hillshade layer).
-      src.setTiles(terrainDemSource(this.allDemProviders.some((p) => p.enabled)).tiles);
+      src.setTiles(terrainDemSource(this.mapDemProviders.some((p) => p.enabled)).tiles);
       // setTerrain re-reads the reloaded DEM; rebuild the 3D links against the new heights. The
       // sim/viewshed heightmap LRU is keyed by the overlay set (heightmap.ts), so it refetches on its
       // next run; re-run the live viewshed now so the change is visible immediately.
@@ -2887,6 +2923,31 @@ const useStore = defineStore('store', {
             // Shadows only: the default white highlight brightens sunlit slopes, which washes out
             // solid-colour basemaps. Transparent highlight leaves just the darkening.
             'hillshade-highlight-color': 'rgba(255, 248, 227, 0.48)',
+          },
+        } as any,
+        beforeId,
+      );
+    },
+    // Extruded OSM building footprints from the OpenFreeMap vector source (OpenMapTiles schema).
+    // minzoom keeps them out of the way until zoomed in enough to be legible — native MapLibre gating,
+    // no JS zoom-watching needed. render_height/render_min_height come from OpenFreeMap's own 'liberty'
+    // style (the proven paint values for this exact source); coalesce covers the rare feature missing
+    // them. Always the full extrusion: the map's own terrain-dem source (mapDemProviders) never includes
+    // the OSM-Buildings DEM overlay's bump, so there's nothing for this to double up with.
+    addBuildingsLayer(map: maplibregl.Map, beforeId?: string) {
+      map.addLayer(
+        {
+          id: 'buildings-3d',
+          type: 'fill-extrusion',
+          source: 'openfreemap',
+          'source-layer': 'building',
+          minzoom: 14,
+          layout: { visibility: this.buildingsEnabled ? 'visible' : 'none' },
+          paint: {
+            'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+            'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 6],
+            'fill-extrusion-color': 'hsl(35,8%,85%)',
+            'fill-extrusion-opacity': 0.8,
           },
         } as any,
         beforeId,

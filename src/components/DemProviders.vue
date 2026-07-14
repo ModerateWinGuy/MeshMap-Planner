@@ -4,12 +4,18 @@
       <span class="fw-medium">Terrain providers</span>
       <InfoTip>
         Higher-detail elevation layered over the Mapterhorn baseline wherever a provider has data — the baseline still
-        fills the rest of the world, so enabling one only adds detail, never removes coverage. Feeds the 3D terrain,
-        hillshade, and the line-of-sight / coverage sims. Where two providers overlap, the one lower in this list wins.
+        fills the rest of the world, so enabling one only adds detail, never removes coverage. Feeds the line-of-sight /
+        coverage sims, viewshed, 3D terrain mesh, and hillshade. Where two providers overlap, the one lower in this list
+        wins.
         <strong>LINZ</strong>
-        rows are pre-configured and NZ-only (elevation &copy; LINZ, CC&#8209;BY&nbsp;4.0). Add your own region's DEM/DSM
-        tile service below — it needs to serve Mapbox or Terrarium-encoded terrain-RGB PNG tiles, the same scheme LINZ
-        uses.
+        rows are pre-configured and NZ-only (elevation &copy; LINZ, CC&#8209;BY&nbsp;4.0).
+        <strong>OSM Buildings</strong>
+        adds OpenStreetMap building footprint heights on top of the ground everywhere in the world, so buildings
+        actually block links/coverage/viewshed, independent of the visual 3D-buildings map layer. While that visual
+        layer is also on, its bump is left out of the 3D terrain mesh/hillshade specifically (its raster resolution
+        makes a messy blocky mound sitting behind the sharp building shapes) — turn the visual layer off and the bump
+        reappears there as the only visual sign of buildings. Add your own region's DEM/DSM tile service below — it
+        needs to serve Mapbox or Terrarium-encoded terrain-RGB PNG tiles, the same scheme LINZ uses.
       </InfoTip>
     </div>
 
@@ -132,8 +138,8 @@ function startEdit(provider: DemProvider) {
   addingNew.value = false;
   editingId.value = provider.id;
   formName.value = provider.name;
-  formUrlTemplate.value = provider.urlTemplate;
-  formEncoding.value = provider.encoding;
+  formUrlTemplate.value = provider.urlTemplate ?? '';
+  formEncoding.value = provider.encoding ?? 'mapbox';
 }
 function cancelEdit() {
   editingId.value = null;

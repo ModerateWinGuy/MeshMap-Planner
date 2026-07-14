@@ -41,6 +41,18 @@
     </button>
 
     <button
+      type="button"
+      class="tool-btn"
+      :class="{ active: store.buildingsEnabled }"
+      :aria-pressed="store.buildingsEnabled"
+      aria-label="Toggle 3D buildings"
+      title="Toggle 3D buildings (OpenStreetMap) — shows from zoom 14 in"
+      @click="store.toggleBuildings()"
+    >
+      <Building2 :size="17" />
+    </button>
+
+    <button
       v-if="store.terrainEnabled"
       type="button"
       class="tool-btn"
@@ -91,7 +103,7 @@
 
 <script setup lang="ts">
 import { useStore } from '../store.ts';
-import { Layers, Sun, Waypoints, Lock, LockOpen, ScanEye } from '@lucide/vue';
+import { Layers, Sun, Waypoints, Lock, LockOpen, ScanEye, Building2 } from '@lucide/vue';
 import BasemapPicker from './BasemapPicker.vue';
 const store = useStore();
 </script>

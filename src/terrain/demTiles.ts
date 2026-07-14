@@ -21,6 +21,8 @@
 // module's 256 px compositing grid, so every downstream consumer is unchanged. This is also the exact
 // URL the map uses directly when the overlay is OFF, so toggling the overlay reuses these tiles warm
 // from the HTTP cache.
+import { rasterizeBuildingsTile } from './buildingsOverlay.ts';
+
 export const MAPTERHORN_TEMPLATE = 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp';
 
 // LINZ Basemaps national 1 m LIDAR elevation, rendered live to Mapbox terrain-RGB PNGs.
@@ -47,10 +49,22 @@ export const DEM_MAXZOOM = 15;
 export const DEM_SCHEME = 'meshdem';
 
 // A terrain source/overlay and how its PNG bytes decode to metres. LINZ is 'mapbox'; the Mapterhorn
-// baseline is 'terrarium' (kept as-is, never re-encoded). A future overlay just needs its template + encoding.
+// baseline is 'terrarium' (kept as-is, never re-encoded). A future URL-based overlay just needs its
+// template + encoding. `rasterize` is the alternative for an overlay with no remote raster-DEM tile at
+// all (e.g. building footprints from vector tiles) — it computes the tile locally instead of fetching
+// one, given the already-fetched baseline (so it can add height on top of real ground elevation), and
+// must return already Terrarium-encoded bytes (alpha as the coverage mask, same as every other overlay).
 export interface OverlaySpec {
-  urlTemplate: string; // a {z}/{x}/{y} template
-  encoding: 'mapbox' | 'terrarium';
+  urlTemplate?: string; // a {z}/{x}/{y} template — omitted when rasterize is set
+  encoding?: 'mapbox' | 'terrarium';
+  id?: string; // stable cache-key identifier for rasterize-based overlays, which have no urlTemplate
+  rasterize?: (
+    z: number,
+    x: number,
+    y: number,
+    base: RgbaBytes | null,
+    signal?: AbortSignal,
+  ) => Promise<RgbaBytes | null>;
 }
 
 // One DEM/DSM overlay provider, built-in or user-added — the store's persisted, UI-facing shape.
@@ -58,16 +72,19 @@ export interface OverlaySpec {
 export interface DemProvider {
   id: string;
   name: string;
-  urlTemplate: string; // a {z}/{x}/{y} template; any API key is embedded in it by whoever added it
-  encoding: 'mapbox' | 'terrarium';
+  urlTemplate?: string; // a {z}/{x}/{y} template; any API key is embedded in it by whoever added it
+  encoding?: 'mapbox' | 'terrarium';
   enabled: boolean;
-  builtin?: boolean; // true for LINZ rows: not editable/deletable in the UI, only toggleable
+  builtin?: boolean; // true for LINZ/OSM rows: not editable/deletable in the UI, only toggleable
+  rasterize?: OverlaySpec['rasterize'];
 }
 
 // Enabled providers, in list order, as the OverlaySpec[] the compositor already accepts. Composited
 // top-down (see composeTerrariumTileRGBA), so later entries win where they overlap.
 export function enabledOverlaySpecs(providers: DemProvider[]): OverlaySpec[] {
-  return providers.filter((p) => p.enabled).map((p) => ({ urlTemplate: p.urlTemplate, encoding: p.encoding }));
+  return providers
+    .filter((p) => p.enabled)
+    .map((p) => ({ id: p.id, urlTemplate: p.urlTemplate, encoding: p.encoding, rasterize: p.rasterize }));
 }
 
 // The built-in LINZ rows. Always re-evaluated (never frozen into the store's persisted list) so a
@@ -76,6 +93,16 @@ export function enabledOverlaySpecs(providers: DemProvider[]): OverlaySpec[] {
 // asking users to add it themselves.
 export function builtinDemProviders(): DemProvider[] {
   return [
+    // Listed first (lowest precedence): a global bake of OSM building footprint height onto the ground
+    // elevation (see buildingsOverlay.ts), so LINZ's real LIDAR DSM below still wins over it in NZ.
+    {
+      id: 'builtin-osm-buildings',
+      name: 'OSM Buildings — footprint height added to ground (global)',
+      encoding: 'terrarium',
+      enabled: false,
+      builtin: true,
+      rasterize: rasterizeBuildingsTile,
+    },
     {
       id: 'builtin-linz-dem',
       name: 'LINZ DEM — bare earth (NZ)',
@@ -95,25 +122,26 @@ export function builtinDemProviders(): DemProvider[] {
   ];
 }
 
-const TILE = 256;
+export const TILE = 256;
 const TILE_BYTES = TILE * TILE * 4;
 
 // RGBA backed by a plain ArrayBuffer (not the widened ArrayBufferLike of ImageData.data), so it
 // satisfies the ImageData constructor and heightmap.ts's GPU upload. The buffer really is an
 // ArrayBuffer at runtime; the cast just narrows the type (same pattern as heightmap.ts).
-type RgbaBytes = Uint8ClampedArray<ArrayBuffer>;
+export type RgbaBytes = Uint8ClampedArray<ArrayBuffer>;
 
 // Mapbox terrain-RGB (LINZ): metres above sea level.
 function decodeMapbox(r: number, g: number, b: number): number {
   return -10000 + (r * 65536 + g * 256 + b) * 0.1;
 }
-// Terrarium: metres above sea level.
-function decodeTerrarium(r: number, g: number, b: number): number {
+// Terrarium: metres above sea level. Exported so buildingsOverlay.ts's rasterizer can decode ground
+// elevation from the baseline tile and re-encode ground+height with the exact same math.
+export function decodeTerrarium(r: number, g: number, b: number): number {
   return r * 256 + g + b / 256 - 32768;
 }
 // Metres → Terrarium RGB (the unified output encoding). The sea sentinel rgb(128,0,0) is exactly
 // encodeTerrarium(0), matching heightmap.ts's pre-fill.
-function encodeTerrarium(h: number, out: Uint8ClampedArray, i: number): void {
+export function encodeTerrarium(h: number, out: Uint8ClampedArray, i: number): void {
   // Clamp to the representable band so a wild decode can't wrap the channels.
   const v = Math.max(0, Math.min(65535.99609375, h + 32768));
   const r = Math.floor(v / 256);
@@ -211,7 +239,11 @@ export async function composeTerrariumTileRGBA(
   let anyData = base != null;
 
   for (const ov of overlays) {
-    const tile = await fetchTileRGBA(tileUrl(ov.urlTemplate, z, x, y), signal);
+    // rasterize (e.g. buildingsOverlay.ts) computes a tile locally instead of fetching one; it always
+    // returns already Terrarium-encoded bytes, so the decode branch below is a harmless round-trip.
+    const tile = ov.rasterize
+      ? await ov.rasterize(z, x, y, base, signal)
+      : await fetchTileRGBA(tileUrl(ov.urlTemplate!, z, x, y), signal);
     if (!tile) continue;
     anyData = true;
     for (let i = 0; i < TILE_BYTES; i += 4) {
@@ -255,7 +287,8 @@ const inflightComposites = new Map<string, Promise<RgbaBytes | null>>();
 // entry clears and later callers don't await it forever (a timed-out tile stays null → retryable).
 const COMPOSITE_TIMEOUT_MS = 15000;
 function cacheKey(baseTemplate: string, overlays: OverlaySpec[], z: number, x: number, y: number): string {
-  return `${baseTemplate}|${overlays.map((o) => o.urlTemplate).join(',')}|${z}|${x},${y}`;
+  // rasterize-based overlays (e.g. buildings) have no urlTemplate; their id stands in for it.
+  return `${baseTemplate}|${overlays.map((o) => o.id ?? o.urlTemplate).join(',')}|${z}|${x},${y}`;
 }
 function compositeCacheGet(key: string): RgbaBytes | undefined {
   const hit = compositeCache.get(key);

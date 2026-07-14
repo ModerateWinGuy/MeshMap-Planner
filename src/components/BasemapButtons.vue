@@ -25,6 +25,17 @@
     Shade
   </button>
   <button
+    type="button"
+    class="btn btn-sm shadow w-100 mt-2 d-flex align-items-center justify-content-center gap-1"
+    :class="store.buildingsEnabled ? 'btn-primary' : 'btn-light'"
+    :aria-pressed="store.buildingsEnabled"
+    title="Toggle 3D buildings (OpenStreetMap) — shows from zoom 14 in"
+    @click="store.toggleBuildings()"
+  >
+    <Building2 :size="16" />
+    Buildings
+  </button>
+  <button
     v-if="store.terrainEnabled"
     type="button"
     class="btn btn-sm shadow w-100 mt-2 d-flex align-items-center justify-content-center gap-1"
@@ -74,7 +85,7 @@
 
 <script setup lang="ts">
 import { useStore } from '../store.ts';
-import { Lock, LockOpen, Waypoints, ScanEye } from '@lucide/vue';
+import { Lock, LockOpen, Waypoints, ScanEye, Building2 } from '@lucide/vue';
 import BasemapPicker from './BasemapPicker.vue';
 const store = useStore();
 </script>

@@ -218,7 +218,8 @@ export async function getHeightmap(
   const ny = y1 - y0 + 1;
 
   // Overlay set is part of the key, so toggling LINZ on/off misses → refetches the new surface.
-  const overlayKey = req.overlays.map((o) => o.urlTemplate).join(',');
+  // rasterize-based overlays (e.g. buildings) have no urlTemplate; id stands in for it.
+  const overlayKey = req.overlays.map((o) => o.id ?? o.urlTemplate).join(',');
   const sourceKey = `${req.urlTemplate}|${overlayKey}|${z}|${x0},${y0},${x1},${y1}`;
   const cached = cacheGet(sourceKey);
   if (cached) {
