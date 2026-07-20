@@ -12,13 +12,13 @@
     <div
       class="sheet-handle"
       role="separator"
-      aria-label="Drag to resize, or tap the title bar's chevron to close"
+      :aria-label="t('bottomSheet.dragHandleLabel')"
       @pointerdown="onPointerDown"
     ></div>
     <div class="sheet-title-row">
       <span class="sheet-title">{{ title }}</span>
       <button type="button" class="sheet-close-hint" @click="close">
-        swipe down / tap map to close
+        {{ t('bottomSheet.closeHint') }}
         <ChevronDown :size="14" />
       </button>
     </div>
@@ -39,7 +39,10 @@
 // just animating that translateY, which doubles as the open/close slide animation — no separate
 // enter/leave transition needed.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { ChevronDown } from '@lucide/vue';
+
+const { t } = useI18n();
 
 type Detent = 'peek' | 'half' | 'full';
 // Fraction of viewport height visible at each detent.

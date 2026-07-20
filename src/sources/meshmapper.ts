@@ -1,5 +1,6 @@
 import type { Bbox, PublicNodeCandidate, PublicNodeSource } from './types.ts';
 import { zonesForBounds } from './meshmapperZones.ts';
+import { i18n } from '../i18n/index.ts';
 
 const repeatersUrl = (code: string) => `https://${code.toLowerCase()}.meshmapper.net/get_repeaters.php`;
 
@@ -28,7 +29,7 @@ async function fetchRegion(code: string, signal?: AbortSignal): Promise<PublicNo
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) {
       continue;
     }
-    const name = typeof r.name === 'string' && r.name.trim() ? r.name.trim() : 'Unnamed';
+    const name = typeof r.name === 'string' && r.name.trim() ? r.name.trim() : i18n.global.t('store.unnamed');
     const key = typeof r.hex_id === 'string' && r.hex_id ? r.hex_id.toLowerCase() : null;
     out.push({ key, name, lat, lon, freq: null, sourceId: 'meshmapper' });
   }
@@ -53,12 +54,14 @@ export const meshMapperSource: PublicNodeSource = {
     }
     const warnings: string[] = [];
     if (capped) {
-      warnings.push(
-        `Large area — fetched only the ${codes.length} nearest MeshMapper regions. Zoom in for full coverage.`,
-      );
+      warnings.push(i18n.global.t('publicMapSync.meshMapperCapped', { count: codes.length }));
     }
     if (failed) {
-      warnings.push(`${failed} MeshMapper region${failed === 1 ? '' : 's'} could not be fetched.`);
+      warnings.push(
+        failed === 1
+          ? i18n.global.t('publicMapSync.meshMapperFailedOne')
+          : i18n.global.t('publicMapSync.meshMapperFailedMany', { count: failed }),
+      );
     }
     return { candidates, warnings: warnings.length ? warnings : undefined };
   },

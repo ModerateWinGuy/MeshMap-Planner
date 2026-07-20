@@ -1,4 +1,5 @@
 import type { Node } from '../types.ts';
+import { i18n } from '../i18n/index.ts';
 import { dedupeKey } from '../meshcore.ts';
 import type { Bbox, PublicNodeCandidate, PublicNodeSource } from './types.ts';
 import { meshCoreSource } from './meshcore.ts';
@@ -65,7 +66,7 @@ export async function syncPublicNodes(
       }
     } else {
       perSource[src.id] = 0;
-      warnings.push(`${src.label} could not be reached.`);
+      warnings.push(i18n.global.t('publicMapSync.sourceUnreachable', { label: src.label }));
     }
   });
 

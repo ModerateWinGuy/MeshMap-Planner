@@ -2,12 +2,7 @@
   <form novalidate class="panel-min-width">
     <div class="row">
       <div class="col-12">
-        <div class="form-text">
-          Toggle <strong>3D terrain</strong> with the <strong>3D</strong> button on the map (top-left, under the basemap
-          buttons). It drapes the map over an elevation mesh (Mapterhorn); tilt with right-drag (or the compass control)
-          to read hill elevation. The <strong>Shade</strong> button beside it adds relief shading that reads hills on
-          flat basemaps — works in both top-down and 3D view.
-        </div>
+        <div class="form-text" v-html="t('terrain.toggle3dInfo')"></div>
       </div>
     </div>
 
@@ -28,11 +23,9 @@
             :checked="store.nzBasemapEnabled"
             @change="store.toggleNzBasemap()"
           />
-          <label class="form-check-label" for="nz_basemap_enabled">Show NZ satellite basemap (LINZ)</label>
+          <label class="form-check-label" for="nz_basemap_enabled">{{ t('terrain.nzBasemap') }}</label>
           <InfoTip>
-            Adds a <strong>Satellite (NZ)</strong> option to the basemap buttons, using LINZ aerial photography — higher
-            detail than the global Esri imagery, but New Zealand only (blank elsewhere). Off by default; enable it if
-            you're mapping in NZ. Imagery © LINZ, CC&#8209;BY&nbsp;4.0.
+            <span v-html="t('terrain.nzBasemapInfo')"></span>
           </InfoTip>
         </div>
       </div>
@@ -42,9 +35,9 @@
       <div class="col-12">
         <div class="d-flex align-items-center mb-2">
           <label for="hillshade_intensity" class="form-label mb-0">
-            Shading intensity: {{ Math.round(store.hillshadeExaggeration * 100) }}%
+            {{ t('terrain.shadingIntensity', { pct: Math.round(store.hillshadeExaggeration * 100) }) }}
           </label>
-          <InfoTip>Multidirectional relief shading from the DEM. Higher = stronger.</InfoTip>
+          <InfoTip>{{ t('terrain.shadingIntensityInfo') }}</InfoTip>
         </div>
         <input
           type="range"
@@ -63,9 +56,9 @@
       <div class="col-12">
         <div class="d-flex align-items-center mb-2">
           <label for="terrain_exaggeration" class="form-label mb-0">
-            Vertical exaggeration: {{ store.terrainExaggeration.toFixed(1) }}×
+            {{ t('terrain.verticalExaggeration', { x: store.terrainExaggeration.toFixed(1) }) }}
           </label>
-          <InfoTip>Higher values make subtle terrain easier to read.</InfoTip>
+          <InfoTip>{{ t('terrain.verticalExaggerationInfo') }}</InfoTip>
         </div>
         <input
           type="range"
@@ -91,10 +84,9 @@
             :checked="store.links3dEnabled"
             @change="store.toggleLinks3d()"
           />
-          <label class="form-check-label" for="links3d_enabled">Show 3D line-of-sight links</label>
+          <label class="form-check-label" for="links3d_enabled">{{ t('terrain.show3dLinks') }}</label>
           <InfoTip>
-            Draw links as 3D lines flying through the air between antenna tops, with terrain-clipping sections in
-            yellow. When off, links stay as flat lines draped on the ground.
+            {{ t('terrain.show3dLinksInfo') }}
           </InfoTip>
         </div>
       </div>
@@ -111,9 +103,9 @@
             :checked="store.linkCurtainEnabled"
             @change="store.toggleLinkCurtain()"
           />
-          <label class="form-check-label" for="link_curtain_enabled">Show link drop-curtain</label>
+          <label class="form-check-label" for="link_curtain_enabled">{{ t('terrain.showDropCurtain') }}</label>
           <InfoTip>
-            A translucent wall dropped from each link to the ground, showing its track and where it clips terrain.
+            {{ t('terrain.showDropCurtainInfo') }}
           </InfoTip>
         </div>
       </div>
@@ -123,9 +115,9 @@
       <div class="col-12">
         <div class="d-flex align-items-center mb-2">
           <label for="link_curtain_opacity" class="form-label mb-0">
-            Drop-curtain opacity: {{ Math.round(store.linkCurtainOpacity * 100) }}%
+            {{ t('terrain.dropCurtainOpacity', { pct: Math.round(store.linkCurtainOpacity * 100) }) }}
           </label>
-          <InfoTip>Higher = more opaque.</InfoTip>
+          <InfoTip>{{ t('terrain.dropCurtainOpacityInfo') }}</InfoTip>
         </div>
         <input
           type="range"
@@ -155,11 +147,9 @@
             :checked="store.dragOnlySelected"
             @change="store.toggleDragOnlySelected()"
           />
-          <label class="form-check-label" for="drag_only_selected">Only drag the selected node</label>
+          <label class="form-check-label" for="drag_only_selected">{{ t('terrain.dragOnlySelected') }}</label>
           <InfoTip>
-            When on, dragging a marker only moves the currently selected node — other pins near your cursor won't move
-            by accident. Turn off to make every unlocked node draggable, as before. Works alongside the node lock button
-            on the map, which disables dragging entirely.
+            {{ t('terrain.dragOnlySelectedInfo') }}
           </InfoTip>
         </div>
       </div>
@@ -176,10 +166,9 @@
             :checked="store.profileFlatSignalLine"
             @change="store.toggleProfileFlatSignalLine()"
           />
-          <label class="form-check-label" for="profile_flat_signal_line">Show signal as straight line</label>
+          <label class="form-check-label" for="profile_flat_signal_line">{{ t('terrain.flatSignalLine') }}</label>
           <InfoTip>
-            In the Link Profile chart, draw the signal line straight and let the terrain curve up/down instead — the
-            same physical geometry, just flipped so the terrain shows Earth's curvature rather than the signal.
+            {{ t('terrain.flatSignalLineInfo') }}
           </InfoTip>
         </div>
       </div>
@@ -188,7 +177,7 @@
     <div class="row mt-3">
       <div class="col-12">
         <button type="button" class="btn btn-outline-light btn-sm" @click="store.resetView()">
-          Reset view (top-down)
+          {{ t('terrain.resetView') }}
         </button>
       </div>
     </div>
@@ -196,8 +185,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
 import InfoTip from './InfoTip.vue';
 import DemProviders from './DemProviders.vue';
+const { t } = useI18n();
 const store = useStore();
 </script>

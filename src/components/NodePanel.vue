@@ -7,18 +7,18 @@
           @click="store.setAllNodesHidden(false)"
           :disabled="!anyHidden"
           class="btn btn-outline-secondary btn-sm py-0 px-1 d-flex align-items-center gap-1"
-          title="Show all nodes"
+          :title="t('nodePanel.showAllNodes')"
         >
-          <Eye :size="14" /> Show all
+          <Eye :size="14" /> {{ t('nodePanel.showAll') }}
         </button>
         <button
           type="button"
           @click="store.setAllNodesHidden(true)"
           :disabled="!anyVisible"
           class="btn btn-outline-secondary btn-sm py-0 px-1 d-flex align-items-center gap-1"
-          title="Hide all nodes"
+          :title="t('nodePanel.hideAllNodes')"
         >
-          <EyeOff :size="14" /> Hide all
+          <EyeOff :size="14" /> {{ t('nodePanel.hideAll') }}
         </button>
       </div>
 
@@ -69,16 +69,16 @@
               type="button"
               @click.stop="store.toggleGroupVisibility(group.id)"
               class="btn btn-sm p-0 border-0 bg-transparent lh-1"
-              :aria-label="group.hidden ? 'Show folder' : 'Hide folder'"
-              :title="group.hidden ? 'Show all nodes in this folder' : 'Hide all nodes in this folder'"
+              :aria-label="group.hidden ? t('nodePanel.showFolder') : t('nodePanel.hideFolder')"
+              :title="group.hidden ? t('nodePanel.showFolderNodes') : t('nodePanel.hideFolderNodes')"
             >
               <EyeOff v-if="group.hidden" :size="16" /><Eye v-else :size="16" />
             </button>
             <ShareButton
               v-if="nodesInGroup(group.id).length"
               :payload="() => folderSharePayload(group)"
-              title="Copy a link that shares this folder's nodes"
-              :label="`Share folder ${group.name}`"
+              :title="t('nodePanel.shareFolderTitle')"
+              :label="t('nodePanel.shareFolderLabel', { name: group.name })"
               :size="15"
             />
             <input
@@ -87,15 +87,15 @@
               :value="group.color ?? DEFAULT_PIN_COLOR"
               @click.stop
               @input="store.setGroupColor(group.id, ($event.target as HTMLInputElement).value)"
-              aria-label="Set folder colour"
-              title="Colour this folder's nodes on the map"
+              :aria-label="t('nodePanel.setFolderColor')"
+              :title="t('nodePanel.colorFolderNodes')"
             />
             <button
               type="button"
               @click.stop="startRename(group)"
               class="btn btn-sm p-0 border-0 bg-transparent lh-1"
-              aria-label="Rename folder"
-              title="Rename folder"
+              :aria-label="t('nodePanel.renameFolder')"
+              :title="t('nodePanel.renameFolder')"
             >
               <Pencil :size="15" />
             </button>
@@ -103,8 +103,8 @@
               type="button"
               @click.stop="store.deleteGroup(group.id)"
               class="btn btn-sm p-0 border-0 bg-transparent lh-1"
-              aria-label="Delete folder"
-              title="Delete folder (its nodes move to Ungrouped)"
+              :aria-label="t('nodePanel.deleteFolder')"
+              :title="t('nodePanel.deleteFolderTitle')"
             >
               <Trash2 :size="15" />
             </button>
@@ -119,7 +119,7 @@
         >
           <NodeRow v-for="node in nodesInGroup(group.id)" :key="node.id" :node="node" />
           <li v-if="!nodesInGroup(group.id).length" class="list-group-item text-muted small fst-italic empty-folder">
-            Drag nodes here
+            {{ t('nodePanel.dragNodesHere') }}
           </li>
         </ul>
       </div>
@@ -132,13 +132,13 @@
         @dragover="onGroupsEndDragOver"
         @drop="onGroupsEndDrop"
       >
-        Move to bottom
+        {{ t('nodePanel.moveToBottom') }}
       </div>
 
       <!-- Ungrouped (top-level) nodes. With no folders this is just the flat list; once folders
                  exist it gets a header so a node can be dragged back out here to ungroup it. -->
       <div v-if="hasGroups" class="ungrouped-header text-muted small text-uppercase fw-semibold px-1 mb-1 mt-2">
-        Ungrouped
+        {{ t('nodePanel.ungrouped') }}
       </div>
       <ul
         class="list-group ungrouped"
@@ -152,7 +152,7 @@
         <NodeRow v-for="node in ungroupedNodes" :key="node.id" :node="node" />
       </ul>
     </template>
-    <p v-else class="text-muted medium centered mb-0">Add a node to begin.</p>
+    <p v-else class="text-muted medium centered mb-0">{{ t('nodePanel.addNodeToBegin') }}</p>
 
     <!-- Hidden when a parent renders NodePanelFooter itself (e.g. pinned to a phone bottom-sheet's
              sticky footer instead of scrolling with the rest of this panel). -->
@@ -162,14 +162,14 @@
         type="button"
         class="btn btn-success btn-sm w-100 d-flex align-items-center justify-content-center gap-1"
       >
-        <Plus :size="16" /> Add node
+        <Plus :size="16" /> {{ t('nodePanel.addNode') }}
       </button>
       <button
         @click="addFolder"
         type="button"
         class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-center gap-1"
       >
-        <FolderPlus :size="16" /> Add folder
+        <FolderPlus :size="16" /> {{ t('nodePanel.addFolder') }}
       </button>
     </div>
   </div>
@@ -177,6 +177,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
 import { DEFAULT_PIN_COLOR } from '../layers.ts';
 import type { NodeGroup } from '../types.ts';
@@ -186,6 +187,7 @@ import ShareButton from './ShareButton.vue';
 import { ChevronDown, ChevronRight, Eye, EyeOff, Folder, FolderPlus, Pencil, Plus, Trash2 } from '@lucide/vue';
 import { dragKind, dragId, startDrag, endDrag, isOver, dropTarget } from './nodeDnd.ts';
 
+const { t } = useI18n();
 const store = useStore();
 
 defineProps<{ hideFooter?: boolean }>();
@@ -241,7 +243,7 @@ function cancelRename() {
 }
 function addFolder() {
   const id = store.addGroup();
-  startRename({ id, name: 'New folder' } as NodeGroup); // drop straight into renaming the new folder
+  startRename({ id, name: t('nodePanel.newFolderName') } as NodeGroup); // drop straight into renaming the new folder
 }
 
 function isGroupDragSource(id: string) {

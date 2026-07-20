@@ -2,7 +2,7 @@
   <form novalidate>
     <div class="row g-2">
       <div class="col-6">
-        <label for="min_dbm" class="form-label">Minimum dBm</label>
+        <label for="min_dbm" class="form-label">{{ t('display.minDbm') }}</label>
         <input
           v-model="display.min_dbm"
           type="number"
@@ -11,10 +11,10 @@
           required
           step="0.1"
         />
-        <div class="invalid-feedback">Minimum dBm must be provided (default: -130.0).</div>
+        <div class="invalid-feedback">{{ t('display.minDbmInvalid') }}</div>
       </div>
       <div class="col-6">
-        <label for="max_dbm" class="form-label">Maximum dBm</label>
+        <label for="max_dbm" class="form-label">{{ t('display.maxDbm') }}</label>
         <input
           v-model="display.max_dbm"
           type="number"
@@ -23,22 +23,22 @@
           required
           step="0.1"
         />
-        <div class="invalid-feedback">Maximum dBm must be provided (default: -30.0).</div>
+        <div class="invalid-feedback">{{ t('display.maxDbmInvalid') }}</div>
       </div>
     </div>
     <div class="row g-2 mt-2">
       <div class="col-6">
-        <label for="color_scale" class="form-label">Color Scale</label>
+        <label for="color_scale" class="form-label">{{ t('display.colorScale') }}</label>
         <select v-model="display.color_scale" id="color_scale" class="form-select form-select-sm" required>
           <option v-for="opt in COLOR_SCALE_OPTIONS" :key="opt.value" :value="opt.value">
             {{ opt.label }}
           </option>
         </select>
-        <div class="invalid-feedback">Please select a color scale.</div>
+        <div class="invalid-feedback">{{ t('display.colorScaleInvalid') }}</div>
       </div>
       <div class="col-6">
         <label for="overlay_transparency" class="form-label d-flex justify-content-between">
-          <span>Transparency</span>
+          <span>{{ t('display.transparency') }}</span>
           <span class="text-body-secondary">{{ display.overlay_transparency }}%</span>
         </label>
         <input
@@ -56,7 +56,7 @@
       <div>
         <img
           :src="`${baseUrl}colormaps/${display.color_scale}.png`"
-          alt="Colorbar"
+          :alt="t('display.colorbarAlt')"
           width="256"
           height="30"
           style="border: 1px solid #ccc; display: block; margin: 0 auto"
@@ -71,8 +71,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
 import { COLOR_SCALE_OPTIONS } from '../sim/colormap.ts';
+const { t } = useI18n();
 const display = useStore().splatParams.display;
 // Colorbar images live in public/; prefix with Vite's base so they resolve under the
 // GitHub Pages subpath (BASE_URL already ends in '/'), not the domain root.

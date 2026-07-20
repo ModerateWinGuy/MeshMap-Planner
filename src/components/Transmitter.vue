@@ -2,20 +2,20 @@
   <form v-if="transmitter" novalidate>
     <div class="row g-2">
       <div class="col-12">
-        <label for="name" class="form-label">Site name</label>
+        <label for="name" class="form-label">{{ t('transmitter.siteName') }}</label>
         <input
           v-model="transmitter.name"
           class="form-control form-control-sm"
           id="name"
           required
           data-bs-toggle="tooltip"
-          title="Site Name"
+          :title="t('transmitter.siteName')"
         />
       </div>
     </div>
     <div class="row g-2">
       <div class="col-6">
-        <label for="tx_lat" class="form-label">Latitude (degrees)</label>
+        <label for="tx_lat" class="form-label">{{ t('transmitter.latitude') }}</label>
         <input
           v-model="transmitter.tx_lat"
           @focus="onCoordFocus"
@@ -29,12 +29,12 @@
           max="90"
           step="0.000001"
           data-bs-toggle="tooltip"
-          title="Transmitter latitude in degrees (-90 to 90)."
+          :title="t('transmitter.latitudeTitle')"
         />
-        <div class="invalid-feedback">Please enter a valid latitude (-90 to 90).</div>
+        <div class="invalid-feedback">{{ t('transmitter.latitudeInvalid') }}</div>
       </div>
       <div class="col-6">
-        <label for="tx_lon" class="form-label">Longitude (degrees)</label>
+        <label for="tx_lon" class="form-label">{{ t('transmitter.longitude') }}</label>
         <input
           v-model="transmitter.tx_lon"
           @focus="onCoordFocus"
@@ -48,14 +48,14 @@
           max="180"
           step="0.000001"
           data-bs-toggle="tooltip"
-          title="Transmitter longitude in degrees (-180 to 180)."
+          :title="t('transmitter.longitudeTitle')"
         />
-        <div class="invalid-feedback">Please enter a valid longitude (-180 to 180).</div>
+        <div class="invalid-feedback">{{ t('transmitter.longitudeInvalid') }}</div>
       </div>
     </div>
     <div class="row g-2 mt-2">
       <div class="col-6">
-        <label for="tx_power" class="form-label">Power (W)</label>
+        <label for="tx_power" class="form-label">{{ t('transmitter.powerWatts') }}</label>
         <input
           v-model.number="transmitter.tx_power"
           type="number"
@@ -65,12 +65,12 @@
           min="0"
           step="0.1"
           data-bs-toggle="tooltip"
-          title="Transmitter power in watts (>0)."
+          :title="t('transmitter.powerWattsTitle')"
         />
-        <div class="invalid-feedback">Power must be a positive number.</div>
+        <div class="invalid-feedback">{{ t('transmitter.powerInvalid') }}</div>
       </div>
       <div class="col-6">
-        <label for="tx_power_dbm" class="form-label">Power (dBm)</label>
+        <label for="tx_power_dbm" class="form-label">{{ t('transmitter.powerDbm') }}</label>
         <input
           v-model="txPowerDbm"
           @input="onDbmInput"
@@ -81,13 +81,13 @@
           id="tx_power_dbm"
           step="0.1"
           data-bs-toggle="tooltip"
-          title="Transmitter power in dBm. Converts to/from watts automatically (30 dBm = 1 W)."
+          :title="t('transmitter.powerDbmTitle')"
         />
       </div>
     </div>
     <div class="row g-2 mt-2">
       <div class="col-6">
-        <label for="frequency" class="form-label">Frequency (MHz)</label>
+        <label for="frequency" class="form-label">{{ t('transmitter.frequency') }}</label>
         <input
           v-model="transmitter.tx_freq"
           type="number"
@@ -98,12 +98,12 @@
           max="20000"
           step="0.1"
           data-bs-toggle="tooltip"
-          title="Transmitter frequency in MHz (20 to 20,000)."
+          :title="t('transmitter.frequencyTitle')"
         />
-        <div class="invalid-feedback">Frequency must be a positive number.</div>
+        <div class="invalid-feedback">{{ t('transmitter.frequencyInvalid') }}</div>
       </div>
       <div class="col-6">
-        <label for="tx_height" class="form-label">Height AGL (m)</label>
+        <label for="tx_height" class="form-label">{{ t('transmitter.height') }}</label>
         <input
           v-model="transmitter.tx_height"
           type="number"
@@ -113,14 +113,14 @@
           min="1.0"
           step="0.1"
           data-bs-toggle="tooltip"
-          title="Transmitter height above ground in meters (>= 1.0)."
+          :title="t('transmitter.heightTitle')"
         />
-        <div class="invalid-feedback">Height must be a positive number.</div>
+        <div class="invalid-feedback">{{ t('transmitter.heightInvalid') }}</div>
       </div>
     </div>
     <div class="row g-2 mt-2">
       <div class="col-6">
-        <label for="tx_gain" class="form-label">Antenna Gain (dB)</label>
+        <label for="tx_gain" class="form-label">{{ t('transmitter.antennaGain') }}</label>
         <input
           v-model="transmitter.tx_gain"
           type="number"
@@ -130,10 +130,10 @@
           min="0"
           step="0.1"
         />
-        <div class="invalid-feedback">Gain must be a positive number.</div>
+        <div class="invalid-feedback">{{ t('transmitter.gainInvalid') }}</div>
       </div>
       <div class="col-6" v-if="receiver">
-        <label for="rx_sensitivity" class="form-label">Sensitivity (dBm)</label>
+        <label for="rx_sensitivity" class="form-label">{{ t('transmitter.sensitivity') }}</label>
         <input
           v-model="receiver.rx_sensitivity"
           type="number"
@@ -144,12 +144,12 @@
           min="-150"
           max="-30"
         />
-        <div class="invalid-feedback">Please enter a valid sensitivity.</div>
+        <div class="invalid-feedback">{{ t('transmitter.sensitivityInvalid') }}</div>
       </div>
     </div>
     <div class="row g-2 mt-2" v-if="receiver">
       <div class="col-6">
-        <label for="rx_loss" class="form-label">Cable Loss (dB)</label>
+        <label for="rx_loss" class="form-label">{{ t('transmitter.cableLoss') }}</label>
         <input
           v-model="receiver.rx_loss"
           type="number"
@@ -160,7 +160,7 @@
           max="100"
           step="0.1"
         />
-        <div class="invalid-feedback">Loss must be a positive number.</div>
+        <div class="invalid-feedback">{{ t('transmitter.lossInvalid') }}</div>
       </div>
     </div>
     <div class="mt-3 d-flex gap-2">
@@ -172,24 +172,25 @@
         data-bs-toggle="popover"
         data-bs-trigger="manual"
         data-bs-placement="left"
-        title="Set Coordinates"
-        data-bs-content=""
-        content="Click on the map to set the transmitter location."
+        :title="t('transmitter.setCoordinates')"
+        :data-bs-content="t('transmitter.setWithMapPopover')"
       >
-        Set with Map
+        {{ t('transmitter.setWithMap') }}
       </button>
       <button @click="centerMapOnTransmitter" type="button" class="btn btn-secondary btn-sm">
-        Center map on transmitter
+        {{ t('transmitter.centerMapOnTransmitter') }}
       </button>
     </div>
   </form>
-  <p v-else class="text-muted small mb-0">No node selected. Add a node to edit its parameters.</p>
+  <p v-else class="text-muted small mb-0">{{ t('transmitter.noNodeSelected') }}</p>
 </template>
 
 <script setup lang="ts">
 import * as bootstrap from 'bootstrap';
+import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
 import { computed, onMounted, ref, watch } from 'vue';
+const { t } = useI18n();
 const store = useStore();
 const transmitter = computed(() => store.selectedNode?.transmitter);
 const receiver = computed(() => store.selectedNode?.receiver);
@@ -287,7 +288,7 @@ const centerMapOnTransmitter = () => {
   if (tx && !isNaN(tx.tx_lat) && !isNaN(tx.tx_lon)) {
     store.map!.flyTo({ center: [tx.tx_lon, tx.tx_lat] }); // [lng, lat]; keeps current zoom
   } else {
-    alert('Please enter valid Latitude and Longitude values.');
+    alert(t('transmitter.invalidCoordsAlert'));
   }
 };
 let popover = new bootstrap.Popover(document.createElement('input'), {

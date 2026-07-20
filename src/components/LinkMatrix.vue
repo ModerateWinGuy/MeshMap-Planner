@@ -6,7 +6,7 @@
         @click="store.runNodeLinks()"
         type="button"
         class="btn btn-success btn-sm flex-grow-1"
-        title="Compute links from the selected node to every other node (fast). Shortcut: L"
+        :title="t('linkMatrix.computeSingleTitle')"
       >
         <span
           v-if="store.matrixState === 'running'"
@@ -21,9 +21,9 @@
         @click="store.cancelMatrix()"
         type="button"
         class="btn btn-outline-danger btn-sm text-nowrap"
-        title="Stop the running link computation (keeps any links already computed)"
+        :title="t('linkMatrix.cancelTitle')"
       >
-        Cancel
+        {{ t('linkMatrix.cancel') }}
       </button>
       <button
         v-else
@@ -31,9 +31,9 @@
         @click="computeAll"
         type="button"
         class="btn btn-outline-success btn-sm text-nowrap"
-        title="Compute every node-to-node link (slower on large maps)"
+        :title="t('linkMatrix.computeAllTitle')"
       >
-        Compute all
+        {{ t('linkMatrix.computeAll') }}
       </button>
     </div>
 
@@ -46,10 +46,9 @@
         :checked="store.linksSelectedOnly"
         @change="store.toggleLinksSelectedOnly()"
       />
-      <label class="form-check-label small" for="links_selected_only">Only show selected node's links</label>
+      <label class="form-check-label small" for="links_selected_only">{{ t('linkMatrix.onlySelectedLinks') }}</label>
       <InfoTip>
-        Hide every link except those touching the selected node. Off: viable links always show, marginal/failed links
-        only for the selected node.
+        {{ t('linkMatrix.onlySelectedLinksInfo') }}
       </InfoTip>
     </div>
 
@@ -62,20 +61,21 @@
         :checked="store.hideInvalidLinks"
         @change="store.toggleHideInvalidLinks()"
       />
-      <label class="form-check-label small" for="hide_invalid_links">Hide invalid links</label>
-      <InfoTip> Hide links that don't meet the margin threshold, including those touching the selected node. </InfoTip>
+      <label class="form-check-label small" for="hide_invalid_links">{{ t('linkMatrix.hideInvalidLinks') }}</label>
+      <InfoTip> {{ t('linkMatrix.hideInvalidLinksInfo') }} </InfoTip>
     </div>
 
-    <p v-if="store.nodes.length < 2" class="text-muted small mb-0">Add at least two nodes to compute links.</p>
+    <p v-if="store.nodes.length < 2" class="text-muted small mb-0">{{ t('linkMatrix.needTwoNodes') }}</p>
 
     <template v-else>
-      <p v-if="!store.selectedNode" class="text-muted small mb-0">Select a node to see its links.</p>
+      <p v-if="!store.selectedNode" class="text-muted small mb-0">{{ t('linkMatrix.selectNodePrompt') }}</p>
 
       <template v-else>
         <p class="small text-muted mb-2">
-          Links from <strong>{{ store.selectedNode.transmitter.name }}</strong>
+          {{ t('linkMatrix.linksFromPrefix') }} <strong>{{ store.selectedNode.transmitter.name }}</strong>
           <template v-if="store.matrixResult">
-            · preset <strong>{{ store.matrixResult.preset }}</strong> · sensitivity
+            · {{ t('linkMatrix.presetLabel') }} <strong>{{ store.matrixResult.preset }}</strong> ·
+            {{ t('linkMatrix.sensitivityLabel') }}
             <strong>{{ store.matrixResult.sensitivity_dbm }} dBm</strong>
           </template>
         </p>
@@ -89,11 +89,11 @@
           >
             <thead>
               <tr>
-                <th class="text-start" style="width: 28%">To</th>
-                <th title="Link margin (dB); green = viable">Margin</th>
-                <th>Dist</th>
-                <th>Loss</th>
-                <th title="First Fresnel zone clearance">Fresnel</th>
+                <th class="text-start" style="width: 28%">{{ t('linkMatrix.toColumn') }}</th>
+                <th :title="t('linkMatrix.marginColumnTitle')">{{ t('linkMatrix.marginColumn') }}</th>
+                <th>{{ t('linkMatrix.distColumn') }}</th>
+                <th>{{ t('linkMatrix.lossColumn') }}</th>
+                <th :title="t('linkMatrix.fresnelColumnTitle')">{{ t('linkMatrix.fresnelColumn') }}</th>
                 <th style="width: 32px"></th>
               </tr>
             </thead>
@@ -109,7 +109,7 @@
                     type="button"
                     class="btn btn-sm p-0 border-0 bg-transparent lh-1 text-info"
                     :disabled="store.profileState === 'running'"
-                    title="Show line profile"
+                    :title="t('linkMatrix.showProfileTitle')"
                     @click="store.runProfile(store.selectedNodeId, other.id)"
                   >
                     <Spline :size="16" />
@@ -123,10 +123,7 @@
                     class="btn btn-sm btn-outline-secondary w-100 my-1"
                     @click="showOutOfRange = !showOutOfRange"
                   >
-                    {{ showOutOfRange ? 'Hide' : 'Show' }} {{ outOfRangeNodes.length }} node{{
-                      outOfRangeNodes.length === 1 ? '' : 's'
-                    }}
-                    out of range
+                    {{ outOfRangeButtonText }}
                   </button>
                 </td>
               </tr>
@@ -144,8 +141,7 @@
                       role="status"
                       aria-hidden="true"
                     ></span>
-                    {{ uncalculatedNodes.length }} node{{ uncalculatedNodes.length === 1 ? '' : 's' }}
-                    not yet calculated - compute this node's links
+                    {{ uncalculatedButtonText }}
                   </button>
                 </td>
               </tr>
@@ -161,7 +157,7 @@
                       type="button"
                       class="btn btn-sm p-0 border-0 bg-transparent lh-1 text-info"
                       :disabled="store.profileState === 'running'"
-                      title="Show line profile"
+                      :title="t('linkMatrix.showProfileTitle')"
                       @click="store.runProfile(store.selectedNodeId, other.id)"
                     >
                       <Spline :size="16" />
@@ -175,10 +171,10 @@
 
         <!-- Check LOS: draw the terrain/LOS profile to one chosen node. Independent of the
                      matrix, so it works before (or instead of) computing every pair. -->
-        <label class="form-label small mb-1">Check line-of-sight to:</label>
+        <label class="form-label small mb-1">{{ t('linkMatrix.checkLosTo') }}</label>
         <div class="d-flex gap-2">
           <select v-model="store.losTargetId" class="form-select form-select-sm">
-            <option :value="null" disabled>Select node…</option>
+            <option :value="null" disabled>{{ t('linkMatrix.selectNodeOption') }}</option>
             <option v-for="other in otherNodes" :key="other.id" :value="other.id">
               {{ other.transmitter.name }}
             </option>
@@ -195,25 +191,27 @@
               role="status"
               aria-hidden="true"
             ></span>
-            Show profile
+            {{ t('linkMatrix.showProfile') }}
           </button>
         </div>
       </template>
     </template>
 
     <p v-if="store.matrixState === 'failed'" class="text-danger small mb-0 mt-2">
-      Matrix computation failed. See console.
+      {{ t('linkMatrix.matrixFailed') }}
     </p>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { Spline } from '@lucide/vue';
 import { useStore } from '../store.ts';
 import { type LinkResult, type Node } from '../types.ts';
 import InfoTip from './InfoTip.vue';
 
+const { t } = useI18n();
 const store = useStore();
 
 // Out-of-range rows (no computed link, e.g. skipped beyond the radio horizon) are folded away by
@@ -227,9 +225,22 @@ watch(
 );
 
 const buttonText = computed(() => {
-  if (store.matrixState === 'running') return 'Computing…';
-  if (store.matrixState === 'failed') return 'Retry';
-  return "Calculate node's links";
+  if (store.matrixState === 'running') return t('linkMatrix.computing');
+  if (store.matrixState === 'failed') return t('linkMatrix.retry');
+  return t('linkMatrix.calculateNodeLinks');
+});
+
+const outOfRangeButtonText = computed(() => {
+  const count = outOfRangeNodes.value.length;
+  if (showOutOfRange.value) {
+    return count === 1 ? t('linkMatrix.hideOutOfRangeOne') : t('linkMatrix.hideOutOfRangeMany', { count });
+  }
+  return count === 1 ? t('linkMatrix.showOutOfRangeOne') : t('linkMatrix.showOutOfRangeMany', { count });
+});
+
+const uncalculatedButtonText = computed(() => {
+  const count = uncalculatedNodes.value.length;
+  return count === 1 ? t('linkMatrix.uncalculatedOne') : t('linkMatrix.uncalculatedMany', { count });
 });
 
 // Full-matrix work grows ~O(N²); past this many nodes "Compute all" warrants a heads-up (the per-node
@@ -237,13 +248,7 @@ const buttonText = computed(() => {
 const CONFIRM_NODE_COUNT = 75;
 function computeAll() {
   const n = store.nodes.length;
-  if (
-    n >= CONFIRM_NODE_COUNT &&
-    !window.confirm(
-      `Computing every link between ${n} nodes can take a while and download a lot of terrain. ` +
-        `For a single node, use “Calculate node's links” (or press L) instead.\n\nCompute the full matrix anyway?`,
-    )
-  ) {
+  if (n >= CONFIRM_NODE_COUNT && !window.confirm(t('linkMatrix.confirmFullMatrix', { n }))) {
     return;
   }
   store.runMatrix();

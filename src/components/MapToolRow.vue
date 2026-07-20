@@ -6,8 +6,8 @@
         class="tool-btn"
         data-bs-toggle="dropdown"
         aria-expanded="false"
-        aria-label="Basemap"
-        title="Basemap"
+        :aria-label="t('mapControls.basemap')"
+        :title="t('mapControls.basemap')"
       >
         <Layers :size="17" />
       </button>
@@ -21,8 +21,8 @@
       class="tool-btn"
       :class="{ active: store.terrainEnabled }"
       :aria-pressed="store.terrainEnabled"
-      aria-label="Toggle 3D terrain"
-      title="Toggle 3D terrain (tilt the map to see relief)"
+      :aria-label="t('mapControls.toggle3dAriaLabel')"
+      :title="t('mapControls.toggle3dTerrainTitle')"
       @click="store.toggleTerrain()"
     >
       3D
@@ -33,8 +33,8 @@
       class="tool-btn"
       :class="{ active: store.hillshadeEnabled }"
       :aria-pressed="store.hillshadeEnabled"
-      aria-label="Toggle terrain shading"
-      title="Toggle terrain shading (relief / ambient-occlusion look). Works in flat and 3D view."
+      :aria-label="t('mapControls.toggleShadingAriaLabel')"
+      :title="t('mapControls.toggleShadingTitle')"
       @click="store.toggleHillshade()"
     >
       <Sun :size="17" />
@@ -45,8 +45,8 @@
       class="tool-btn"
       :class="{ active: store.buildingsEnabled }"
       :aria-pressed="store.buildingsEnabled"
-      aria-label="Toggle 3D buildings"
-      title="Toggle 3D buildings (OpenStreetMap) — shows from zoom 14 in"
+      :aria-label="t('mapControls.toggleBuildingsAriaLabel')"
+      :title="t('mapControls.toggleBuildingsTitle')"
       @click="store.toggleBuildings()"
     >
       <Building2 :size="17" />
@@ -58,8 +58,8 @@
       class="tool-btn"
       :class="{ active: store.links3dEnabled }"
       :aria-pressed="store.links3dEnabled"
-      aria-label="Toggle 3D line-of-sight links"
-      title="Toggle 3D line-of-sight links (lines flying through the air between antenna tops, clipping sections in yellow)"
+      :aria-label="t('mapControls.toggleLinksAriaLabel')"
+      :title="t('mapControls.toggleLinksTitle')"
       @click="store.toggleLinks3d()"
     >
       <Waypoints :size="17" />
@@ -70,12 +70,8 @@
       class="tool-btn"
       :class="{ active: store.nodesLocked }"
       :aria-pressed="store.nodesLocked"
-      :aria-label="store.nodesLocked ? 'Nodes locked — tap to allow dragging' : 'Lock nodes in place'"
-      :title="
-        store.nodesLocked
-          ? 'Nodes locked in place — tap to allow dragging'
-          : 'Lock nodes in place to prevent accidental dragging'
-      "
+      :aria-label="store.nodesLocked ? t('mapControls.nodesLockedAriaLabelTouch') : t('mapControls.lockNodes')"
+      :title="store.nodesLocked ? t('mapControls.nodesLockedTitleTouch') : t('mapControls.lockNodesTitle')"
       @click="store.toggleNodesLock()"
     >
       <component :is="store.nodesLocked ? Lock : LockOpen" :size="17" />
@@ -88,12 +84,8 @@
       :class="{ active: store.viewshedEnabled }"
       :aria-pressed="store.viewshedEnabled"
       :disabled="!store.selectedNode"
-      :aria-label="store.selectedNode ? 'Toggle viewshed' : 'Select a node to show its viewshed'"
-      :title="
-        store.selectedNode
-          ? 'Toggle the line-of-sight viewshed — green where the selected node has clear LOS'
-          : 'Select a node to show its viewshed'
-      "
+      :aria-label="store.selectedNode ? t('mapControls.toggleViewshedAriaLabel') : t('mapControls.viewshedOffTitle')"
+      :title="store.selectedNode ? t('mapControls.viewshedOnTitle') : t('mapControls.viewshedOffTitle')"
       @click="store.toggleViewshed()"
     >
       <ScanEye :size="17" />
@@ -102,8 +94,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
 import { Layers, Sun, Waypoints, Lock, LockOpen, ScanEye, Building2 } from '@lucide/vue';
 import BasemapPicker from './BasemapPicker.vue';
+const { t } = useI18n();
 const store = useStore();
 </script>

@@ -80,7 +80,9 @@ export function relayOverlap(gridA: CoverageGrid, gridB: CoverageGrid, params: R
       points: { type: 'FeatureCollection', features: [] },
       marginGrid: null,
       empty: true,
-      warning: 'No location receives both A and B above sensitivity.',
+      // A stable code, not display text — this module runs inside a Web Worker and has no access to
+      // the app's i18n instance; RelayFinder.vue translates it for display.
+      warning: 'NO_OVERLAP',
     };
   }
 

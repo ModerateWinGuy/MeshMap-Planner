@@ -1,5 +1,6 @@
 import type { Bbox, PublicNodeCandidate, PublicNodeSource } from './types.ts';
 import { IMPORTABLE_TYPES } from '../meshcore.ts';
+import { i18n } from '../i18n/index.ts';
 
 const MESHCORE_URL = 'https://api.meshcore.nz/api/v1/map/nodes';
 
@@ -42,7 +43,7 @@ async function fetchAll(signal?: AbortSignal): Promise<PublicNodeCandidate[]> {
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) {
       continue;
     }
-    const name = typeof n.name === 'string' && n.name.trim() ? n.name.trim() : 'Unnamed';
+    const name = typeof n.name === 'string' && n.name.trim() ? n.name.trim() : i18n.global.t('store.unnamed');
     const key = typeof n.public_key === 'string' && n.public_key ? n.public_key.toLowerCase() : null;
     const freqRaw = Number((n.params as { freq?: unknown } | undefined)?.freq);
     const freq = Number.isFinite(freqRaw) && freqRaw > 0 ? freqRaw : null;

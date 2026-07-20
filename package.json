@@ -23,7 +23,8 @@
     "pinia": "^2.3.1",
     "randanimal": "^1.0.4",
     "three": "^0.184.0",
-    "vue": "^3.5.20"
+    "vue": "^3.5.20",
+    "vue-i18n": "^11.4.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

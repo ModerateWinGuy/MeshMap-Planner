@@ -20,7 +20,7 @@
       <span
         class="text-truncate"
         :class="{ 'text-muted fst-italic': effectiveHidden }"
-        title="Double-click to center map"
+        :title="t('nodeRow.centerMapTitle')"
         @dblclick.stop="centerMapOnNode"
         >{{ node.transmitter.name }}</span
       >
@@ -30,13 +30,13 @@
         type="button"
         @click.stop="store.toggleNodeVisibility(node.id)"
         class="btn btn-sm p-0 border-0 bg-transparent lh-1"
-        :aria-label="node.hidden ? 'Show node' : 'Hide node'"
+        :aria-label="node.hidden ? t('nodeRow.showNode') : t('nodeRow.hideNode')"
         :title="
           inHiddenFolder
-            ? 'Folder is hidden — show the folder to see this node'
+            ? t('nodeRow.folderHiddenTitle')
             : node.hidden
-              ? 'Show on map'
-              : 'Hide from map'
+              ? t('nodeRow.showOnMap')
+              : t('nodeRow.hideFromMap')
         "
       >
         <EyeOff v-if="node.hidden" :size="16" /><Eye v-else :size="16" />
@@ -45,8 +45,8 @@
         type="button"
         @click.stop="store.deleteNode(node.id)"
         class="btn btn-sm p-0 border-0 bg-transparent lh-1"
-        aria-label="Delete node"
-        title="Delete node"
+        :aria-label="t('nodeRow.deleteNode')"
+        :title="t('nodeRow.deleteNode')"
       >
         <X :size="16" />
       </button>
@@ -56,12 +56,14 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
 import type { Node } from '../types.ts';
 import { Eye, EyeOff, GripVertical, X } from '@lucide/vue';
 import { dragKind, dragId, startDrag, endDrag, isOver, dropTarget } from './nodeDnd.ts';
 
 const props = defineProps<{ node: Node }>();
+const { t } = useI18n();
 const store = useStore();
 
 // Effective visibility drives the dimming; the eye icon below reflects only the node's OWN flag

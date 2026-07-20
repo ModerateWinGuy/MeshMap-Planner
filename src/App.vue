@@ -4,51 +4,54 @@
          control, so mode switching moves to BottomTabBar at the bottom of the screen instead. -->
     <header v-if="regime === 'phone'" class="phone-appbar">
       <span class="d-inline-flex align-items-center gap-2">
-        <Radio :size="20" class="brand-icon" aria-label="MeshMap Planner Logo" />
+        <Radio :size="20" class="brand-icon" :aria-label="t('app.logoAlt')" />
         <span class="phone-appbar-title">MeshMap Planner</span>
       </span>
-      <div class="dropdown">
-        <button
-          type="button"
-          class="btn btn-sm btn-outline-light dropdown-toggle d-inline-flex align-items-center gap-1"
-          data-bs-toggle="dropdown"
-          aria-expanded="false"
-          :disabled="!store.nodes.length"
-          :title="shareCopied ? 'Link copied!' : 'Share nodes as a link'"
-        >
-          <component :is="shareCopied ? Check : Share2" :size="14" />
-          {{ shareCopied ? 'Copied!' : 'Share' }}
-        </button>
-        <ul class="dropdown-menu dropdown-menu-end" data-bs-theme="dark">
-          <li>
-            <button
-              type="button"
-              class="dropdown-item d-flex align-items-center gap-2"
-              :disabled="!store.selectedNode"
-              @click="shareSelectedNode"
-            >
-              <RadioTower :size="15" />
-              <span class="text-truncate"
-                >Selected node<template v-if="store.selectedNode"
-                  >: {{ store.selectedNode.transmitter.name }}</template
-                ></span
+      <div class="d-flex align-items-center gap-2">
+        <div class="dropdown">
+          <button
+            type="button"
+            class="btn btn-sm btn-outline-light dropdown-toggle d-inline-flex align-items-center gap-1"
+            data-bs-toggle="dropdown"
+            aria-expanded="false"
+            :disabled="!store.nodes.length"
+            :title="shareCopied ? t('common.linkCopied') : t('app.shareNodesTitle')"
+          >
+            <component :is="shareCopied ? Check : Share2" :size="14" />
+            {{ shareCopied ? t('common.copied') : t('app.share') }}
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end" data-bs-theme="dark">
+            <li>
+              <button
+                type="button"
+                class="dropdown-item d-flex align-items-center gap-2"
+                :disabled="!store.selectedNode"
+                @click="shareSelectedNode"
               >
-            </button>
-          </li>
-          <li><hr class="dropdown-divider" /></li>
-          <li>
-            <button type="button" class="dropdown-item d-flex align-items-center gap-2" @click="shareSite">
-              <MapIcon :size="15" /> Whole site ({{ store.nodes.length }})
-            </button>
-          </li>
-        </ul>
+                <RadioTower :size="15" />
+                <span class="text-truncate"
+                  >{{ t('app.selectedNode')
+                  }}<template v-if="store.selectedNode">: {{ store.selectedNode.transmitter.name }}</template></span
+                >
+              </button>
+            </li>
+            <li><hr class="dropdown-divider" /></li>
+            <li>
+              <button type="button" class="dropdown-item d-flex align-items-center gap-2" @click="shareSite">
+                <MapIcon :size="15" /> {{ t('app.wholeSite', { count: store.nodes.length }) }}
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <LanguagePicker />
       </div>
     </header>
 
     <nav v-else class="navbar navbar-dark bg-dark fixed-top">
       <div class="container-fluid position-relative">
         <a class="navbar-brand d-inline-flex align-items-center gap-2" href="#">
-          <Radio :size="30" class="brand-icon" aria-label="MeshMap Planner Logo" />
+          <Radio :size="30" class="brand-icon" :aria-label="t('app.logoAlt')" />
           MeshMap Planner
         </a>
         <!-- Mode selector: an iOS-style segmented control (radio btn-check + label). Picking a mode
@@ -58,7 +61,7 @@
         <div
           class="btn-group mode-toggle position-absolute top-50 start-50 translate-middle"
           role="group"
-          aria-label="Mode"
+          :aria-label="t('bottomTabBar.mode')"
         >
           <template v-for="m in MODES" :key="m.id">
             <input
@@ -72,7 +75,7 @@
             />
             <label class="btn d-inline-flex align-items-center gap-1" :for="'mode-' + m.id">
               <component :is="m.icon" :size="16" />
-              {{ m.label }}
+              {{ t(m.labelKey) }}
             </label>
           </template>
         </div>
@@ -84,8 +87,8 @@
             href="https://github.com/ModerateWinGuy/MeshMap-Planner/issues"
             target="_blank"
             rel="noopener"
-            title="Report an issue or give feedback on GitHub"
-            aria-label="Report an issue or give feedback on GitHub"
+            :title="t('app.reportIssue')"
+            :aria-label="t('app.reportIssue')"
           >
             <Bug :size="18" />
           </a>
@@ -99,10 +102,10 @@
               data-bs-toggle="dropdown"
               aria-expanded="false"
               :disabled="!store.nodes.length"
-              :title="shareCopied ? 'Link copied!' : 'Share nodes as a link'"
+              :title="shareCopied ? t('common.linkCopied') : t('app.shareNodesTitle')"
             >
               <component :is="shareCopied ? Check : Share2" :size="16" />
-              {{ shareCopied ? 'Copied!' : 'Share' }}
+              {{ shareCopied ? t('common.copied') : t('app.share') }}
             </button>
             <ul class="dropdown-menu dropdown-menu-end" data-bs-theme="dark">
               <li>
@@ -114,20 +117,21 @@
                 >
                   <RadioTower :size="15" />
                   <span class="text-truncate"
-                    >Selected node<template v-if="store.selectedNode"
-                      >: {{ store.selectedNode.transmitter.name }}</template
-                    ></span
+                    >{{ t('app.selectedNode')
+                    }}<template v-if="store.selectedNode">: {{ store.selectedNode.transmitter.name }}</template></span
                   >
                 </button>
               </li>
               <li><hr class="dropdown-divider" /></li>
               <li>
                 <button type="button" class="dropdown-item d-flex align-items-center gap-2" @click="shareSite">
-                  <MapIcon :size="15" /> Whole site ({{ store.nodes.length }})
+                  <MapIcon :size="15" /> {{ t('app.wholeSite', { count: store.nodes.length }) }}
                 </button>
               </li>
             </ul>
           </div>
+
+          <LanguagePicker />
         </div>
       </div>
     </nav>
@@ -169,8 +173,8 @@
         class="sidebar-collapse-handle"
         :class="{ collapsed: store.sidebarCollapsed }"
         @click="store.toggleSidebarCollapsed()"
-        :aria-label="store.sidebarCollapsed ? 'Expand panel' : 'Collapse panel'"
-        :title="store.sidebarCollapsed ? 'Expand panel' : 'Collapse panel'"
+        :aria-label="store.sidebarCollapsed ? t('app.expandPanel') : t('app.collapsePanel')"
+        :title="store.sidebarCollapsed ? t('app.expandPanel') : t('app.collapsePanel')"
       >
         <component :is="store.sidebarCollapsed ? ChevronLeft : ChevronRight" :size="16" />
       </button>
@@ -200,8 +204,10 @@
                   type="button"
                   @click="toggleSiteExpanded(site.taskId)"
                   class="btn btn-sm p-0 border-0 bg-transparent lh-1"
-                  :aria-label="expandedSites.has(site.taskId) ? 'Hide display settings' : 'Edit display settings'"
-                  :title="expandedSites.has(site.taskId) ? 'Hide display settings' : 'Edit display settings'"
+                  :aria-label="
+                    expandedSites.has(site.taskId) ? t('app.hideDisplaySettings') : t('app.editDisplaySettings')
+                  "
+                  :title="expandedSites.has(site.taskId) ? t('app.hideDisplaySettings') : t('app.editDisplaySettings')"
                 >
                   <ChevronDown v-if="expandedSites.has(site.taskId)" :size="18" />
                   <ChevronRight v-else :size="18" />
@@ -210,8 +216,8 @@
                   type="button"
                   @click="store.toggleSiteVisibility(index)"
                   class="btn btn-sm p-0 border-0 bg-transparent lh-1"
-                  :aria-label="site.visible === false ? 'Show result' : 'Hide result'"
-                  :title="site.visible === false ? 'Show result' : 'Hide result'"
+                  :aria-label="site.visible === false ? t('app.showResult') : t('app.hideResult')"
+                  :title="site.visible === false ? t('app.showResult') : t('app.hideResult')"
                 >
                   <EyeOff v-if="site.visible === false" :size="18" />
                   <Eye v-else :size="18" />
@@ -220,8 +226,8 @@
                   type="button"
                   @click="store.removeSite(index)"
                   class="btn btn-sm p-0 border-0 bg-transparent lh-1"
-                  aria-label="Remove result"
-                  title="Remove result"
+                  :aria-label="t('app.removeResult')"
+                  :title="t('app.removeResult')"
                 >
                   <X :size="18" />
                 </button>
@@ -232,7 +238,7 @@
             <div v-if="expandedSites.has(site.taskId)" class="mt-2 pt-2 border-top">
               <div class="row g-2">
                 <div class="col-6">
-                  <label class="form-label small mb-1">Min dBm</label>
+                  <label class="form-label small mb-1">{{ t('app.minDbm') }}</label>
                   <input
                     v-model.number="site.params.display.min_dbm"
                     @change="store.recolorSite(index)"
@@ -242,7 +248,7 @@
                   />
                 </div>
                 <div class="col-6">
-                  <label class="form-label small mb-1">Max dBm</label>
+                  <label class="form-label small mb-1">{{ t('app.maxDbm') }}</label>
                   <input
                     v-model.number="site.params.display.max_dbm"
                     @change="store.recolorSite(index)"
@@ -252,7 +258,7 @@
                   />
                 </div>
               </div>
-              <label class="form-label small mb-1 mt-2">Color Scale</label>
+              <label class="form-label small mb-1 mt-2">{{ t('display.colorScale') }}</label>
               <select
                 v-model="site.params.display.color_scale"
                 @change="store.recolorSite(index)"
@@ -290,7 +296,7 @@
       </BottomSheet>
       <!-- Overflow for the 3 modes that don't get their own bottom tab. A 3-item list doesn't need
            half/full detents, so it's pinned to peek. -->
-      <BottomSheet v-model="moreSheetOpen" detent="peek" :detents="['peek']" title="More">
+      <BottomSheet v-model="moreSheetOpen" detent="peek" :detents="['peek']" :title="t('bottomTabBar.more')">
         <ul class="list-group">
           <li
             v-for="m in overflowModes"
@@ -300,7 +306,7 @@
             @click="openOverflow(m.id)"
           >
             <component :is="m.icon" :size="18" />
-            {{ m.label }}
+            {{ t(m.labelKey) }}
           </li>
         </ul>
       </BottomSheet>
@@ -316,7 +322,7 @@
         "
         detent="peek"
         :detents="['peek']"
-        title="Search location"
+        :title="t('app.searchLocation')"
       >
         <LocationSearchPanel embedded />
       </BottomSheet>
@@ -330,7 +336,7 @@
           }
         "
         detent="half"
-        title="Link Profile"
+        :title="t('app.linkProfile')"
       >
         <ProfilePanel embedded />
       </BottomSheet>
@@ -344,8 +350,10 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 // bundle (popovers/dropdowns) is needed here.
 import 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import ModePanels from './components/ModePanels.vue';
 import BasemapControl from './components/BasemapControl.vue';
+import LanguagePicker from './components/LanguagePicker.vue';
 import BottomTabBar from './components/BottomTabBar.vue';
 import BottomSheet from './components/BottomSheet.vue';
 import NodePanelFooter from './components/NodePanelFooter.vue';
@@ -385,6 +393,7 @@ import { nodeToShared } from './utils.ts';
 import { trackEvent } from './analytics.ts';
 import { gradientCss, COLOR_SCALE_OPTIONS } from './sim/colormap.ts';
 import type { UiMode, Site } from './types.ts';
+const { t } = useI18n();
 const store = useStore();
 
 // Phone (<768px) and tablet (768-1023px) get a different layout shell; desktop (>=1024px) renders
@@ -432,16 +441,16 @@ function shareSite() {
 // Top-bar mode toggle. Order is the rough workflow: build nodes -> set radio params -> run coverage
 // -> analyse links -> map settings.
 const MODES = [
-  { id: 'nodes', label: 'Nodes', icon: RadioTower },
-  { id: 'coverage', label: 'Coverage', icon: MapIcon },
-  { id: 'linkfinder', label: 'Links', icon: Link },
-  { id: 'viewshed', label: 'Viewshed', icon: ScanEye },
-  { id: 'radio', label: 'Simulation Settings', icon: WifiCog },
-  { id: 'settings', label: 'Settings', icon: SlidersVertical },
-  { id: 'import', label: 'Import', icon: FolderInput },
-] as const satisfies ReadonlyArray<{ id: UiMode; label: string; icon: Component }>;
+  { id: 'nodes', labelKey: 'app.modes.nodes', icon: RadioTower },
+  { id: 'coverage', labelKey: 'app.modes.coverage', icon: MapIcon },
+  { id: 'linkfinder', labelKey: 'app.modes.linkfinder', icon: Link },
+  { id: 'viewshed', labelKey: 'app.modes.viewshed', icon: ScanEye },
+  { id: 'radio', labelKey: 'app.modes.radio', icon: WifiCog },
+  { id: 'settings', labelKey: 'app.modes.settings', icon: SlidersVertical },
+  { id: 'import', labelKey: 'app.modes.import', icon: FolderInput },
+] as const satisfies ReadonlyArray<{ id: UiMode; labelKey: string; icon: Component }>;
 
-const activeModeLabel = computed(() => MODES.find((m) => m.id === store.activeMode)?.label ?? '');
+const activeModeLabel = computed(() => t(MODES.find((m) => m.id === store.activeMode)?.labelKey ?? ''));
 
 // Whether a point-to-point link profile exists to show — shared by the desktop/tablet docked strip
 // and the phone sheet below, so the two stay in sync without duplicating the condition.

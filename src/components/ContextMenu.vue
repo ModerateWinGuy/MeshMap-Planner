@@ -11,40 +11,40 @@
       <li>
         <button type="button" class="dropdown-item d-flex align-items-center gap-2" @click="shareNode">
           <Check v-if="copied" :size="14" /><Share2 v-else :size="14" />
-          {{ copied ? 'Copied!' : 'Share node' }}
+          {{ copied ? t('common.copied') : t('contextMenu.shareNode') }}
         </button>
       </li>
       <li v-if="showPairActions">
         <button type="button" class="dropdown-item d-flex align-items-center gap-2" @click="showLinkProfile">
-          <Spline :size="14" /> Show link profile
+          <Spline :size="14" /> {{ t('contextMenu.showLinkProfile') }}
         </button>
       </li>
       <li v-if="showPairActions">
         <button type="button" class="dropdown-item d-flex align-items-center gap-2" @click="findRelayZone">
-          <Link :size="14" /> Find relay zone
+          <Link :size="14" /> {{ t('contextMenu.findRelayZone') }}
         </button>
       </li>
       <li>
         <button type="button" class="dropdown-item d-flex align-items-center gap-2" @click="showCoverage">
-          <MapIcon :size="14" /> Show coverage
+          <MapIcon :size="14" /> {{ t('contextMenu.showCoverage') }}
         </button>
       </li>
       <li>
         <button type="button" class="dropdown-item d-flex align-items-center gap-2" @click="deleteNode">
-          <Trash2 :size="14" /> Delete node
+          <Trash2 :size="14" /> {{ t('contextMenu.deleteNode') }}
         </button>
       </li>
     </template>
     <template v-else>
       <li>
         <button type="button" class="dropdown-item d-flex align-items-center gap-2" @click="addNodeHere">
-          <Plus :size="14" /> Add node here
+          <Plus :size="14" /> {{ t('contextMenu.addNodeHere') }}
         </button>
       </li>
       <li>
         <button type="button" class="dropdown-item d-flex align-items-center gap-2" @click="copyCoordinates">
           <Check v-if="copiedCoords" :size="14" /><Copy v-else :size="14" />
-          {{ copiedCoords ? 'Copied!' : 'Copy coordinates' }}
+          {{ copiedCoords ? t('common.copied') : t('contextMenu.copyCoordinates') }}
         </button>
       </li>
     </template>
@@ -53,6 +53,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { Trash2, Share2, Plus, Copy, Check, Spline, Link, Map as MapIcon } from '@lucide/vue';
 import { useStore } from '../store.ts';
 import { useShareLink, copyText } from '../shareLink.ts';
@@ -61,6 +62,7 @@ import { trackEvent } from '../analytics.ts';
 
 const CONFIRM_CLOSE_MS = 800;
 
+const { t } = useI18n();
 const store = useStore();
 const { copied, share } = useShareLink();
 const copiedCoords = ref(false);

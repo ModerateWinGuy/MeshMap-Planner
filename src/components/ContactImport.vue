@@ -1,11 +1,9 @@
 <template>
   <div>
     <h2 class="h6 d-flex align-items-center gap-2">
-      <FileUp :size="18" /> Import contacts
+      <FileUp :size="18" /> {{ t('contactImport.title') }}
       <InfoTip>
-        Pick a MeshCore <strong>contacts export</strong> (JSON). Repeaters and room servers that carry a location are
-        added as nodes in an <strong>Imported</strong> folder; companions and contacts without a location are skipped.
-        You can review and deselect before importing.
+        <span v-html="t('contactImport.info')"></span>
       </InfoTip>
     </h2>
 
@@ -16,7 +14,7 @@
       class="btn btn-sm btn-success shadow w-100 d-flex align-items-center justify-content-center gap-1"
       @click="pickFile"
     >
-      <Upload :size="16" /> Import MeshCore contacts…
+      <Upload :size="16" /> {{ t('contactImport.importButton') }}
     </button>
 
     <div v-if="error" class="alert alert-danger py-1 px-2 small mt-2 mb-0">{{ error }}</div>
@@ -25,9 +23,11 @@
     <!-- Preview: confirm (and optionally deselect) before anything is added to the map. -->
     <template v-if="parsed">
       <div class="d-flex align-items-center justify-content-between mt-3 mb-1">
-        <span class="small fw-semibold"
-          >{{ candidates.length }} contact{{ candidates.length === 1 ? '' : 's' }} found</span
-        >
+        <span class="small fw-semibold">{{
+          candidates.length === 1
+            ? t('contactImport.foundOne')
+            : t('contactImport.foundMany', { count: candidates.length })
+        }}</span>
         <div class="d-flex gap-2">
           <button
             type="button"
@@ -35,7 +35,7 @@
             :disabled="allSelected"
             @click="setAll(true)"
           >
-            All
+            {{ t('contactImport.all') }}
           </button>
           <button
             type="button"
@@ -43,7 +43,7 @@
             :disabled="noneSelected"
             @click="setAll(false)"
           >
-            None
+            {{ t('contactImport.none') }}
           </button>
         </div>
       </div>
@@ -57,19 +57,25 @@
           <span
             v-if="c.isDuplicate"
             class="badge bg-warning-subtle text-warning-emphasis rounded-pill flex-shrink-0 align-self-center"
-            title="A node with this name and location already exists"
-            >duplicate</span
+            :title="t('contactImport.duplicateTitle')"
+            >{{ t('contactImport.duplicate') }}</span
           >
         </li>
       </ul>
       <p v-if="skippedNoLocation" class="text-muted small mt-1 mb-0">
-        {{ skippedNoLocation }} contact{{ skippedNoLocation === 1 ? '' : 's' }} skipped (no location).
+        {{
+          skippedNoLocation === 1
+            ? t('contactImport.skippedOne')
+            : t('contactImport.skippedMany', { count: skippedNoLocation })
+        }}
       </p>
       <div class="d-flex gap-2 mt-2">
         <button type="button" class="btn btn-success btn-sm w-100" :disabled="!selectedCount" @click="confirmImport">
-          Import {{ selectedCount }} selected
+          {{ t('contactImport.importSelected', { count: selectedCount }) }}
         </button>
-        <button type="button" class="btn btn-outline-secondary btn-sm w-100" @click="cancel">Cancel</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm w-100" @click="cancel">
+          {{ t('common.cancel') }}
+        </button>
       </div>
     </template>
   </div>
@@ -77,12 +83,14 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
 import { parseMeshcoreContacts, type ContactCandidate } from '../meshcore.ts';
 import { FileUp, Upload } from '@lucide/vue';
 import InfoTip from './InfoTip.vue';
 import { trackEvent } from '../analytics.ts';
 
+const { t } = useI18n();
 const store = useStore();
 
 const fileInput = ref<HTMLInputElement | null>(null);
@@ -121,20 +129,20 @@ function onFile(e: Event) {
       if (!result.candidates.length) {
         reset();
         error.value = result.skippedNoLocation
-          ? `No repeaters or room servers with a location (${result.skippedNoLocation} had none).`
-          : 'No repeaters or room servers found in this file.';
+          ? t('contactImport.noneWithLocation', { count: result.skippedNoLocation })
+          : t('contactImport.noneFound');
         return;
       }
       parsed.value = result.candidates;
       include.value = result.candidates.map((c) => !c.isDuplicate); // pre-check all but duplicates
     } catch (err) {
       reset();
-      error.value = err instanceof Error ? err.message : 'Could not read this file as JSON.';
+      error.value = err instanceof Error ? err.message : t('contactImport.notJson');
     }
   };
   reader.onerror = () => {
     reset();
-    error.value = 'Could not read the selected file.';
+    error.value = t('contactImport.readError');
   };
   reader.readAsText(file);
 }
@@ -152,12 +160,13 @@ function confirmImport() {
   const extras: string[] = [];
   const notImported = candidates.value.length - added;
   if (notImported) {
-    extras.push(`${notImported} not imported`);
+    extras.push(t('contactImport.notImported', { count: notImported }));
   }
   if (skippedNoLocation.value) {
-    extras.push(`${skippedNoLocation.value} without location`);
+    extras.push(t('contactImport.withoutLocation', { count: skippedNoLocation.value }));
   }
-  summary.value = `Imported ${added} node${added === 1 ? '' : 's'} into "Imported"${extras.length ? ` (${extras.join(', ')})` : ''}.`;
+  const imported = added === 1 ? t('contactImport.importedOne') : t('contactImport.importedMany', { count: added });
+  summary.value = `${imported}${extras.length ? ` (${extras.join(', ')})` : ''}.`;
   reset();
 }
 

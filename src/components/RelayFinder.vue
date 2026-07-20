@@ -1,10 +1,10 @@
 <template>
   <div class="panel-min-width">
-    <p v-if="store.nodes.length < 2" class="text-muted small mb-0">Add at least two nodes to find a relay site.</p>
+    <p v-if="store.nodes.length < 2" class="text-muted small mb-0">{{ t('relayFinder.needTwoNodes') }}</p>
 
     <template v-else>
       <div class="mb-2">
-        <label class="form-label small mb-1">Node A</label>
+        <label class="form-label small mb-1">{{ t('relayFinder.nodeA') }}</label>
         <select v-model="store.relayA" class="form-select form-select-sm">
           <option v-for="n in store.nodes" :key="n.id" :value="n.id">
             {{ n.transmitter.name }}
@@ -12,7 +12,7 @@
         </select>
       </div>
       <div class="mb-2">
-        <label class="form-label small mb-1">Node B</label>
+        <label class="form-label small mb-1">{{ t('relayFinder.nodeB') }}</label>
         <select v-model="store.relayB" class="form-select form-select-sm">
           <option v-for="n in store.nodes" :key="n.id" :value="n.id">
             {{ n.transmitter.name }}
@@ -36,29 +36,29 @@
           {{ buttonText }}
         </button>
         <button v-if="store.relayResult" @click="store.clearRelay" type="button" class="btn btn-outline-light btn-sm">
-          Clear
+          {{ t('common.clear') }}
         </button>
       </div>
 
-      <p v-if="sameNode" class="text-warning small mb-2">Pick two different nodes.</p>
+      <p v-if="sameNode" class="text-warning small mb-2">{{ t('relayFinder.pickDifferentNodes') }}</p>
 
-      <p v-if="store.relayState === 'failed'" class="text-danger small mb-0">Relay search failed. See console.</p>
+      <p v-if="store.relayState === 'failed'" class="text-danger small mb-0">{{ t('relayFinder.searchFailed') }}</p>
 
       <template v-else-if="store.relayResult">
         <p v-if="store.relayResult.empty" class="text-muted small mb-0">
-          {{ store.relayResult.warning }}
+          {{ store.relayResult.warning === 'NO_OVERLAP' ? t('relayFinder.noOverlap') : store.relayResult.warning }}
         </p>
         <template v-else>
           <p class="small text-muted mb-2">
-            Sensitivity <strong>{{ store.relayResult.sensitivity_dbm }} dBm</strong>. Each suggested point can be
-            promoted into a real node.
+            {{ t('relayFinder.sensitivityPrefix') }} <strong>{{ store.relayResult.sensitivity_dbm }} dBm</strong>.
+            {{ t('relayFinder.promoteHint') }}
           </p>
           <div class="mb-2 small">
             <div class="legend-bar mb-1" :style="{ background: gradientCss }"></div>
             <div class="d-flex justify-content-between text-muted">
               <span>0 dB</span>
-              <span>link margin</span>
-              <span>{{ peakMargin != null ? peakMargin + ' dB' : 'higher' }}</span>
+              <span>{{ t('relayFinder.linkMargin') }}</span>
+              <span>{{ peakMargin != null ? peakMargin + ' dB' : t('relayFinder.higher') }}</span>
             </div>
           </div>
           <ul class="list-group list-group-flush small">
@@ -67,25 +67,29 @@
               :key="pt.properties.rank"
               class="list-group-item bg-transparent text-light px-0 d-flex justify-content-between align-items-center gap-2"
             >
-              <span role="button" class="text-truncate" @click="panTo(pt)" title="Pan to point">
+              <span role="button" class="text-truncate" @click="panTo(pt)" :title="t('relayFinder.panToPoint')">
                 #{{ pt.properties.rank }} · {{ pt.properties.min_margin }} dB
               </span>
-              <button type="button" class="btn btn-sm btn-success py-0" @click="promote(pt)">Promote</button>
+              <button type="button" class="btn btn-sm btn-success py-0" @click="promote(pt)">
+                {{ t('relayFinder.promote') }}
+              </button>
             </li>
           </ul>
         </template>
       </template>
 
-      <p v-else class="text-muted small mb-0">Pick two nodes and search for a relay site.</p>
+      <p v-else class="text-muted small mb-0">{{ t('relayFinder.pickTwoAndSearch') }}</p>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, watchEffect } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
 import { gradientCss as gradientCssFor } from '../sim/colormap.ts';
 
+const { t } = useI18n();
 const store = useStore();
 
 // Legend gradient mirrors the draped heatmap: the active colormap sampled left (0 dB margin, the zone
@@ -115,9 +119,9 @@ const sameNode = computed(() => !!store.relayA && store.relayA === store.relayB)
 const canRun = computed(() => !!store.relayA && !!store.relayB && !sameNode.value);
 
 const buttonText = computed(() => {
-  if (store.relayState === 'running') return 'Searching…';
-  if (store.relayState === 'failed') return 'Retry';
-  return 'Find relay zone';
+  if (store.relayState === 'running') return t('relayFinder.searching');
+  if (store.relayState === 'failed') return t('linkMatrix.retry');
+  return t('contextMenu.findRelayZone');
 });
 
 function run() {

@@ -5,8 +5,8 @@
       type="text"
       required
       class="form-control form-control-sm"
-      placeholder="Provider name"
-      aria-label="Provider name"
+      :placeholder="t('providerForm.providerName')"
+      :aria-label="t('providerForm.providerName')"
     />
     <div>
       <input
@@ -16,14 +16,14 @@
         class="form-control form-control-sm"
         :class="{ 'is-invalid': localUrlTemplate.length > 0 && !urlTemplateValid }"
         placeholder="https://example.com/dem/{z}/{x}/{y}.png?key=..."
-        aria-label="Tile URL template"
+        :aria-label="t('providerForm.urlTemplate')"
       />
       <div class="invalid-feedback" v-if="localUrlTemplate.length > 0 && !urlTemplateValid">
-        Must contain {z}, {x} and {y} placeholders.
+        {{ t('providerForm.placeholdersRequired') }}
       </div>
-      <div class="form-text">Must include {z}/{x}/{y}; include any API key directly in the URL.</div>
+      <div class="form-text">{{ t('providerForm.placeholdersHelp') }}</div>
     </div>
-    <select v-model="localEncoding" class="form-select form-select-sm" aria-label="Tile encoding">
+    <select v-model="localEncoding" class="form-select form-select-sm" :aria-label="t('providerForm.tileEncoding')">
       <option value="mapbox">Mapbox / Mapzen terrain-RGB</option>
       <option value="terrarium">Terrarium</option>
     </select>
@@ -34,7 +34,7 @@
         @click="runTest"
         class="btn btn-outline-secondary btn-sm"
       >
-        {{ testing ? 'Testing…' : 'Test' }}
+        {{ testing ? t('providerForm.testing') : t('providerForm.test') }}
       </button>
       <span v-if="testResult" :class="testResult.ok ? 'text-success' : 'text-danger'" class="small">{{
         testResult.message
@@ -44,13 +44,16 @@
       <button type="button" :disabled="!canSubmit" @click="$emit('submit')" class="btn btn-success btn-sm flex-grow-1">
         {{ submitLabel }}
       </button>
-      <button type="button" @click="$emit('cancel')" class="btn btn-outline-secondary btn-sm">Cancel</button>
+      <button type="button" @click="$emit('cancel')" class="btn btn-outline-secondary btn-sm">
+        {{ t('common.cancel') }}
+      </button>
     </div>
   </form>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
 import type { ProviderTestResult } from '../terrain/demTiles.ts';
 
@@ -68,6 +71,7 @@ const emit = defineEmits<{
   cancel: [];
 }>();
 
+const { t } = useI18n();
 const store = useStore();
 
 const localName = computed({

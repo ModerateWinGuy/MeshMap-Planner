@@ -7,8 +7,8 @@
       v-if="linkPayload()"
       :payload="linkPayload"
       class="profile-share"
-      title="Copy a share link for this link profile"
-      label="Share link"
+      :title="t('profilePanel.shareTitle')"
+      :label="t('profilePanel.shareLabel')"
       :size="18"
     />
     <!-- Redundant with the sheet's own close affordances (scrim tap / swipe down / chevron) when
@@ -17,8 +17,8 @@
       v-if="!embedded"
       type="button"
       class="btn btn-sm p-0 border-0 bg-transparent lh-1 profile-close"
-      aria-label="Close profile"
-      title="Close"
+      :aria-label="t('profilePanel.closeProfile')"
+      :title="t('profilePanel.close')"
       @click="store.clearProfile()"
     >
       <X :size="20" />
@@ -26,8 +26,8 @@
     <button
       type="button"
       class="btn btn-sm p-0 border-0 bg-transparent lh-1 profile-refresh"
-      aria-label="Recalculate link profile"
-      title="Recalculate (after changing a node setting)"
+      :aria-label="t('profilePanel.recalculate')"
+      :title="t('profilePanel.recalculateTitle')"
       @click="store.runProfile(store.profileFromId, store.profileToId)"
     >
       <RefreshCw :size="18" />
@@ -36,49 +36,53 @@
     <!-- Running / failed states replace the chart. -->
     <div v-if="store.profileState === 'running'" class="profile-status">
       <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-      {{ store.progress?.message || 'Computing terrain profile…' }}
+      {{ store.progress?.message || t('profilePanel.computing') }}
     </div>
     <div v-else-if="store.profileState === 'failed'" class="profile-status text-danger">
-      {{ store.profileError || 'Profile computation failed.' }}
+      {{ store.profileError || t('profilePanel.computationFailed') }}
     </div>
 
     <template v-else-if="store.profileResult">
       <!-- Header: endpoint identity on the corners, headline link budget across the middle. -->
       <div class="profile-header">
         <div class="text-start profile-left">
-          <div class="fw-bold text-info">{{ fromNode?.transmitter.name || 'Point A' }}</div>
+          <div class="fw-bold text-info">{{ fromNode?.transmitter.name || t('profilePanel.pointA') }}</div>
           <div class="text-muted">{{ fromCoord }} · {{ fromNode?.transmitter.tx_height ?? '?' }} m AGL</div>
           <div class="text-muted" v-if="bearing !== null">{{ bearing.toFixed(1) }}° →</div>
         </div>
 
         <div class="profile-stats">
           <span
-            ><span class="text-muted">TX EIRP</span> <strong>{{ fmt(r.tx_eirp_dbm) }} dBm</strong></span
+            ><span class="text-muted">{{ t('profilePanel.txEirp') }}</span>
+            <strong>{{ fmt(r.tx_eirp_dbm) }} dBm</strong></span
           >
           <span
-            ><span class="text-muted">Est. RX</span> <strong>{{ fmt(r.rx_signal_dbm) }} dBm</strong></span
+            ><span class="text-muted">{{ t('profilePanel.estRx') }}</span>
+            <strong>{{ fmt(r.rx_signal_dbm) }} dBm</strong></span
           >
           <span
-            ><span class="text-muted">Distance</span> <strong>{{ fmt(r.distance_km) }} km</strong></span
+            ><span class="text-muted">{{ t('profilePanel.distance') }}</span>
+            <strong>{{ fmt(r.distance_km) }} km</strong></span
           >
           <span
-            ><span class="text-muted">Path loss</span> <strong>{{ fmt(r.path_loss_db) }} dB</strong></span
+            ><span class="text-muted">{{ t('profilePanel.pathLoss') }}</span>
+            <strong>{{ fmt(r.path_loss_db) }} dB</strong></span
           >
           <span
-            ><span class="text-muted">Fresnel clear</span>
+            ><span class="text-muted">{{ t('profilePanel.fresnelClear') }}</span>
             <strong>{{ fresnelPct === null ? '—' : fresnelPct + '%' }}</strong></span
           >
           <span class="badge" :style="{ background: marginColor }">
             {{
               r.margin_db === null
-                ? 'no signal'
-                : `${r.margin_db >= 0 ? '+' : ''}${r.margin_db} dB ${r.viable ? 'viable' : 'fail'}`
+                ? t('profilePanel.noSignal')
+                : `${r.margin_db >= 0 ? '+' : ''}${r.margin_db} dB ${r.viable ? t('profilePanel.viable') : t('profilePanel.fail')}`
             }}
           </span>
         </div>
 
         <div class="text-end profile-right">
-          <div class="fw-bold text-info">{{ toNode?.transmitter.name || 'Point B' }}</div>
+          <div class="fw-bold text-info">{{ toNode?.transmitter.name || t('profilePanel.pointB') }}</div>
           <div class="text-muted">{{ toCoord }} · {{ toNode?.transmitter.tx_height ?? '?' }} m AGL</div>
           <div class="text-muted" v-if="reverseBearing !== null">← {{ reverseBearing.toFixed(1) }}°</div>
           <div class="text-muted" v-if="fromNode">{{ fromNode.transmitter.tx_freq }} MHz</div>
@@ -135,8 +139,8 @@
           <!-- line of sight -->
           <path :d="chart.losLine" fill="none" stroke="#f2e205" stroke-width="2" />
 
-          <text :x="PAD_L" :y="VB_H - 4" class="axis-title">Distance (km) →</text>
-          <text :x="6" :y="PAD_T - 8" class="axis-title">Elevation (m)</text>
+          <text :x="PAD_L" :y="VB_H - 4" class="axis-title">{{ t('profilePanel.distanceAxis') }}</text>
+          <text :x="6" :y="PAD_T - 8" class="axis-title">{{ t('profilePanel.elevationAxis') }}</text>
         </svg>
         <!-- Hover dot riding the signal line, marking the point a click will fly the camera to.
                      An HTML overlay (not an SVG circle) so preserveAspectRatio="none" can't squash it. -->
@@ -146,13 +150,14 @@
           :style="{ left: hoverMarker.left + '%', top: hoverMarker.top + '%' }"
         ></span>
       </div>
-      <div v-else class="profile-status text-muted">No terrain profile data returned.</div>
+      <div v-else class="profile-status text-muted">{{ t('profilePanel.noProfileData') }}</div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { X, RefreshCw } from '@lucide/vue';
 import { useStore } from '../store.ts';
 import { interpGreatCircle } from '../sim/profile.ts';
@@ -162,6 +167,7 @@ import type { ProfileCurve } from '../types.ts';
 
 const { embedded = false } = defineProps<{ embedded?: boolean }>();
 
+const { t } = useI18n();
 const store = useStore();
 
 // Share link for the open profile's two endpoints, built fresh on click so it reflects any edits to

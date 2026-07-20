@@ -40,7 +40,7 @@
           role="status"
           aria-hidden="true"
         ></span>
-        <span class="button-text">{{ buttonText() }}</span>
+        <span class="button-text">{{ buttonText }}</span>
       </button>
     </div>
     <!-- Detailed coverage progress now rides the global SimLoadingBar (bottom of the map), so it
@@ -60,10 +60,7 @@
   <div v-show="store.activeMode === 'import'">
     <!-- These importers are MeshCore-specific: a MeshCore contacts export, or live nodes from the
          MeshCore public maps. Spelled out here so users don't expect other mesh networks. -->
-    <p class="small text-secondary mb-3">
-      Import nodes from <strong>MeshCore</strong> — from a contacts export file, or pulled live from the public maps for
-      your current view.
-    </p>
+    <p class="small text-secondary mb-3" v-html="t('modePanels.importIntro')"></p>
     <ContactImport />
     <hr />
     <PublicMapSync />
@@ -75,6 +72,8 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import NodePanel from './NodePanel.vue';
 import LinkMatrix from './LinkMatrix.vue';
 import RelayFinder from './RelayFinder.vue';
@@ -90,17 +89,18 @@ import ContactImport from './ContactImport.vue';
 import PublicMapSync from './PublicMapSync.vue';
 import { useStore } from '../store.ts';
 
+const { t } = useI18n();
 const store = useStore();
 
 const { nodeFooter = 'inline' } = defineProps<{ nodeFooter?: 'inline' | 'external' }>();
 
-const buttonText = () => {
+const buttonText = computed(() => {
   if ('running' === store.simulationState) {
-    return 'Running';
+    return t('modePanels.running');
   } else if ('failed' === store.simulationState) {
-    return 'Failed';
+    return t('modePanels.failed');
   } else {
-    return 'Run Simulation';
+    return t('modePanels.runSimulation');
   }
-};
+});
 </script>

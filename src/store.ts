@@ -15,6 +15,7 @@ import {
   type UiMode,
 } from './types.ts';
 import { escapeHtml, decodeShare, type SharePayload } from './utils.ts';
+import { i18n, type LocaleCode } from './i18n/index.ts';
 import { trackEvent } from './analytics.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
 import { createElement, Ruler, Keyboard, Search } from 'lucide';
@@ -57,14 +58,14 @@ const DEFAULT_LON = 174.86568331718445;
 export const BASEMAPS = [
   {
     id: 'osm',
-    label: 'OSM',
+    labelKey: 'basemaps.osm',
     tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
     attribution: '© OpenStreetMap contributors',
     maxzoom: 19,
   },
   {
     id: 'carto',
-    label: 'Carto Light',
+    labelKey: 'basemaps.cartoLight',
     tiles: [
       'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
       'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
@@ -78,7 +79,7 @@ export const BASEMAPS = [
     // Dark counterpart of Carto Light — its near-black, low-chroma palette lets the hillshade relief
     // overlay read far more clearly than it can over the pale light_all tiles.
     id: 'carto-dark',
-    label: 'Carto Dark',
+    labelKey: 'basemaps.cartoDark',
     tiles: [
       'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
       'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
@@ -90,7 +91,7 @@ export const BASEMAPS = [
   },
   {
     id: 'satellite',
-    label: 'Satellite',
+    labelKey: 'basemaps.satellite',
     tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
     attribution: 'Tiles © Esri — Source: Esri, USGS, NOAA',
     maxzoom: 19,
@@ -100,7 +101,7 @@ export const BASEMAPS = [
     // no tiles exist outside NZ, so the map is blank there. `aerial`/WebMercatorQuad, .webp for the
     // smallest payload. Needs VITE_LINZ_API_KEY (same free key as the DEM overlay; empty → blank).
     id: 'linz-aerial',
-    label: 'Aerial Imagery',
+    labelKey: 'basemaps.aerialImagery',
     tiles: [
       `https://basemaps.linz.govt.nz/v1/tiles/aerial/WebMercatorQuad/{z}/{x}/{y}.webp?api=${import.meta.env.VITE_LINZ_API_KEY ?? ''}`,
     ],
@@ -109,7 +110,7 @@ export const BASEMAPS = [
   },
   {
     id: 'topo',
-    label: 'Topo Map',
+    labelKey: 'basemaps.topoMap',
     tiles: [
       'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
       'https://b.tile.opentopomap.org/{z}/{x}/{y}.png',
@@ -209,15 +210,16 @@ export function linkColor(margin: number | null): string {
 // The popup body for a link, shared by the 2D line layers and the 3D-line click pick so both show
 // identical details + the "Show line profile" button (wired to runProfile by the click handler).
 function linkPopupHtml(link: LinkResult, aName: string, bName: string): string {
+  const t = i18n.global.t;
   const details = link.error
-    ? `Error: ${escapeHtml(link.error)}`
-    : `Margin: ${link.margin_db ?? '—'} dB<br>` +
-      `Path loss: ${link.path_loss_db ?? '—'} dB<br>` +
-      `Fresnel zone: ${link.fresnel_pct ?? '—'} % clear<br>` +
-      `Distance: ${link.distance_km ?? '—'} km`;
+    ? `${t('store.popupError')}: ${escapeHtml(link.error)}`
+    : `${t('store.popupMargin')}: ${link.margin_db ?? '—'} dB<br>` +
+      `${t('store.popupPathLoss')}: ${link.path_loss_db ?? '—'} dB<br>` +
+      `${t('store.popupFresnelZone')}: ${link.fresnel_pct ?? '—'} % clear<br>` +
+      `${t('store.popupDistance')}: ${link.distance_km ?? '—'} km`;
   return (
     `<strong>${escapeHtml(aName)} ↔ ${escapeHtml(bName)}</strong><br>${details}` +
-    `<br><button type="button" class="link-profile-btn btn btn-sm btn-primary mt-2 w-100">Show line profile</button>`
+    `<br><button type="button" class="link-profile-btn btn btn-sm btn-primary mt-2 w-100">${t('linkMatrix.showProfile')}</button>`
   );
 }
 
@@ -225,10 +227,11 @@ function linkPopupHtml(link: LinkResult, aName: string, bName: string): string {
 // show its profile, and a button to search for a relay site between them (wired to runProfile /
 // runRelay by showPairPopup). No metrics yet — they don't exist until the link is calculated.
 function pairPopupHtml(aName: string, bName: string): string {
+  const t = i18n.global.t;
   return (
     `<strong>${escapeHtml(aName)} ↔ ${escapeHtml(bName)}</strong>` +
-    `<br><button type="button" class="pair-profile-btn btn btn-sm btn-primary mt-2 w-100">Calculate link &amp; show profile</button>` +
-    `<br><button type="button" class="pair-relay-btn btn btn-sm btn-primary mt-2 w-100">Find relay zone</button>`
+    `<br><button type="button" class="pair-profile-btn btn btn-sm btn-primary mt-2 w-100">${t('store.calculateAndShowProfile')}</button>` +
+    `<br><button type="button" class="pair-relay-btn btn btn-sm btn-primary mt-2 w-100">${t('contextMenu.findRelayZone')}</button>`
   );
 }
 
@@ -414,10 +417,17 @@ function bakeCoverageImage(
 }
 
 // Folder that bulk-imported MeshCore contacts land in; reused across re-imports (see importContacts).
-const IMPORTED_FOLDER_NAME = 'Imported';
+// A function (not a constant) so it tracks the active locale — the name-match that finds an existing
+// folder only reuses one created under the current language; a prior import under a different
+// language gets its own folder instead of erroring, which is an acceptable edge case.
+function importedFolderName(): string {
+  return i18n.global.t('store.importedFolderName');
+}
 // Folder that public-map sync (MeshCore/MeshMapper) drops nodes into; reused across re-syncs (see
 // importPublicMapNodes).
-const PUBLIC_MAP_FOLDER_NAME = 'Public MeshCore';
+function publicMapFolderName(): string {
+  return i18n.global.t('store.publicMapFolderName');
+}
 
 function defaultTransmitter(freqOverride?: number): SplatParams['transmitter'] {
   return {
@@ -561,8 +571,8 @@ class MeasureControl implements maplibregl.IControl {
     this.button = document.createElement('button');
     this.button.type = 'button';
     this.button.className = 'measure-ctrl-btn';
-    this.button.title = 'Measure distance — click points on the map; double-click to finish';
-    this.button.setAttribute('aria-label', 'Measure distance');
+    this.button.title = i18n.global.t('store.measureDistanceTitle');
+    this.button.setAttribute('aria-label', i18n.global.t('store.measureDistance'));
     const svg = createElement(Ruler);
     svg.setAttribute('width', '18');
     svg.setAttribute('height', '18');
@@ -593,7 +603,7 @@ class HotkeyHelpControl implements maplibregl.IControl {
     this.button = document.createElement('button');
     this.button.type = 'button';
     this.button.className = 'hotkey-help-btn';
-    this.button.setAttribute('aria-label', 'Keyboard shortcuts');
+    this.button.setAttribute('aria-label', i18n.global.t('store.keyboardShortcuts'));
     const svg = createElement(Keyboard);
     svg.setAttribute('width', '18');
     svg.setAttribute('height', '18');
@@ -601,17 +611,18 @@ class HotkeyHelpControl implements maplibregl.IControl {
     this.container.appendChild(this.button);
     // container:'body' so the map's overflow can't clip it; placement:'top' since it sits at the
     // screen bottom. Disposed in onRemove so the body-appended element doesn't leak on teardown/HMR.
+    const t = i18n.global.t;
     this.popover = new Popover(this.button, {
       html: true,
-      title: 'Keyboard shortcuts',
+      title: t('store.keyboardShortcuts'),
       content:
         '<dl class="hotkey-help-list mb-0">' +
-        '<dt>A</dt><dd>Add a node at the cursor</dd>' +
-        '<dt>Ctrl + Z</dt><dd>Undo last node change</dd>' +
-        '<dt>H</dt><dd>Hide / show selected node</dd>' +
-        '<dt>L</dt><dd>Calulate links for selected node</dd>' +
-        '<dt>C</dt><dd>Calculate coverage for selected node</dd>' +
-        '<dt>Delete</dt><dd>Delete selected node</dd>' +
+        `<dt>A</dt><dd>${t('store.hotkeyAddNode')}</dd>` +
+        `<dt>Ctrl + Z</dt><dd>${t('store.hotkeyUndo')}</dd>` +
+        `<dt>H</dt><dd>${t('store.hotkeyHideShow')}</dd>` +
+        `<dt>L</dt><dd>${t('store.hotkeyCalculateLinks')}</dd>` +
+        `<dt>C</dt><dd>${t('store.hotkeyCalculateCoverage')}</dd>` +
+        `<dt>Delete</dt><dd>${t('store.hotkeyDeleteNode')}</dd>` +
         '</dl>',
       trigger: 'hover focus',
       placement: 'top',
@@ -637,8 +648,8 @@ class LocationSearchControl implements maplibregl.IControl {
     this.button = document.createElement('button');
     this.button.type = 'button';
     this.button.className = 'location-search-btn';
-    this.button.title = 'Search for a place or address';
-    this.button.setAttribute('aria-label', 'Search for a location');
+    this.button.title = i18n.global.t('store.searchPlaceTitle');
+    this.button.setAttribute('aria-label', i18n.global.t('store.searchLocationAriaLabel'));
     const svg = createElement(Search);
     svg.setAttribute('width', '18');
     svg.setAttribute('height', '18');
@@ -783,6 +794,9 @@ const useStore = defineStore('store', {
       // When set (default), only the selected node's marker is draggable, so panning near other pins
       // can't accidentally move them. Off = every unlocked marker is draggable, the old behaviour.
       dragOnlySelected: useLocalStorage('dragOnlySelected', true),
+      // Preselected from the browser's reported language at i18n init (src/i18n/index.ts); this
+      // just mirrors that choice into a persisted, user-changeable setting under the same key.
+      locale: useLocalStorage<LocaleCode>('locale', i18n.global.locale.value as LocaleCode),
       // Tablet layout: collapses the sidebar to give the map full width. A standing layout
       // preference (like activeBasemap/terrainEnabled), not transient UI state, so it's persisted.
       sidebarCollapsed: useLocalStorage('sidebarCollapsed', false),
@@ -1005,6 +1019,11 @@ const useStore = defineStore('store', {
       this.dragOnlySelected = !this.dragOnlySelected;
       this.renderNodeMarkers(); // re-render flips setDraggable on every existing marker
     },
+    setLocale(code: LocaleCode) {
+      this.locale = code;
+      i18n.global.locale.value = code;
+      document.documentElement.lang = code;
+    },
     toggleSidebarCollapsed() {
       this.sidebarCollapsed = !this.sidebarCollapsed;
     },
@@ -1209,8 +1228,8 @@ const useStore = defineStore('store', {
       if (!rows.length) {
         return 0;
       }
-      const groupId =
-        this.groups.find((g) => g.name === IMPORTED_FOLDER_NAME)?.id ?? this.addGroup(IMPORTED_FOLDER_NAME);
+      const importedFolder = importedFolderName();
+      const groupId = this.groups.find((g) => g.name === importedFolder)?.id ?? this.addGroup(importedFolder);
       for (const row of rows) {
         const node: Node = {
           id: crypto.randomUUID(),
@@ -1246,8 +1265,8 @@ const useStore = defineStore('store', {
       if (!rows.length) {
         return 0;
       }
-      const groupId =
-        this.groups.find((g) => g.name === PUBLIC_MAP_FOLDER_NAME)?.id ?? this.addGroup(PUBLIC_MAP_FOLDER_NAME);
+      const publicMapFolder = publicMapFolderName();
+      const groupId = this.groups.find((g) => g.name === publicMapFolder)?.id ?? this.addGroup(publicMapFolder);
       for (const row of rows) {
         const transmitter = {
           ...defaultTransmitter(),

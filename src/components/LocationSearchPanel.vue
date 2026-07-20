@@ -13,21 +13,23 @@
         v-model="query"
         type="text"
         class="form-control form-control-sm"
-        placeholder="Search a place or address…"
-        aria-label="Search a place or address"
+        :placeholder="t('locationSearch.placeholder')"
+        :aria-label="t('locationSearch.placeholder')"
       />
       <button
         type="submit"
         class="btn btn-light btn-sm flex-shrink-0"
         :disabled="!query.trim() || loading"
-        aria-label="Search"
+        :aria-label="t('locationSearch.search')"
       >
         <span v-if="loading" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
         <Search v-else :size="14" />
       </button>
     </form>
     <div v-if="error" class="form-text text-danger mt-1 mb-0">{{ error }}</div>
-    <div v-else-if="searched && !loading && !results.length" class="form-text mt-1 mb-0">No results found.</div>
+    <div v-else-if="searched && !loading && !results.length" class="form-text mt-1 mb-0">
+      {{ t('locationSearch.noResults') }}
+    </div>
     <ul v-if="results.length" class="list-group mt-2 location-search-results">
       <li
         v-for="(r, i) in results"
@@ -46,6 +48,7 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { Search } from '@lucide/vue';
 import { useStore } from '../store.ts';
 import { trackEvent } from '../analytics.ts';
@@ -58,6 +61,7 @@ interface LocationResult {
 
 const { embedded = false } = defineProps<{ embedded?: boolean }>();
 
+const { t } = useI18n();
 const store = useStore();
 const panelRef = ref<HTMLElement | null>(null);
 const inputRef = ref<HTMLInputElement | null>(null);
@@ -106,7 +110,7 @@ async function onSubmit() {
     if (id !== requestId) {
       return;
     }
-    error.value = 'Search failed — try again.';
+    error.value = t('locationSearch.searchFailed');
     results.value = [];
   } finally {
     clearTimeout(timer);

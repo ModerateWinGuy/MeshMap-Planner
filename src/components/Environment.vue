@@ -2,28 +2,28 @@
   <form novalidate>
     <div class="row g-2">
       <div class="col-6">
-        <label for="radio_climate" class="form-label">Radio Climate</label>
+        <label for="radio_climate" class="form-label">{{ t('environment.radioClimate') }}</label>
         <select v-model="environment.radio_climate" id="radio_climate" class="form-select form-select-sm" required>
-          <option value="equatorial">Equatorial</option>
-          <option value="continental_subtropical">Continental Subtropical</option>
-          <option value="maritime_subtropical">Maritime Subtropical</option>
-          <option value="desert">Desert</option>
-          <option value="continental_temperate">Continental Temperate</option>
-          <option value="maritime_temperate_land">Maritime Temperate (Land)</option>
-          <option value="maritime_temperate_sea">Maritime Temperate (Sea)</option>
+          <option value="equatorial">{{ t('environment.equatorial') }}</option>
+          <option value="continental_subtropical">{{ t('environment.continentalSubtropical') }}</option>
+          <option value="maritime_subtropical">{{ t('environment.maritimeSubtropical') }}</option>
+          <option value="desert">{{ t('environment.desert') }}</option>
+          <option value="continental_temperate">{{ t('environment.continentalTemperate') }}</option>
+          <option value="maritime_temperate_land">{{ t('environment.maritimeTemperateLand') }}</option>
+          <option value="maritime_temperate_sea">{{ t('environment.maritimeTemperateSea') }}</option>
         </select>
-        <div class="invalid-feedback">Please select a radio climate.</div>
+        <div class="invalid-feedback">{{ t('environment.radioClimateInvalid') }}</div>
       </div>
       <div class="col-6">
-        <label for="polarization" class="form-label">Polarization</label>
+        <label for="polarization" class="form-label">{{ t('environment.polarization') }}</label>
         <select v-model="environment.polarization" id="polarization" class="form-select form-select-sm" required>
-          <option value="horizontal">Horizontal</option>
-          <option value="vertical">Vertical</option>
+          <option value="horizontal">{{ t('environment.horizontal') }}</option>
+          <option value="vertical">{{ t('environment.vertical') }}</option>
         </select>
-        <div class="invalid-feedback">Please select a polarization type.</div>
+        <div class="invalid-feedback">{{ t('environment.polarizationInvalid') }}</div>
       </div>
       <div class="col-6">
-        <label for="clutter_height" class="form-label">Clutter Height <br />(m)</label>
+        <label for="clutter_height" class="form-label" v-html="t('environment.clutterHeight')"></label>
         <input
           v-model="environment.clutter_height"
           type="number"
@@ -33,10 +33,10 @@
           min="0"
           step="0.1"
         />
-        <div class="invalid-feedback">Height must be >= 0 (default: 1.0).</div>
+        <div class="invalid-feedback">{{ t('environment.clutterHeightInvalid') }}</div>
       </div>
       <div class="col-6">
-        <label for="ground_dielectric" class="form-label">Ground Dielectric (V/m)</label>
+        <label for="ground_dielectric" class="form-label">{{ t('environment.groundDielectric') }}</label>
         <input
           v-model="environment.ground_dielectric"
           type="number"
@@ -46,10 +46,10 @@
           min="1"
           step="0.1"
         />
-        <div class="invalid-feedback">Dielectric constant must be >= 1 (default: 15.0).</div>
+        <div class="invalid-feedback">{{ t('environment.groundDielectricInvalid') }}</div>
       </div>
       <div class="col-6">
-        <label for="ground_conductivity" class="form-label">Ground Conductivity (S/m)</label>
+        <label for="ground_conductivity" class="form-label">{{ t('environment.groundConductivity') }}</label>
         <input
           v-model="environment.ground_conductivity"
           type="number"
@@ -59,10 +59,10 @@
           min="0"
           step="0.001"
         />
-        <div class="invalid-feedback">Conductivity must be >= 0 (default: 0.005).</div>
+        <div class="invalid-feedback">{{ t('environment.groundConductivityInvalid') }}</div>
       </div>
       <div class="col-6">
-        <label for="atmosphere_bending" class="form-label">Atmospheric Bending (N-units)</label>
+        <label for="atmosphere_bending" class="form-label">{{ t('environment.atmosphericBending') }}</label>
         <input
           v-model="environment.atmosphere_bending"
           type="number"
@@ -72,13 +72,15 @@
           min="0"
           step="0.1"
         />
-        <div class="invalid-feedback">Bending constant must be >= 0 (default: 301.0).</div>
+        <div class="invalid-feedback">{{ t('environment.atmosphericBendingInvalid') }}</div>
       </div>
     </div>
   </form>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
+const { t } = useI18n();
 const environment = useStore().splatParams.environment;
 </script>

@@ -3,14 +3,13 @@
     <div class="row g-2">
       <div class="col-12">
         <div class="d-flex align-items-center mb-2">
-          <label for="lora_preset" class="form-label mb-0">Modem Preset</label>
+          <label for="lora_preset" class="form-label mb-0">{{ t('loRaPreset.modemPreset') }}</label>
           <InfoTip>
-            Shared by all nodes; sets the receiver sensitivity used to judge link viability. Pick a preset, or hand-edit
-            the spreading factor / bandwidth below if your setup doesn't match one.
+            {{ t('loRaPreset.modemPresetInfo') }}
           </InfoTip>
         </div>
         <select v-model="presetName" class="form-select form-select-sm" id="lora_preset">
-          <option value="">Custom</option>
+          <option value="">{{ t('loRaPreset.custom') }}</option>
           <optgroup label="Meshtastic">
             <option v-for="name in meshtasticNames" :key="name" :value="name">{{ name }}</option>
           </optgroup>
@@ -20,7 +19,7 @@
         </select>
       </div>
       <div class="col-6">
-        <label for="lora_sf" class="form-label small mb-0">Spreading factor</label>
+        <label for="lora_sf" class="form-label small mb-0">{{ t('loRaPreset.spreadingFactor') }}</label>
         <input
           v-model.number="spreadingFactor"
           type="number"
@@ -32,7 +31,7 @@
         />
       </div>
       <div class="col-6">
-        <label for="lora_bw" class="form-label small mb-0">Bandwidth (kHz)</label>
+        <label for="lora_bw" class="form-label small mb-0">{{ t('loRaPreset.bandwidth') }}</label>
         <input
           v-model.number="bandwidthKhz"
           type="number"
@@ -48,9 +47,9 @@
           @click="store.applyLoraFrequencyToAllNodes()"
           :disabled="!store.splatParams.lora?.frequencyMhz || !store.nodes.length"
           class="btn btn-success btn-sm w-100 d-flex align-items-center justify-content-center gap-1"
-          title="Set every node's frequency to this preset's frequency. Only available for MeshCore presets, which set a region frequency; Meshtastic presets and Custom don't define one."
+          :title="t('loRaPreset.applyFrequencyTitle')"
         >
-          <Radio :size="14" /> Apply frequency to all nodes
+          <Radio :size="14" /> {{ t('loRaPreset.applyFrequency') }}
         </button>
       </div>
     </div>
@@ -59,12 +58,14 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
 import { MESHTASTIC_PRESETS, MESHCORE_PRESETS, presetNameFor } from '../sim/linkBudget.ts';
 import InfoTip from './InfoTip.vue';
 import { Radio } from '@lucide/vue';
 import { trackEvent } from '../analytics.ts';
 
+const { t } = useI18n();
 const store = useStore();
 const meshtasticNames = Object.keys(MESHTASTIC_PRESETS);
 const meshcoreNames = Object.keys(MESHCORE_PRESETS);

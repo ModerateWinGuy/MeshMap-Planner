@@ -1,11 +1,9 @@
 <template>
   <div>
     <h2 class="h6 d-flex align-items-center gap-2">
-      <Globe :size="18" /> Sync public map
+      <Globe :size="18" /> {{ t('publicMapSync.title') }}
       <InfoTip>
-        Pulls repeaters &amp; room servers in the <strong>current map view</strong> from the public mesh maps into a
-        <strong>Public MeshCore</strong> folder. Pan and zoom to the area you want first, then sync. Nodes already on
-        the map are skipped, so you can re-sync freely.
+        <span v-html="t('publicMapSync.info')"></span>
       </InfoTip>
     </h2>
 
@@ -25,7 +23,7 @@
     >
       <span v-if="loading" class="spinner-border spinner-border-sm"></span>
       <DownloadCloud v-else :size="16" />
-      {{ loading ? 'Syncing…' : 'Sync public map' }}
+      {{ loading ? t('publicMapSync.syncing') : t('publicMapSync.title') }}
     </button>
 
     <p v-if="loading && progress" class="text-muted small mt-2 mb-0">{{ progress }}</p>
@@ -39,6 +37,7 @@
 
 <script setup lang="ts">
 import { reactive, ref, computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
 import { PUBLIC_NODE_SOURCES, syncPublicNodes } from '../sources/index.ts';
 import { Globe, DownloadCloud } from '@lucide/vue';
@@ -48,6 +47,7 @@ import { trackEvent } from '../analytics.ts';
 // Above this many new nodes in one sync we confirm first — a zoomed-out view can match a lot.
 const CONFIRM_THRESHOLD = 300;
 
+const { t } = useI18n();
 const store = useStore();
 const sources = PUBLIC_NODE_SOURCES;
 
@@ -73,7 +73,7 @@ async function onSync() {
 
   const map = store.map;
   if (!map) {
-    error.value = 'The map is not ready yet.';
+    error.value = t('publicMapSync.mapNotReady');
     return;
   }
   const b = map.getBounds();
@@ -84,22 +84,20 @@ async function onSync() {
   }
 
   loading.value = true;
-  progress.value = 'Fetching public nodes…';
+  progress.value = t('publicMapSync.fetching');
   try {
     const result = await syncPublicNodes(enabledIds, bbox, store.nodes);
     warnings.value = result.warnings;
 
     if (!result.rows.length) {
       summary.value = result.duplicates
-        ? `All ${result.duplicates} node${result.duplicates === 1 ? '' : 's'} in view are already on the map.`
-        : 'No repeaters or room servers found in the current view.';
+        ? t('publicMapSync.allAlreadyPresent', { count: result.duplicates })
+        : t('publicMapSync.noneFound');
       return;
     }
 
     if (result.rows.length > CONFIRM_THRESHOLD) {
-      const ok = window.confirm(
-        `This will add ${result.rows.length} nodes to "Public MeshCore". Zoom in to narrow the area, or continue?`,
-      );
+      const ok = window.confirm(t('publicMapSync.confirmAdd', { count: result.rows.length }));
       if (!ok) {
         return;
       }
@@ -107,10 +105,13 @@ async function onSync() {
 
     const added = store.importPublicMapNodes(result.rows);
     const perSource = enabledIds.map((id) => `${labelFor(id)} ${result.perSource[id] ?? 0}`).join(', ');
-    const dupText = result.duplicates ? ` (${result.duplicates} already present skipped)` : '';
-    summary.value = `Added ${added} node${added === 1 ? '' : 's'} to "Public MeshCore"${dupText} — ${perSource}.`;
+    const dupText = result.duplicates
+      ? ` ${t('publicMapSync.alreadyPresentSkipped', { count: result.duplicates })}`
+      : '';
+    const addedText = added === 1 ? t('publicMapSync.addedOne') : t('publicMapSync.addedMany', { count: added });
+    summary.value = `${addedText}${dupText} — ${perSource}.`;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Could not sync public nodes.';
+    error.value = err instanceof Error ? err.message : t('publicMapSync.syncError');
   } finally {
     loading.value = false;
     progress.value = null;

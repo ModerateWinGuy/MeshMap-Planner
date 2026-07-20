@@ -2,13 +2,7 @@
   <form novalidate class="panel-min-width">
     <div class="row">
       <div class="col-12">
-        <div class="form-text">
-          A fast, in-browser <strong>line-of-sight checker</strong>: everything the selected node can see is tinted
-          <span class="text-success fw-semibold">green</span>. It reads whatever surface the map's 3D terrain is
-          currently showing (bare-earth DEM, surface DSM, or the simulation grid), so switch terrain source in
-          <strong>Settings</strong> to compare. This is a quick approximation - the <strong>Coverage</strong> (SPLAT)
-          run remains the authoritative radio model.
-        </div>
+        <div class="form-text" v-html="t('viewshed.description')"></div>
       </div>
     </div>
 
@@ -17,9 +11,7 @@
       <div class="col-12">
         <div class="alert alert-warning py-2 px-3 mb-0 d-flex align-items-start gap-2">
           <TriangleAlert :size="18" class="flex-shrink-0 mt-1" />
-          <span>
-            Viewshed needs a browser with <strong>WebGPU or WebGL2</strong> support. The rest of the app is unaffected.
-          </span>
+          <span v-html="t('viewshed.unsupported')"></span>
         </div>
       </div>
     </div>
@@ -37,20 +29,24 @@
               :disabled="!store.selectedNode"
               @change="store.toggleViewshed()"
             />
-            <label class="form-check-label" for="viewshed_enabled">Show viewshed for selected node</label>
+            <label class="form-check-label" for="viewshed_enabled">{{ t('viewshed.showForSelectedNode') }}</label>
           </div>
-          <div v-if="!store.selectedNode" class="form-text">Add or select a node to begin.</div>
+          <div v-if="!store.selectedNode" class="form-text">{{ t('viewshed.addOrSelectNode') }}</div>
           <div v-else-if="store.viewshedProgress" class="form-text d-flex align-items-center gap-2">
             <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-            Loading terrain… {{ store.viewshedProgress.loaded }}/{{ store.viewshedProgress.total }}
-            tiles
+            {{
+              t('viewshed.loadingTerrain', {
+                loaded: store.viewshedProgress.loaded,
+                total: store.viewshedProgress.total,
+              })
+            }}
           </div>
           <div v-else-if="store.viewshedState === 'computing'" class="form-text d-flex align-items-center gap-2">
             <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-            Computing…
+            {{ t('linkMatrix.computing') }}
           </div>
           <div v-else-if="store.viewshedState === 'error'" class="form-text text-warning">
-            Couldn't compute the viewshed — see the console. Try a smaller radius.
+            {{ t('viewshed.computeError') }}
           </div>
         </div>
       </div>
@@ -66,10 +62,9 @@
               :checked="store.viewshedLive"
               @change="store.toggleViewshedLive()"
             />
-            <label class="form-check-label" for="viewshed_live">Live recompute while dragging</label>
+            <label class="form-check-label" for="viewshed_live">{{ t('viewshed.liveRecompute') }}</label>
             <InfoTip>
-              On = recompute continuously as you drag the node (needs a fast GPU; runs at lower detail mid-drag). Off =
-              recompute when you drop it or change a setting.
+              {{ t('viewshed.liveRecomputeInfo') }}
             </InfoTip>
           </div>
         </div>
@@ -78,8 +73,10 @@
       <div class="row mt-3" v-if="store.viewshedEnabled">
         <div class="col-12">
           <div class="d-flex align-items-center mb-2">
-            <label for="viewshed_radius" class="form-label mb-0">Radius: {{ store.viewshedRadiusKm }} km</label>
-            <InfoTip>How far out to test. Larger radius = coarser terrain at this range.</InfoTip>
+            <label for="viewshed_radius" class="form-label mb-0">{{
+              t('viewshed.radius', { km: store.viewshedRadiusKm })
+            }}</label>
+            <InfoTip>{{ t('viewshed.radiusInfo') }}</InfoTip>
           </div>
           <input
             type="range"
@@ -98,9 +95,9 @@
         <div class="col-12">
           <div class="d-flex align-items-center mb-2">
             <label for="viewshed_target_height" class="form-label mb-0">
-              Receiver height: {{ store.viewshedTargetHeight }} m
+              {{ t('viewshed.receiverHeight', { m: store.viewshedTargetHeight }) }}
             </label>
-            <InfoTip> Height above ground at the tested cells. The observer uses the node's antenna height. </InfoTip>
+            <InfoTip> {{ t('viewshed.receiverHeightInfo') }} </InfoTip>
           </div>
           <input
             type="range"
@@ -119,9 +116,9 @@
         <div class="col-12">
           <div class="d-flex align-items-center mb-2">
             <label for="viewshed_opacity" class="form-label mb-0">
-              Opacity: {{ Math.round(store.viewshedOpacity * 100) }}%
+              {{ t('viewshed.opacity', { pct: Math.round(store.viewshedOpacity * 100) }) }}
             </label>
-            <InfoTip>Higher = more opaque green tint.</InfoTip>
+            <InfoTip>{{ t('viewshed.opacityInfo') }}</InfoTip>
           </div>
           <input
             type="range"
@@ -140,8 +137,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n';
 import { TriangleAlert } from '@lucide/vue';
 import { useStore } from '../store.ts';
 import InfoTip from './InfoTip.vue';
+const { t } = useI18n();
 const store = useStore();
 </script>

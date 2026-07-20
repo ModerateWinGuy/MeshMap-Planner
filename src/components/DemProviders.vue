@@ -1,21 +1,9 @@
 <template>
   <div>
     <div class="d-flex align-items-center mb-2">
-      <span class="fw-medium">Terrain providers</span>
+      <span class="fw-medium">{{ t('demProviders.title') }}</span>
       <InfoTip>
-        Higher-detail elevation layered over the Mapterhorn baseline wherever a provider has data — the baseline still
-        fills the rest of the world, so enabling one only adds detail, never removes coverage. Feeds the line-of-sight /
-        coverage sims, viewshed, 3D terrain mesh, and hillshade. Where two providers overlap, the one lower in this list
-        wins.
-        <strong>LINZ</strong>
-        rows are pre-configured and NZ-only (elevation &copy; LINZ, CC&#8209;BY&nbsp;4.0).
-        <strong>OSM Buildings</strong>
-        adds OpenStreetMap building footprint heights on top of the ground everywhere in the world, so buildings
-        actually block links/coverage/viewshed, independent of the visual 3D-buildings map layer. While that visual
-        layer is also on, its bump is left out of the 3D terrain mesh/hillshade specifically (its raster resolution
-        makes a messy blocky mound sitting behind the sharp building shapes) — turn the visual layer off and the bump
-        reappears there as the only visual sign of buildings. Add your own region's DEM/DSM tile service below — it
-        needs to serve Mapbox or Terrarium-encoded terrain-RGB PNG tiles, the same scheme LINZ uses.
+        <span v-html="t('demProviders.info')"></span>
       </InfoTip>
     </div>
 
@@ -31,7 +19,7 @@
             :name="formName"
             :url-template="formUrlTemplate"
             :encoding="formEncoding"
-            submit-label="Save"
+            :submit-label="t('common.save')"
             @update:name="formName = $event"
             @update:url-template="formUrlTemplate = $event"
             @update:encoding="formEncoding = $event"
@@ -48,8 +36,8 @@
               type="button"
               @click="store.toggleProviderEnabled(provider.id)"
               class="btn btn-sm p-0 border-0 bg-transparent lh-1"
-              :aria-label="provider.enabled ? 'Disable provider' : 'Enable provider'"
-              :title="provider.enabled ? 'Disable this provider' : 'Enable this provider'"
+              :aria-label="provider.enabled ? t('demProviders.disableProvider') : t('demProviders.enableProvider')"
+              :title="provider.enabled ? t('demProviders.disableProviderTitle') : t('demProviders.enableProviderTitle')"
             >
               <EyeOff v-if="!provider.enabled" :size="16" /><Eye v-else :size="16" />
             </button>
@@ -58,8 +46,8 @@
                 type="button"
                 @click="startEdit(provider)"
                 class="btn btn-sm p-0 border-0 bg-transparent lh-1"
-                aria-label="Edit provider"
-                title="Edit provider"
+                :aria-label="t('demProviders.editProvider')"
+                :title="t('demProviders.editProvider')"
               >
                 <Pencil :size="15" />
               </button>
@@ -67,8 +55,8 @@
                 type="button"
                 @click="store.removeCustomDemProvider(provider.id)"
                 class="btn btn-sm p-0 border-0 bg-transparent lh-1"
-                aria-label="Delete provider"
-                title="Delete provider"
+                :aria-label="t('demProviders.deleteProvider')"
+                :title="t('demProviders.deleteProvider')"
               >
                 <Trash2 :size="15" />
               </button>
@@ -84,14 +72,14 @@
       @click="startAdd"
       class="btn btn-success btn-sm w-100 d-flex align-items-center justify-content-center gap-1"
     >
-      <Plus :size="16" /> Add provider
+      <Plus :size="16" /> {{ t('demProviders.addProvider') }}
     </button>
     <ProviderForm
       v-else
       :name="formName"
       :url-template="formUrlTemplate"
       :encoding="formEncoding"
-      submit-label="Add"
+      :submit-label="t('common.add')"
       @update:name="formName = $event"
       @update:url-template="formUrlTemplate = $event"
       @update:encoding="formEncoding = $event"
@@ -103,12 +91,14 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
 import type { DemProvider } from '../terrain/demTiles.ts';
 import InfoTip from './InfoTip.vue';
 import ProviderForm from './ProviderForm.vue';
 import { Eye, EyeOff, Pencil, Plus, Trash2 } from '@lucide/vue';
 
+const { t } = useI18n();
 const store = useStore();
 
 const editingId = ref<string | null>(null);

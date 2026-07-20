@@ -12,7 +12,7 @@
     aria-live="polite"
   >
     <LoaderCircle :size="14" class="spin" />
-    <span class="label">{{ store.progress?.message || 'Starting…' }}</span>
+    <span class="label">{{ store.progress?.message || t('common.starting') }}</span>
     <div class="track">
       <div
         class="fill"
@@ -29,9 +29,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { LoaderCircle } from '@lucide/vue';
 import { useStore } from '../store.ts';
 
+const { t } = useI18n();
 const store = useStore();
 
 // The heavy batch sims that populate store.progress: matrix (link calc), coverage, and relay. The

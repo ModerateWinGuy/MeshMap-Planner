@@ -4,12 +4,12 @@
   <div class="measure-panel shadow text-bg-dark" data-bs-theme="dark">
     <div class="d-flex align-items-center gap-2 mb-1">
       <Ruler :size="16" />
-      <strong>Measure</strong>
+      <strong>{{ t('measurePanel.title') }}</strong>
       <span class="ms-auto fs-6 fw-semibold">{{ formatted }}</span>
     </div>
     <div class="form-text mt-0 mb-2">
-      <template v-if="store.measurePoints.length === 0">Click the map to start measuring.</template>
-      <template v-else>Click to add points; double-click to finish.</template>
+      <template v-if="store.measurePoints.length === 0">{{ t('measurePanel.clickToStart') }}</template>
+      <template v-else>{{ t('measurePanel.clickToAddPoints') }}</template>
     </div>
     <div class="d-flex gap-2">
       <button
@@ -18,10 +18,10 @@
         :disabled="!store.measurePoints.length"
         @click="store.clearMeasure()"
       >
-        <Eraser :size="14" /> Clear
+        <Eraser :size="14" /> {{ t('common.clear') }}
       </button>
       <button type="button" class="btn btn-light btn-sm flex-fill" @click="store.toggleMeasure()">
-        <X :size="14" /> Done
+        <X :size="14" /> {{ t('measurePanel.done') }}
       </button>
     </div>
   </div>
@@ -29,9 +29,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { Ruler, Eraser, X } from '@lucide/vue';
 import { useStore } from '../store.ts';
 
+const { t } = useI18n();
 const store = useStore();
 
 const formatted = computed(() => {

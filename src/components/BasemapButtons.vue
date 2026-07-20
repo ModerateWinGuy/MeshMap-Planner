@@ -9,7 +9,7 @@
     class="btn btn-sm shadow w-100 mt-2"
     :class="store.terrainEnabled ? 'btn-primary' : 'btn-light'"
     :aria-pressed="store.terrainEnabled"
-    title="Toggle 3D terrain (tilt the map to see relief)"
+    :title="t('mapControls.toggle3dTerrainTitle')"
     @click="store.toggleTerrain()"
   >
     3D
@@ -19,21 +19,21 @@
     class="btn btn-sm shadow w-100 mt-2"
     :class="store.hillshadeEnabled ? 'btn-primary' : 'btn-light'"
     :aria-pressed="store.hillshadeEnabled"
-    title="Toggle terrain shading (relief / ambient-occlusion look). Works in flat and 3D view."
+    :title="t('mapControls.toggleShadingTitle')"
     @click="store.toggleHillshade()"
   >
-    Shade
+    {{ t('mapControls.shade') }}
   </button>
   <button
     type="button"
     class="btn btn-sm shadow w-100 mt-2 d-flex align-items-center justify-content-center gap-1"
     :class="store.buildingsEnabled ? 'btn-primary' : 'btn-light'"
     :aria-pressed="store.buildingsEnabled"
-    title="Toggle 3D buildings (OpenStreetMap) — shows from zoom 14 in"
+    :title="t('mapControls.toggleBuildingsTitle')"
     @click="store.toggleBuildings()"
   >
     <Building2 :size="16" />
-    Buildings
+    {{ t('mapControls.buildings') }}
   </button>
   <button
     v-if="store.terrainEnabled"
@@ -41,11 +41,11 @@
     class="btn btn-sm shadow w-100 mt-2 d-flex align-items-center justify-content-center gap-1"
     :class="store.links3dEnabled ? 'btn-primary' : 'btn-light'"
     :aria-pressed="store.links3dEnabled"
-    title="Toggle 3D line-of-sight links (lines flying through the air between antenna tops, clipping sections in yellow)"
+    :title="t('mapControls.toggleLinksTitle')"
     @click="store.toggleLinks3d()"
   >
     <Waypoints :size="16" />
-    Links
+    {{ t('mapControls.links') }}
   </button>
   <!-- Browser-computed line-of-sight viewshed for the selected node. Hidden where WebGPU is missing
        (the mode is inert there); disabled until a node is selected, mirroring the panel's switch. -->
@@ -56,36 +56,30 @@
     :class="store.viewshedEnabled ? 'btn-primary' : 'btn-light'"
     :aria-pressed="store.viewshedEnabled"
     :disabled="!store.selectedNode"
-    :title="
-      store.selectedNode
-        ? 'Toggle the line-of-sight viewshed — green where the selected node has clear LOS'
-        : 'Select a node to show its viewshed'
-    "
+    :title="store.selectedNode ? t('mapControls.viewshedOnTitle') : t('mapControls.viewshedOffTitle')"
     @click="store.toggleViewshed()"
   >
     <ScanEye :size="16" />
-    Viewshed
+    {{ t('mapControls.viewshed') }}
   </button>
   <button
     type="button"
     class="btn btn-sm shadow w-100 mt-2 d-flex align-items-center justify-content-center gap-1"
     :class="store.nodesLocked ? 'btn-primary' : 'btn-light'"
     :aria-pressed="store.nodesLocked"
-    :title="
-      store.nodesLocked
-        ? 'Nodes locked in place — click to allow dragging'
-        : 'Lock nodes in place to prevent accidental dragging'
-    "
+    :title="store.nodesLocked ? t('mapControls.nodesLockedTitleDesktop') : t('mapControls.lockNodesTitle')"
     @click="store.toggleNodesLock()"
   >
     <component :is="store.nodesLocked ? Lock : LockOpen" :size="16" />
-    {{ store.nodesLocked ? 'Nodes Locked' : 'Lock Nodes' }}
+    {{ store.nodesLocked ? t('mapControls.nodesLocked') : t('mapControls.lockNodes') }}
   </button>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
 import { Lock, LockOpen, Waypoints, ScanEye, Building2 } from '@lucide/vue';
 import BasemapPicker from './BasemapPicker.vue';
+const { t } = useI18n();
 const store = useStore();
 </script>

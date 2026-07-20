@@ -5,9 +5,11 @@
 <template>
   <div v-if="store.mapTiles.inFlight > 0" class="map-loading" role="status" aria-live="polite">
     <LoaderCircle :size="14" class="spin" />
-    <span class="label"
-      >Loading {{ store.mapTiles.inFlight }} {{ store.mapTiles.inFlight === 1 ? 'tile' : 'tiles' }}…</span
-    >
+    <span class="label">{{
+      store.mapTiles.inFlight === 1
+        ? t('mapLoadingBar.loadingTile', { count: store.mapTiles.inFlight })
+        : t('mapLoadingBar.loadingTiles', { count: store.mapTiles.inFlight })
+    }}</span>
     <div class="progress">
       <div
         class="progress-bar"
@@ -23,9 +25,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { LoaderCircle } from '@lucide/vue';
 import { useStore } from '../store.ts';
 
+const { t } = useI18n();
 const store = useStore();
 
 // (peak - inFlight) / peak: fills as tiles finish, and resets each burst because the store zeroes
