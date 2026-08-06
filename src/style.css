@@ -27,6 +27,11 @@ body {
 
   /* Brighter orange for the brand mark, so it stays legible on the near-black navbar. */
   --accent-bright: #fd7e14;
+
+  /* Navbar/app-bar height, shared by .content-row's clearance padding and .share-banner's offset so
+     they can't drift out of sync with each other (or with .phone-appbar's own height) again. Overridden
+     to 46px inside the phone media query below. */
+  --navbar-h: 56px;
 }
 
 /* Primary call-to-action buttons (were Bootstrap green). */
@@ -78,7 +83,7 @@ body {
 .content-row {
   display: flex;
   height: 100vh;
-  padding-top: 56px;
+  padding-top: var(--navbar-h);
   box-sizing: border-box;
   /* Containing block for the tablet sidebar-collapse handle, which is a sibling of .sidebar (not a
      child) so .sidebar's own overflow:hidden can't clip it once the sidebar collapses to 0 width. No
@@ -206,14 +211,29 @@ body {
   background-color: var(--accent-red-hover);
 }
 
+/* Bootstrap's .navbar defaults to flex-wrap: wrap, so its container-fluid silently grows a second
+   row (and the navbar's real height) whenever its children don't fit side by side — that drifted
+   out of sync with .content-row's fixed clearance padding and .share-banner's fixed offset. Forcing
+   nowrap keeps the bar's height constant; .mode-toggle below absorbs the squeeze instead. */
+.navbar > .container-fluid {
+  flex-wrap: nowrap;
+}
+
 /* Top-bar mode toggle, styled as an iOS-style segmented control: a rounded translucent track with
    the active segment shown as a solid white pill. These rules override Bootstrap's btn-group
-   borders/dividers and square inner corners so the group reads as one unified pill. */
+   borders/dividers and square inner corners so the group reads as one unified pill. Stays sized to
+   its own content (flex-grow: 0, the default) — it must NOT grow to fill the leftover space, or the
+   track stretches across the whole bar. min-width/overflow only kick in to let it shrink below its
+   content width and clip its own edges under pressure, rather than the old absolute-centering which
+   could overlap the brand/right-cluster outright. */
 .mode-toggle {
   background: rgba(255, 255, 255, 0.12);
   border-radius: 999px;
   padding: 4px;
   gap: 2px;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .mode-toggle .btn {
@@ -225,6 +245,10 @@ body {
   color: rgba(255, 255, 255, 0.75);
   background: transparent;
   box-shadow: none;
+  /* Never shrink/wrap a segment's own text — that's what was growing the bar taller as the track got
+     squeezed. The track's overflow: hidden clips whole segments at the edges instead. */
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .mode-toggle .btn:hover {
@@ -303,8 +327,8 @@ body {
 }
 
 @media (max-width: 767px) {
-  .content-row {
-    padding-top: 46px;
+  :root {
+    --navbar-h: 46px;
   }
 
   .phone-appbar {
@@ -325,11 +349,6 @@ body {
     color: #fff;
     font-size: 14px;
     font-weight: 600;
-  }
-
-  /* SharedLinkBanner assumes the 56px desktop navbar (top:64px); the phone app bar is only 46px. */
-  .share-banner {
-    top: 54px;
   }
 
   .bottom-tab-bar {

@@ -55,14 +55,13 @@
           MeshMap Planner
         </a>
         <!-- Mode selector: an iOS-style segmented control (radio btn-check + label). Picking a mode
-             swaps the sidebar's contents below. Absolutely centered so it stays mid-navbar
-             regardless of the brand width; the checked segment becomes a solid white pill — the
-             active highlight (see the .mode-toggle rules in style.css). -->
-        <div
-          class="btn-group mode-toggle position-absolute top-50 start-50 translate-middle"
-          role="group"
-          :aria-label="t('bottomTabBar.mode')"
-        >
+             swaps the sidebar's contents below. A flex sibling of the brand/right-cluster (not
+             absolutely positioned) so it can never overlap them; it claims the leftover space and
+             clips its own edges if that space runs out. Labels hide below Bootstrap's xl breakpoint
+             (1200px) so the 7 segments stay icon-only and fit down to the phone cutoff (768px); the
+             checked segment becomes a solid white pill — the active highlight (see .mode-toggle in
+             style.css). -->
+        <div class="btn-group mode-toggle" role="group" :aria-label="t('bottomTabBar.mode')">
           <template v-for="m in MODES" :key="m.id">
             <input
               type="radio"
@@ -71,11 +70,12 @@
               :id="'mode-' + m.id"
               :value="m.id"
               v-model="store.activeMode"
+              :aria-label="t(m.labelKey)"
               autocomplete="off"
             />
             <label class="btn d-inline-flex align-items-center gap-1" :for="'mode-' + m.id">
               <component :is="m.icon" :size="16" />
-              {{ t(m.labelKey) }}
+              <span class="d-none d-xl-inline">{{ t(m.labelKey) }}</span>
             </label>
           </template>
         </div>

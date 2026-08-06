@@ -52,10 +52,11 @@ const message = computed(() => {
 </script>
 
 <style scoped>
-/* Floats below the fixed navbar, centred over the map; high z-index so it clears the map controls. */
+/* Floats below the fixed navbar, centred over the map; high z-index so it clears the map controls.
+   top derives from --navbar-h (style.css) so it can't drift out of sync with the bar's real height. */
 .share-banner {
   position: fixed;
-  top: 64px;
+  top: calc(var(--navbar-h) + 8px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 1050;
