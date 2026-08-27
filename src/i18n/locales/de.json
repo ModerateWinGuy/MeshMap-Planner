@@ -273,6 +273,12 @@
     "clickToAddPoints": "Klicken, um Punkte hinzuzufügen; Doppelklick zum Abschließen.",
     "done": "Fertig"
   },
+  "snapPeakPanel": {
+    "title": "An Gipfel einrasten",
+    "hint": "Solange geöffnet, rastet ein platzierter oder verschobener Knoten am höchsten Punkt in der Nähe ein.",
+    "rangeLabel": "Suchradius: {m} m",
+    "done": "Fertig"
+  },
   "contactImport": {
     "title": "Kontakte importieren",
     "info": "Wähle einen MeshCore-<strong>Kontakt-Export</strong> (JSON). Repeater und Raumserver mit Standort werden als Knoten in einem Ordner <strong>Importiert</strong> hinzugefügt; Companions und Kontakte ohne Standort werden übersprungen. Du kannst vor dem Import prüfen und abwählen.",
@@ -441,6 +447,8 @@
     "calculateAndShowProfile": "Verbindung berechnen &amp; Profil anzeigen",
     "measureDistanceTitle": "Distanz messen — Punkte auf der Karte anklicken; Doppelklick zum Abschließen",
     "measureDistance": "Distanz messen",
+    "snapToPeakTitle": "An höchsten Punkt einrasten — Platzieren oder Verschieben eines Knotens rastet ihn an nahegelegenes Hochland ein",
+    "snapToPeak": "An höchsten Punkt einrasten",
     "keyboardShortcuts": "Tastenkürzel",
     "hotkeyAddNode": "Einen Knoten am Cursor hinzufügen",
     "hotkeyUndo": "Letzte Knotenänderung rückgängig machen",

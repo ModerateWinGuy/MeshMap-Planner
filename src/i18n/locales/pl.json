@@ -273,6 +273,12 @@
     "clickToAddPoints": "Kliknij, aby dodać punkty; kliknij dwukrotnie, aby zakończyć.",
     "done": "Gotowe"
   },
+  "snapPeakPanel": {
+    "title": "Przyciągaj do szczytu",
+    "hint": "Gdy otwarte, umieszczenie lub przesunięcie węzła przyciąga go do najwyższego pobliskiego punktu.",
+    "rangeLabel": "Promień wyszukiwania: {m} m",
+    "done": "Gotowe"
+  },
   "contactImport": {
     "title": "Importuj kontakty",
     "info": "Wybierz <strong>eksport kontaktów</strong> MeshCore (JSON). Przekaźniki i serwery pokojowe z lokalizacją są dodawane jako węzły w folderze <strong>Zaimportowane</strong>; towarzysze i kontakty bez lokalizacji są pomijani. Możesz przejrzeć i odznaczyć przed importem.",
@@ -441,6 +447,8 @@
     "calculateAndShowProfile": "Oblicz łącze &amp; pokaż profil",
     "measureDistanceTitle": "Mierz odległość — klikaj punkty na mapie; kliknij dwukrotnie, aby zakończyć",
     "measureDistance": "Mierz odległość",
+    "snapToPeakTitle": "Przyciągaj do najwyższego punktu — umieszczenie lub przesunięcie węzła przyciąga go do pobliskiego wzniesienia",
+    "snapToPeak": "Przyciągaj do najwyższego punktu",
     "keyboardShortcuts": "Skróty klawiszowe",
     "hotkeyAddNode": "Dodaj węzeł przy kursorze",
     "hotkeyUndo": "Cofnij ostatnią zmianę węzła",

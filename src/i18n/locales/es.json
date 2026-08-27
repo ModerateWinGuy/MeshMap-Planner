@@ -273,6 +273,12 @@
     "clickToAddPoints": "Haz clic para añadir puntos; doble clic para terminar.",
     "done": "Listo"
   },
+  "snapPeakPanel": {
+    "title": "Ajustar al pico",
+    "hint": "Mientras esté abierto, colocar o mover un nodo lo ajusta al punto más alto cercano.",
+    "rangeLabel": "Radio de búsqueda: {m} m",
+    "done": "Listo"
+  },
   "contactImport": {
     "title": "Importar contactos",
     "info": "Elige una <strong>exportación de contactos</strong> de MeshCore (JSON). Los repetidores y servidores de sala con ubicación se añaden como nodos en una carpeta <strong>Importados</strong>; los compañeros y contactos sin ubicación se omiten. Puedes revisar y deseleccionar antes de importar.",
@@ -441,6 +447,8 @@
     "calculateAndShowProfile": "Calcular enlace &amp; mostrar perfil",
     "measureDistanceTitle": "Medir distancia — haz clic en puntos del mapa; doble clic para terminar",
     "measureDistance": "Medir distancia",
+    "snapToPeakTitle": "Ajustar al punto más alto — colocar o mover un nodo lo ajusta al terreno elevado cercano",
+    "snapToPeak": "Ajustar al punto más alto",
     "keyboardShortcuts": "Atajos de teclado",
     "hotkeyAddNode": "Añadir un nodo en el cursor",
     "hotkeyUndo": "Deshacer último cambio de nodo",

@@ -174,6 +174,21 @@ body {
   background-color: var(--accent-red-hover);
 }
 
+/* Snap-to-highest-point control — same shape/convention as measure-ctrl-btn above. */
+.maplibregl-ctrl button.snap-peak-ctrl-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+}
+.maplibregl-ctrl button.snap-peak-ctrl-btn.snap-peak-ctrl-active {
+  background-color: var(--accent-red);
+  color: #fff;
+}
+.maplibregl-ctrl button.snap-peak-ctrl-btn.snap-peak-ctrl-active:hover {
+  background-color: var(--accent-red-hover);
+}
+
 /* Hotkey help control — match the plain MapLibre control button look (Lucide SVG = currentColor). */
 .maplibregl-ctrl button.hotkey-help-btn {
   display: flex;

@@ -273,6 +273,12 @@
     "clickToAddPoints": "Klikk for å legge til punkter; dobbeltklikk for å fullføre.",
     "done": "Ferdig"
   },
+  "snapPeakPanel": {
+    "title": "Fest til høyeste punkt",
+    "hint": "Mens dette er åpent, festes en plassert eller flyttet node til det høyeste punktet i nærheten.",
+    "rangeLabel": "Søkeradius: {m} m",
+    "done": "Ferdig"
+  },
   "contactImport": {
     "title": "Importer kontakter",
     "info": "Velg en MeshCore-<strong>kontakteksport</strong> (JSON). Repeatere og romservere med en plassering legges til som noder i en mappe kalt <strong>Importert</strong>; følgesvenner og kontakter uten plassering hoppes over. Du kan se gjennom og fjerne merking før import.",
@@ -441,6 +447,8 @@
     "calculateAndShowProfile": "Beregn lenke &amp; vis profil",
     "measureDistanceTitle": "Mål avstand — klikk på punkter på kartet; dobbeltklikk for å fullføre",
     "measureDistance": "Mål avstand",
+    "snapToPeakTitle": "Fest til høyeste punkt — å plassere eller flytte en node fester den til høyereliggende terreng i nærheten",
+    "snapToPeak": "Fest til høyeste punkt",
     "keyboardShortcuts": "Tastatursnarveier",
     "hotkeyAddNode": "Legg til en node ved pekeren",
     "hotkeyUndo": "Angre siste nodeendring",

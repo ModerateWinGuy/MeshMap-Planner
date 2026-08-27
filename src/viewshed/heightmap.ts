@@ -112,6 +112,54 @@ export function mosaicMetresPerPixel(hm: Heightmap, lat: number): number {
   return (EQUATOR_MPP_Z0 * Math.max(0.01, Math.cos((lat * Math.PI) / 180))) / 2 ** hm.z;
 }
 
+// Mosaic pixel → lng/lat. Inverse of lngLatToMosaicPixel.
+export function mosaicPixelToLngLat(hm: Heightmap, px: number, py: number): [number, number] {
+  return [tileXToLon((px + hm.originX) / TILE, hm.z), tileYToLat((py + hm.originY) / TILE, hm.z)];
+}
+
+// Decode one Terrarium texel to metres: h = (R*256 + G + B/256) - 32768. The sea sentinel
+// (R128,G0,B0) used for failed tiles decodes to exactly 0 m. Clamps out-of-range pixels to the
+// mosaic edge (same as a texture clamp-to-edge sample).
+export function decodeTexel(hm: Heightmap, px: number, py: number): number {
+  const x = px < 0 ? 0 : px >= hm.width ? hm.width - 1 : px;
+  const y = py < 0 ? 0 : py >= hm.height ? hm.height - 1 : py;
+  const i = (y * hm.width + x) * 4;
+  return hm.data[i] * 256 + hm.data[i + 1] + hm.data[i + 2] / 256 - 32768;
+}
+
+// Find the highest terrain point within radiusM of (lon, lat) — e.g. for "snap to highest point"
+// node placement. Fetches one small mosaic covering the search disc, then walks every pixel inside
+// the circle (bounded by the mosaic's own ~4-5m resolution, so a few thousand pixels at most for a
+// realistic 10-500m range) tracking the max. Falls back to the center point if nothing scores higher.
+export async function findHighestPointNear(req: HeightmapRequest): Promise<{ lon: number; lat: number; elevM: number }> {
+  const hm = await getHeightmap(req);
+  const [cx, cy] = lngLatToMosaicPixel(hm, req.lon, req.lat);
+  const rPx = req.radiusM / mosaicMetresPerPixel(hm, req.lat);
+  const r2 = rPx * rPx;
+  let bestPx = Math.round(cx);
+  let bestPy = Math.round(cy);
+  let bestH = decodeTexel(hm, bestPx, bestPy);
+  const minX = Math.max(0, Math.floor(cx - rPx));
+  const maxX = Math.min(hm.width - 1, Math.ceil(cx + rPx));
+  const minY = Math.max(0, Math.floor(cy - rPx));
+  const maxY = Math.min(hm.height - 1, Math.ceil(cy + rPx));
+  for (let py = minY; py <= maxY; py++) {
+    const dy = py - cy;
+    for (let px = minX; px <= maxX; px++) {
+      const dx = px - cx;
+      if (dx * dx + dy * dy > r2) continue;
+      const h = decodeTexel(hm, px, py);
+      if (h > bestH) {
+        bestH = h;
+        bestPx = px;
+        bestPy = py;
+      }
+    }
+  }
+  const [lon, lat] = mosaicPixelToLngLat(hm, bestPx, bestPy);
+  return { lon, lat, elevM: bestH };
+}
+
 // Shared by every viewshed compute engine (gpu.ts, webgl2.ts): places the observer in output-pixel
 // space and derives the output→mosaic scale + ground resolution, so each engine just plugs these into
 // its own Params/uniform upload instead of re-deriving the same mosaic geometry per backend.

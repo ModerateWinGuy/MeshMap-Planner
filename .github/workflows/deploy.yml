@@ -42,6 +42,7 @@ jobs:
       - run: pnpm build
         env:
           VITE_LINZ_API_KEY: ${{ secrets.VITE_LINZ_API_KEY }}
+          VITE_CARTO_API_KEY: ${{ secrets.VITE_CARTO_API_KEY }}
 
       - uses: actions/configure-pages@v5
 

@@ -18,10 +18,10 @@ import { escapeHtml, decodeShare, type SharePayload } from './utils.ts';
 import { i18n, type LocaleCode } from './i18n/index.ts';
 import { trackEvent } from './analytics.ts';
 import { makePinElement, stylePinElement } from './layers.ts';
-import { createElement, Ruler, Keyboard, Search } from 'lucide';
+import { createElement, Ruler, Keyboard, Search, Mountain } from 'lucide';
 import { Popover } from 'bootstrap';
 import { Links3DLayer, buildLinkGeometry, setLinkColorFn, type LinkPick } from './links3d.ts';
-import { getHeightmap, type Heightmap } from './viewshed/heightmap.ts';
+import { getHeightmap, findHighestPointNear, type Heightmap } from './viewshed/heightmap.ts';
 import {
   MAPTERHORN_TEMPLATE,
   DEM_MAXZOOM,
@@ -55,6 +55,9 @@ const DEFAULT_LON = 174.86568331718445;
 // The switchable raster basemaps. Subdomained hosts go in the tiles[] array so MapLibre rotates
 // over them; single-host sources use one entry. Each carries its own attribution for the
 // AttributionControl.
+
+const CARTO_KEY = `?key=${import.meta.env.VITE_CARTO_API_KEY ?? ''}`;
+
 export const BASEMAPS = [
   {
     id: 'osm',
@@ -67,10 +70,10 @@ export const BASEMAPS = [
     id: 'carto',
     labelKey: 'basemaps.cartoLight',
     tiles: [
-      'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-      'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-      'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-      'https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+      `https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png${CARTO_KEY}`,
+      `https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png${CARTO_KEY}`,
+      `https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png${CARTO_KEY}`,
+      `https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png${CARTO_KEY}`,
     ],
     attribution: '© OpenStreetMap contributors © CARTO',
     maxzoom: 20,
@@ -81,10 +84,10 @@ export const BASEMAPS = [
     id: 'carto-dark',
     labelKey: 'basemaps.cartoDark',
     tiles: [
-      'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-      'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-      'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-      'https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      `https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png${CARTO_KEY}`,
+      `https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png${CARTO_KEY}`,
+      `https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png${CARTO_KEY}`,
+      `https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png${CARTO_KEY}`,
     ],
     attribution: '© OpenStreetMap contributors © CARTO',
     maxzoom: 20,
@@ -479,6 +482,7 @@ let links3dPicks: LinkPick[] = [];
 // Whether the 3D-line hover handler currently owns the cursor, so it only clears a cursor it set.
 let cursor3dActive = false;
 let measureControl: MeasureControl | null = null;
+let snapPeakControl: SnapPeakControl | null = null;
 // Set when a double-click finishes a line: freezes it (no rubber-band) until the next click starts anew.
 let measureFinished = false;
 // Measure vertex being dragged, or -1 when none.
@@ -586,6 +590,37 @@ class MeasureControl implements maplibregl.IControl {
   }
   setActive(active: boolean): void {
     this.button.classList.toggle('measure-ctrl-active', active);
+    this.button.setAttribute('aria-pressed', String(active));
+  }
+}
+
+// A native MapLibre control (like MeasureControl) for the snap-to-highest-point toggle: opens
+// SnapPeakPanel.vue, which itself owns the range setting; this button only reflects active state.
+class SnapPeakControl implements maplibregl.IControl {
+  private container!: HTMLElement;
+  private button!: HTMLButtonElement;
+  constructor(private onToggle: () => void) {}
+  onAdd(): HTMLElement {
+    this.container = document.createElement('div');
+    this.container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    this.button = document.createElement('button');
+    this.button.type = 'button';
+    this.button.className = 'snap-peak-ctrl-btn';
+    this.button.title = i18n.global.t('store.snapToPeakTitle');
+    this.button.setAttribute('aria-label', i18n.global.t('store.snapToPeak'));
+    const svg = createElement(Mountain);
+    svg.setAttribute('width', '18');
+    svg.setAttribute('height', '18');
+    this.button.appendChild(svg);
+    this.button.addEventListener('click', () => this.onToggle());
+    this.container.appendChild(this.button);
+    return this.container;
+  }
+  onRemove(): void {
+    this.container.remove();
+  }
+  setActive(active: boolean): void {
+    this.button.classList.toggle('snap-peak-ctrl-active', active);
     this.button.setAttribute('aria-pressed', String(active));
   }
 }
@@ -805,6 +840,10 @@ const useStore = defineStore('store', {
       measureActive: false,
       measurePoints: [] as [number, number][],
       measureCursor: null as [number, number] | null,
+      // Snap-to-highest-point: while active, dropping/placing a node scans the DEM within
+      // snapToPeakRangeM and moves it to the highest point found. Dialog-open = active, like measure.
+      snapToPeakActive: false,
+      snapToPeakRangeM: useLocalStorage('snapToPeakRangeM', 100),
       locationSearchActive: false,
       // nodeId set => the node-variant menu (delete/share); unset => the empty-map variant (add/copy).
       contextMenu: null as {
@@ -996,6 +1035,7 @@ const useStore = defineStore('store', {
       this.selectedNodeId = node.id;
       this.renderNodeMarkers();
       this.redrawLinks(); // selection changed → re-filter the selected node's non-viable links
+      void this._snapNodeToPeak(node.id);
     },
     // Add a node under the pointer (the "A" hotkey). Falls back to the map centre when the pointer is
     // off the map (lastMapCursor null), matching addNode's default.
@@ -1034,8 +1074,50 @@ const useStore = defineStore('store', {
         this.measureCursor = null;
         measureFinished = false;
         measureDragIndex = -1;
+      } else if (this.snapToPeakActive) {
+        this.toggleSnapToPeak(); // both panels share the same top-right corner — only one open at once
       }
       this.applyMeasureMode();
+    },
+    toggleSnapToPeak() {
+      this.snapToPeakActive = !this.snapToPeakActive;
+      snapPeakControl?.setActive(this.snapToPeakActive);
+      if (this.snapToPeakActive && this.measureActive) {
+        this.toggleMeasure(); // same corner as the measure panel — only one open at once
+      }
+    },
+    setSnapToPeakRangeM(m: number) {
+      this.snapToPeakRangeM = Math.max(10, Math.min(500, Math.round(m)));
+    },
+    // Shared by addNode and the marker dragend handler: scans the DEM around the node's current
+    // position and, if a higher point exists within snapToPeakRangeM, moves the node there. Fetch is
+    // async, so re-checks the node still exists and hasn't been moved again before applying the result.
+    async _snapNodeToPeak(id: string) {
+      if (!this.snapToPeakActive) {
+        return;
+      }
+      const node = this.nodes.find((n) => n.id === id);
+      if (!node) {
+        return;
+      }
+      const lon0 = node.transmitter.tx_lon;
+      const lat0 = node.transmitter.tx_lat;
+      let best;
+      try {
+        best = await findHighestPointNear({ ...this._simSource(), lon: lon0, lat: lat0, radiusM: this.snapToPeakRangeM });
+      } catch {
+        return; // offline/tile failure: leave the node at its dropped position
+      }
+      const cur = this.nodes.find((n) => n.id === id);
+      if (!cur || cur.transmitter.tx_lon !== lon0 || cur.transmitter.tx_lat !== lat0) {
+        return; // deleted or moved again while the scan was in flight
+      }
+      this.updateNodeCoords(id, best.lat, best.lon);
+      this.nodeMarkers[id]?.setLngLat([best.lon, best.lat]);
+      this.redrawPairLink();
+      if (this.viewshedEnabled && id === this.selectedNodeId) {
+        this.computeViewshed();
+      }
     },
     toggleLocationSearch() {
       this.locationSearchActive = !this.locationSearchActive;
@@ -1628,9 +1710,12 @@ const useStore = defineStore('store', {
             this.updateNodeCoords(node.id, lat, lng);
             this.dragging = false;
             this.redrawPairLink(); // keep the preview attached if this node is in the pending pair
+            void this._snapNodeToPeak(node.id); // no-op unless the snap-to-peak dialog is open
             // Recompute the viewshed at full detail for the final position (covers both live — which
             // ran coarse mid-drag — and move-end mode). dragging is now false, so this is full quality.
-            if (this.viewshedEnabled && node.id === this.selectedNodeId) {
+            // Skipped when snapping: _snapNodeToPeak triggers its own recompute once it lands, so this
+            // avoids computing once at the raw drop point and again a moment later at the snapped one.
+            if (this.viewshedEnabled && node.id === this.selectedNodeId && !this.snapToPeakActive) {
               if (viewshedRaf) {
                 cancelAnimationFrame(viewshedRaf);
                 viewshedRaf = 0;
@@ -2156,7 +2241,10 @@ const useStore = defineStore('store', {
       this.map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-right');
       measureControl = new MeasureControl(() => this.toggleMeasure());
       this.map.addControl(measureControl, 'bottom-left');
-      // Added last: MapLibre prepends bottom-corner controls, so this lands above the measure tool.
+      // Added next: lands above the measure tool.
+      snapPeakControl = new SnapPeakControl(() => this.toggleSnapToPeak());
+      this.map.addControl(snapPeakControl, 'bottom-left');
+      // Added last: MapLibre prepends bottom-corner controls, so this lands above the snap tool.
       this.map.addControl(new HotkeyHelpControl(), 'bottom-left');
       // Added last of all: lands above the hotkey-help button.
       locationSearchControl = new LocationSearchControl(() => this.toggleLocationSearch());

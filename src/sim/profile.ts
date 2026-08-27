@@ -17,6 +17,7 @@ import {
   mosaicMetresPerPixel,
   sampleCorridorHeightAt,
   corridorMetresPerPixel,
+  decodeTexel,
 } from '../viewshed/heightmap.ts';
 
 const DEG2RAD = Math.PI / 180;
@@ -71,15 +72,6 @@ export function interpGreatCircle(lon1: number, lat1: number, lon2: number, lat2
   const φ = Math.atan2(z, Math.hypot(x, y));
   const λ = Math.atan2(y, x);
   return [λ * RAD2DEG, φ * RAD2DEG];
-}
-
-// Decode one Terrarium texel to metres: h = (R*256 + G + B/256) - 32768. The sea sentinel
-// (R128,G0,B0) used for failed tiles decodes to exactly 0 m.
-function decodeTexel(hm: Heightmap, px: number, py: number): number {
-  const x = px < 0 ? 0 : px >= hm.width ? hm.width - 1 : px;
-  const y = py < 0 ? 0 : py >= hm.height ? hm.height - 1 : py;
-  const i = (y * hm.width + x) * 4;
-  return hm.data[i] * 256 + hm.data[i + 1] + hm.data[i + 2] / 256 - 32768;
 }
 
 // Bilinearly sample the heightmap (m ASL) at a lon/lat. Bilinear (vs the viewshed's nearest) gives

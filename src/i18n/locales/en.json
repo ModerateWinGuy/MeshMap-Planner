@@ -273,6 +273,12 @@
     "clickToAddPoints": "Click to add points; double-click to finish.",
     "done": "Done"
   },
+  "snapPeakPanel": {
+    "title": "Snap to peak",
+    "hint": "While open, placing or moving a node snaps it to the highest point nearby.",
+    "rangeLabel": "Search range: {m} m",
+    "done": "Done"
+  },
   "contactImport": {
     "title": "Import contacts",
     "info": "Pick a MeshCore <strong>contacts export</strong> (JSON). Repeaters and room servers that carry a location are added as nodes in an <strong>Imported</strong> folder; companions and contacts without a location are skipped. You can review and deselect before importing.",
@@ -441,6 +447,8 @@
     "calculateAndShowProfile": "Calculate link &amp; show profile",
     "measureDistanceTitle": "Measure distance — click points on the map; double-click to finish",
     "measureDistance": "Measure distance",
+    "snapToPeakTitle": "Snap to highest point — placing or moving a node snaps it to nearby high ground",
+    "snapToPeak": "Snap to highest point",
     "keyboardShortcuts": "Keyboard shortcuts",
     "hotkeyAddNode": "Add a node at the cursor",
     "hotkeyUndo": "Undo last node change",

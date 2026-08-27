@@ -148,6 +148,7 @@
         <MapLoadingBar />
         <SimLoadingBar />
         <MeasurePanel v-if="store.measureActive" />
+        <SnapPeakPanel v-if="store.snapToPeakActive" />
         <LocationSearchPanel v-if="store.locationSearchActive && regime !== 'phone'" />
         <ContextMenu v-if="store.contextMenu" />
         <ProfilePanel v-if="profileActive && regime !== 'phone'" />
@@ -363,6 +364,7 @@ import ProfilePanel from './components/ProfilePanel.vue';
 import MapLoadingBar from './components/MapLoadingBar.vue';
 import SimLoadingBar from './components/SimLoadingBar.vue';
 import MeasurePanel from './components/MeasurePanel.vue';
+import SnapPeakPanel from './components/SnapPeakPanel.vue';
 import LocationSearchPanel from './components/LocationSearchPanel.vue';
 import ContextMenu from './components/ContextMenu.vue';
 import {

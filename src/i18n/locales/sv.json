@@ -273,6 +273,12 @@
     "clickToAddPoints": "Klicka för att lägga till punkter; dubbelklicka för att avsluta.",
     "done": "Klar"
   },
+  "snapPeakPanel": {
+    "title": "Snäpp till topp",
+    "hint": "Medan detta är öppet snäpps en placerad eller flyttad nod till den högsta punkten i närheten.",
+    "rangeLabel": "Sökradie: {m} m",
+    "done": "Klar"
+  },
   "contactImport": {
     "title": "Importera kontakter",
     "info": "Välj en MeshCore-<strong>kontaktexport</strong> (JSON). Repeatrar och rumsservrar med en plats läggs till som noder i en mapp <strong>Importerade</strong>; följeslagare och kontakter utan plats hoppas över. Du kan granska och avmarkera innan import.",
@@ -441,6 +447,8 @@
     "calculateAndShowProfile": "Beräkna länk &amp; visa profil",
     "measureDistanceTitle": "Mät avstånd — klicka på punkter på kartan; dubbelklicka för att avsluta",
     "measureDistance": "Mät avstånd",
+    "snapToPeakTitle": "Snäpp till högsta punkt — att placera eller flytta en nod snäpper den till högre terräng i närheten",
+    "snapToPeak": "Snäpp till högsta punkt",
     "keyboardShortcuts": "Tangentbordsgenvägar",
     "hotkeyAddNode": "Lägg till en nod vid pekaren",
     "hotkeyUndo": "Ångra senaste nodändring",

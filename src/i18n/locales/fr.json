@@ -273,6 +273,12 @@
     "clickToAddPoints": "Cliquez pour ajouter des points ; double-cliquez pour terminer.",
     "done": "Terminé"
   },
+  "snapPeakPanel": {
+    "title": "Aligner sur le sommet",
+    "hint": "Tant que ce panneau est ouvert, placer ou déplacer un nœud l'aligne sur le point le plus élevé à proximité.",
+    "rangeLabel": "Rayon de recherche : {m} m",
+    "done": "Terminé"
+  },
   "contactImport": {
     "title": "Importer des contacts",
     "info": "Choisissez un <strong>export de contacts</strong> MeshCore (JSON). Les relais et serveurs de salle disposant d'une position sont ajoutés comme nœuds dans un dossier <strong>Importés</strong> ; les compagnons et contacts sans position sont ignorés. Vous pouvez vérifier et désélectionner avant l'importation.",
@@ -441,6 +447,8 @@
     "calculateAndShowProfile": "Calculer la liaison &amp; afficher le profil",
     "measureDistanceTitle": "Mesurer une distance — cliquez sur des points de la carte ; double-cliquez pour terminer",
     "measureDistance": "Mesurer une distance",
+    "snapToPeakTitle": "Aligner sur le point le plus élevé — placer ou déplacer un nœud l'aligne sur le terrain élevé à proximité",
+    "snapToPeak": "Aligner sur le point le plus élevé",
     "keyboardShortcuts": "Raccourcis clavier",
     "hotkeyAddNode": "Ajouter un nœud au curseur",
     "hotkeyUndo": "Annuler le dernier changement de nœud",
