@@ -131,7 +131,9 @@ export function decodeTexel(hm: Heightmap, px: number, py: number): number {
 // node placement. Fetches one small mosaic covering the search disc, then walks every pixel inside
 // the circle (bounded by the mosaic's own ~4-5m resolution, so a few thousand pixels at most for a
 // realistic 10-500m range) tracking the max. Falls back to the center point if nothing scores higher.
-export async function findHighestPointNear(req: HeightmapRequest): Promise<{ lon: number; lat: number; elevM: number }> {
+export async function findHighestPointNear(
+  req: HeightmapRequest,
+): Promise<{ lon: number; lat: number; elevM: number }> {
   const hm = await getHeightmap(req);
   const [cx, cy] = lngLatToMosaicPixel(hm, req.lon, req.lat);
   const rPx = req.radiusM / mosaicMetresPerPixel(hm, req.lat);

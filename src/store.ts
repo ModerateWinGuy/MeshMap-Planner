@@ -1104,7 +1104,12 @@ const useStore = defineStore('store', {
       const lat0 = node.transmitter.tx_lat;
       let best;
       try {
-        best = await findHighestPointNear({ ...this._simSource(), lon: lon0, lat: lat0, radiusM: this.snapToPeakRangeM });
+        best = await findHighestPointNear({
+          ...this._simSource(),
+          lon: lon0,
+          lat: lat0,
+          radiusM: this.snapToPeakRangeM,
+        });
       } catch {
         return; // offline/tile failure: leave the node at its dropped position
       }
