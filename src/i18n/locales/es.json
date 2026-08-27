@@ -355,7 +355,7 @@
     "dropCurtainOpacityInfo": "Mayor = más opaco.",
     "language": "Idioma",
     "dragOnlySelected": "Arrastrar solo el nodo seleccionado",
-    "dragOnlySelectedInfo": "Activado, arrastrar un marcador solo mueve el nodo actualmente seleccionado — otros pines cerca del cursor no se mueven por accidente. Desactívalo para que todo nodo desbloqueado sea arrastrable, como antes. Funciona junto con el botón de bloqueo de nodos del mapa, que desactiva el arrastre por completo.",
+    "dragOnlySelectedInfo": "Activado, arrastrar un marcador solo mueve el nodo actualmente seleccionado — otros pines cerca del cursor no se mueven por accidente. Desactívalo para que todo nodo desbloqueado sea arrastrable. Funciona junto con el botón de bloqueo de nodos del mapa, que desactiva el arrastre por completo.",
     "flatSignalLine": "Mostrar la señal como línea recta",
     "flatSignalLineInfo": "En el gráfico de perfil de enlace, dibuja la línea de señal recta y deja que el terreno se curve hacia arriba/abajo en su lugar — la misma geometría física, solo invertida para que el terreno muestre la curvatura de la Tierra en lugar de la señal.",
     "resetView": "Restablecer vista (cenital)"

@@ -107,12 +107,10 @@ export function lngLatToMosaicPixel(hm: Heightmap, lon: number, lat: number): [n
   return [lonToTileX(lon, hm.z) * TILE - hm.originX, latToTileY(lat, hm.z) * TILE - hm.originY];
 }
 
-// Mosaic ground resolution (metres per mosaic pixel) at a latitude.
 export function mosaicMetresPerPixel(hm: Heightmap, lat: number): number {
   return (EQUATOR_MPP_Z0 * Math.max(0.01, Math.cos((lat * Math.PI) / 180))) / 2 ** hm.z;
 }
 
-// Mosaic pixel → lng/lat. Inverse of lngLatToMosaicPixel.
 export function mosaicPixelToLngLat(hm: Heightmap, px: number, py: number): [number, number] {
   return [tileXToLon((px + hm.originX) / TILE, hm.z), tileYToLat((py + hm.originY) / TILE, hm.z)];
 }

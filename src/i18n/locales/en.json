@@ -355,7 +355,7 @@
     "dropCurtainOpacityInfo": "Higher = more opaque.",
     "language": "Language",
     "dragOnlySelected": "Only drag the selected node",
-    "dragOnlySelectedInfo": "When on, dragging a marker only moves the currently selected node — other pins near your cursor won't move by accident. Turn off to make every unlocked node draggable, as before. Works alongside the node lock button on the map, which disables dragging entirely.",
+    "dragOnlySelectedInfo": "When on, dragging a marker only moves the currently selected node — other pins near your cursor won't move by accident. Turn off to make every unlocked node draggable. Works alongside the node lock button on the map, which disables dragging entirely.",
     "flatSignalLine": "Show signal as straight line",
     "flatSignalLineInfo": "In the Link Profile chart, draw the signal line straight and let the terrain curve up/down instead — the same physical geometry, just flipped so the terrain shows Earth's curvature rather than the signal.",
     "resetView": "Reset view (top-down)"

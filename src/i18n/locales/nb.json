@@ -355,7 +355,7 @@
     "dropCurtainOpacityInfo": "Høyere = mer ugjennomsiktig.",
     "language": "Språk",
     "dragOnlySelected": "Dra kun den valgte noden",
-    "dragOnlySelectedInfo": "På, flytter dragning av en markør kun den for øyeblikket valgte noden — andre nåler nær pekeren flytter seg ikke ved et uhell. Slå av for at alle ulåste noder skal kunne dras, som før. Fungerer sammen med nodelås-knappen på kartet, som deaktiverer dragning helt.",
+    "dragOnlySelectedInfo": "På, flytter dragning av en markør kun den for øyeblikket valgte noden — andre nåler nær pekeren flytter seg ikke ved et uhell. Slå av for at alle ulåste noder skal kunne dras. Fungerer sammen med nodelås-knappen på kartet, som deaktiverer dragning helt.",
     "flatSignalLine": "Vis signal som rett linje",
     "flatSignalLineInfo": "I lenkeprofil-diagrammet, tegn signallinjen rett og la terrenget bue opp/ned i stedet — samme fysiske geometri, bare snudd slik at terrenget viser jordens krumning i stedet for signalet.",
     "resetView": "Tilbakestill visning (ovenfra)"

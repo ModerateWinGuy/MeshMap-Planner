@@ -355,7 +355,7 @@
     "dropCurtainOpacityInfo": "Wyższa = bardziej nieprzezroczysta.",
     "language": "Język",
     "dragOnlySelected": "Przeciągaj tylko wybrany węzeł",
-    "dragOnlySelectedInfo": "Włączone, przeciąganie znacznika przesuwa tylko aktualnie wybrany węzeł — inne pinezki blisko kursora nie poruszają się przypadkowo. Wyłącz, aby każdy odblokowany węzeł można było przeciągać, jak wcześniej. Działa razem z przyciskiem blokady węzłów na mapie, który całkowicie wyłącza przeciąganie.",
+    "dragOnlySelectedInfo": "Włączone, przeciąganie znacznika przesuwa tylko aktualnie wybrany węzeł — inne pinezki blisko kursora nie poruszają się przypadkowo. Wyłącz, aby każdy odblokowany węzeł można było przeciągać. Działa razem z przyciskiem blokady węzłów na mapie, który całkowicie wyłącza przeciąganie.",
     "flatSignalLine": "Pokaż sygnał jako linię prostą",
     "flatSignalLineInfo": "Na wykresie profilu łącza rysuje linię sygnału prosto, a teren wygina się w górę/w dół — ta sama geometria fizyczna, tylko odwrócona, dzięki czemu teren pokazuje krzywiznę Ziemi zamiast sygnału.",
     "resetView": "Resetuj widok (z góry)"

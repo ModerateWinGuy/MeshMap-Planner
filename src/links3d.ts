@@ -10,7 +10,7 @@
 // Everything is computed in the map's *exaggerated* vertical space: queryTerrainElevation already
 // returns elevation × terrainExaggeration, so antenna heights are multiplied by the same factor and
 // the resulting metres are handed to MercatorCoordinate.fromLngLat, whose conformal z matches the
-// rendered terrain mesh exactly. See the approved plan and [[3d-terrain-source]].
+// rendered terrain mesh exactly.
 //
 // Lines use three's fat-line classes (LineSegments2/LineMaterial) so they can be a few pixels wide —
 // the basic GL line is locked to 1px on most drivers. The layer also stores the per-frame projection

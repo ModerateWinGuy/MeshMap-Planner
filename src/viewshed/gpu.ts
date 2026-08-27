@@ -12,10 +12,7 @@
 // (s²/(2·k·R)), so cells hidden below the curved horizon correctly read as not-visible. The same
 // K_FACTOR/EARTH_RADIUS as links3d.ts, so the green footprint agrees with the 3D blocked-LOS test.
 //
-// This brute-force pass is artifact-free and already real-time at the nearby radii this mode targets
-// (≤ ~1024² grids). The running-horizon-cache optimization (Xdraw / per-ring sweep) for full-screen
-// 4096² live-drag is a documented follow-up — it must be validated to match this pass pixel-for-
-// pixel before replacing it; that's the whole point of keeping this one as the oracle.
+// The brute force is artifact-free and real-time at the radii this mode targets (≤ ~1024² grids).
 
 import { type Heightmap, viewshedOutputGeometry } from './heightmap.ts';
 

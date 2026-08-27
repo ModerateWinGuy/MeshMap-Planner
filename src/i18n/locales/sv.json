@@ -355,7 +355,7 @@
     "dropCurtainOpacityInfo": "Högre = mer opak.",
     "language": "Språk",
     "dragOnlySelected": "Dra endast den valda noden",
-    "dragOnlySelectedInfo": "På, flyttar dragning av en markör bara den för närvarande valda noden — andra nålar nära markören flyttas inte av misstag. Stäng av så att alla olåsta noder kan dras, som tidigare. Fungerar tillsammans med nodlåsknappen på kartan, som inaktiverar dragning helt.",
+    "dragOnlySelectedInfo": "På, flyttar dragning av en markör bara den för närvarande valda noden — andra nålar nära markören flyttas inte av misstag. Stäng av så att alla olåsta noder kan dras. Fungerar tillsammans med nodlåsknappen på kartan, som inaktiverar dragning helt.",
     "flatSignalLine": "Visa signal som rak linje",
     "flatSignalLineInfo": "I länkprofildiagrammet, rita signallinjen rak och låt terrängen kurva upp/ned istället — samma fysiska geometri, bara vänd så att terrängen visar jordens krökning istället för signalen.",
     "resetView": "Återställ vy (uppifrån)"

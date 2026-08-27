@@ -355,7 +355,7 @@
     "dropCurtainOpacityInfo": "Höher = deckender.",
     "language": "Sprache",
     "dragOnlySelected": "Nur den ausgewählten Knoten ziehen",
-    "dragOnlySelectedInfo": "Ein, bewegt das Ziehen eines Markers nur den aktuell ausgewählten Knoten — andere Pins in der Nähe des Cursors bewegen sich nicht versehentlich. Deaktivieren, damit wie zuvor jeder entsperrte Knoten ziehbar ist. Funktioniert zusammen mit dem Knoten-Sperr-Button auf der Karte, der das Ziehen vollständig deaktiviert.",
+    "dragOnlySelectedInfo": "Ein, bewegt das Ziehen eines Markers nur den aktuell ausgewählten Knoten — andere Pins in der Nähe des Cursors bewegen sich nicht versehentlich. Deaktivieren, damit jeder entsperrte Knoten ziehbar ist. Funktioniert zusammen mit dem Knoten-Sperr-Button auf der Karte, der das Ziehen vollständig deaktiviert.",
     "flatSignalLine": "Signal als gerade Linie anzeigen",
     "flatSignalLineInfo": "Zeichnet im Verbindungsprofil-Diagramm die Signallinie gerade und lässt stattdessen das Gelände auf/ab kurven — dieselbe physikalische Geometrie, nur umgekehrt, sodass das Gelände die Erdkrümmung statt des Signals zeigt.",
     "resetView": "Ansicht zurücksetzen (Draufsicht)"

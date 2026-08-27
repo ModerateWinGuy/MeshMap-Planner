@@ -826,8 +826,6 @@ const useStore = defineStore('store', {
       // When set, node markers are non-draggable so they can't be moved by accident. Persisted so
       // the lock survives a reload. Manual lat/lon edits in the panel still apply either way.
       nodesLocked: useLocalStorage('nodesLocked', false),
-      // When set (default), only the selected node's marker is draggable, so panning near other pins
-      // can't accidentally move them. Off = every unlocked marker is draggable, the old behaviour.
       dragOnlySelected: useLocalStorage('dragOnlySelected', true),
       // Preselected from the browser's reported language at i18n init (src/i18n/index.ts); this
       // just mirrors that choice into a persisted, user-changeable setting under the same key.

@@ -607,9 +607,8 @@ export function runCoverage(run: CoverageRun): {
     rangeSteps: run.rangeSteps,
   };
   const promise = (async (): Promise<CoverageGrid> => {
-    // Concentric LOD stack (z-max near the TX, coarser outward; see getLodHeightmap) instead of one
-    // map-zoom square. mapZoom is intentionally dropped here — coverage terrain detail is no longer
-    // tied to the map's current zoom, so a zoomed-out map no longer flattens the sweep's terrain.
+    // Concentric LOD stack (z-max near the TX, coarser outward; see getLodHeightmap), so coverage
+    // terrain detail is independent of the map's current zoom.
     const lod = await getLodHeightmap(
       {
         urlTemplate: run.source.urlTemplate,

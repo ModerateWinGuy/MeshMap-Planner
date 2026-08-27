@@ -372,7 +372,6 @@ const chart = computed(() => {
   const baseY = sy(yMin).toFixed(1);
   const terrainFill = `${terrainLine} L${sx(xMax).toFixed(1)},${baseY} L${sx(0).toFixed(1)},${baseY} Z`;
 
-  // Fresnel band: upper boundary out, lower boundary back.
   const fresnelBand = `${toPath(fresUpper)} ${reversePts(fresLower)} Z`;
   const fresnel60Line = toPath(fres60);
 
@@ -447,10 +446,8 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
   flex: none;
   height: 20vh;
 }
-/* The chart's viewBox (1600x320, ~5:1) no longer matches the embedded box's much-squarer aspect
-   ratio now that it's short — preserveAspectRatio="none" scales x/y independently to fill the box, so
-   text glyphs get squished horizontally along with the chart lines. Counter-scale just the text back
-   out; fill-box/center keeps each label anchored at its own midpoint instead of sliding it. */
+/* preserveAspectRatio="none" stretches the 5:1 viewBox into this squarer box, squishing glyphs;
+   counter-scale the text back out. fill-box/center anchors each label at its own midpoint. */
 .profile-embedded .profile-svg text {
   transform-box: fill-box;
   transform-origin: center;

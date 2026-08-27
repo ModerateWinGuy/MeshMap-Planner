@@ -11,7 +11,6 @@ export const CLIMATE_MAP: Record<string, number> = {
   maritime_temperate_sea: 7,
 };
 
-// Polarization string -> ITM code.
 export const POLARIZATION_MAP: Record<string, number> = {
   horizontal: 0,
   vertical: 1,

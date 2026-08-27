@@ -355,7 +355,7 @@
     "dropCurtainOpacityInfo": "Plus élevé = plus opaque.",
     "language": "Langue",
     "dragOnlySelected": "Ne glisser que le nœud sélectionné",
-    "dragOnlySelectedInfo": "Activé, glisser un marqueur ne déplace que le nœud actuellement sélectionné — les autres épingles proches du curseur ne bougent pas accidentellement. Désactivez pour que tout nœud non verrouillé soit déplaçable, comme avant. Fonctionne avec le bouton de verrouillage des nœuds sur la carte, qui désactive complètement le glissement.",
+    "dragOnlySelectedInfo": "Activé, glisser un marqueur ne déplace que le nœud actuellement sélectionné — les autres épingles proches du curseur ne bougent pas accidentellement. Désactivez pour que tout nœud non verrouillé soit déplaçable. Fonctionne avec le bouton de verrouillage des nœuds sur la carte, qui désactive complètement le glissement.",
     "flatSignalLine": "Afficher le signal comme une ligne droite",
     "flatSignalLineInfo": "Dans le graphique du profil de liaison, dessine la ligne de signal droite et laisse le terrain se courber vers le haut/bas à la place — la même géométrie physique, simplement inversée pour que le terrain montre la courbure de la Terre plutôt que le signal.",
     "resetView": "Réinitialiser la vue (vue de dessus)"
