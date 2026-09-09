@@ -343,6 +343,8 @@
     "toggle3dInfo": "Slå på <strong>3D-terräng</strong> med knappen <strong>3D</strong> på kartan (uppe till vänster, under baskarteknapparna). Den drapera kartan över ett höjdmesh (Mapterhorn); luta med högerdragning (eller kompasskontrollen) för att avläsa kullhöjder. Knappen <strong>Skugga</strong> bredvid lägger till reliefskuggning som gör kullar synliga på platta baskartor — fungerar i både uppifrånvy och 3D.",
     "nzBasemap": "Visa NZ-satellitbaskarta (LINZ)",
     "nzBasemapInfo": "Lägger till alternativet <strong>Satellit (NZ)</strong> till baskarteknapparna, med LINZ-flygfoto — högre detalj än de globala Esri-bilderna, men endast Nya Zeeland (tomt annars). Avstängt som standard; aktivera om du kartlägger i NZ. Bildmaterial © LINZ, CC&#8209;BY&nbsp;4.0.",
+    "heightmapGradient": "Höjdkartans färgskala",
+    "heightmapGradientInfo": "Färglägger baskartan <strong>Höjdkarta</strong>. Höjderna är relativa till terrängen som visas på skärmen, så den högsta synliga punkten får alltid den översta färgen — panorera eller zooma så skalas färgläggningen om till den nya vyn och lyfter fram lokala höjder överallt.",
     "shadingIntensity": "Skuggningsintensitet: {pct}%",
     "shadingIntensityInfo": "Flerdirektionell reliefskuggning från DEM. Högre = starkare.",
     "verticalExaggeration": "Vertikal överdrift: {x}×",
@@ -366,7 +368,8 @@
     "cartoDark": "Carto Dark",
     "satellite": "Satellit",
     "aerialImagery": "Flygbilder",
-    "topoMap": "Topografisk karta"
+    "topoMap": "Topografisk karta",
+    "heightmap": "Höjdkarta"
   },
   "mapControls": {
     "basemap": "Baskarta",

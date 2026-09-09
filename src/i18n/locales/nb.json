@@ -343,6 +343,8 @@
     "toggle3dInfo": "Slå på <strong>3D-terreng</strong> med <strong>3D</strong>-knappen på kartet (øverst til venstre, under grunnkart-knappene). Det drapérer kartet over et høydenett (Mapterhorn); vipp med høyredragning (eller kompasskontrollen) for å lese høyder på åser. <strong>Skygge</strong>-knappen ved siden av legger til reliefskyggelegging som viser åser på flate grunnkart — fungerer i både visning ovenfra og 3D.",
     "nzBasemap": "Vis NZ-satellittgrunnkart (LINZ)",
     "nzBasemapInfo": "Legger til et alternativ <strong>Satellitt (NZ)</strong> til grunnkart-knappene, med LINZ-flyfoto — høyere detaljnivå enn de globale Esri-bildene, men kun for New Zealand (tomt andre steder). Av som standard; aktiver hvis du kartlegger i NZ. Bildemateriale © LINZ, CC&#8209;BY&nbsp;4.0.",
+    "heightmapGradient": "Fargeovergang for høydekart",
+    "heightmapGradientInfo": "Fargelegger grunnkartet <strong>Høydekart</strong>. Høydene er relative til terrenget som vises på skjermen, så det høyeste synlige punktet får alltid den øverste fargen — panorer eller zoom, så skaleres fargeleggingen om til den nye visningen og fremhever lokale høyder overalt.",
     "shadingIntensity": "Skyggeintensitet: {pct}%",
     "shadingIntensityInfo": "Flerretningsskyggelegging av relieff fra DEM. Høyere = sterkere.",
     "verticalExaggeration": "Vertikal overdrivelse: {x}×",
@@ -366,7 +368,8 @@
     "cartoDark": "Carto Dark",
     "satellite": "Satellitt",
     "aerialImagery": "Flyfoto",
-    "topoMap": "Topografisk kart"
+    "topoMap": "Topografisk kart",
+    "heightmap": "Høydekart"
   },
   "mapControls": {
     "basemap": "Grunnkart",

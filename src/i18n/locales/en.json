@@ -343,6 +343,8 @@
     "toggle3dInfo": "Toggle <strong>3D terrain</strong> with the <strong>3D</strong> button on the map (top-left, under the basemap buttons). It drapes the map over an elevation mesh (Mapterhorn); tilt with right-drag (or the compass control) to read hill elevation. The <strong>Shade</strong> button beside it adds relief shading that reads hills on flat basemaps — works in both top-down and 3D view.",
     "nzBasemap": "Show NZ satellite basemap (LINZ)",
     "nzBasemapInfo": "Adds a <strong>Satellite (NZ)</strong> option to the basemap buttons, using LINZ aerial photography — higher detail than the global Esri imagery, but New Zealand only (blank elsewhere). Off by default; enable it if you're mapping in NZ. Imagery © LINZ, CC&#8209;BY&nbsp;4.0.",
+    "heightmapGradient": "Heightmap gradient",
+    "heightmapGradientInfo": "Colours the <strong>Heightmap</strong> basemap. Heights are relative to whatever terrain is on screen, so the highest visible point always takes the top colour — pan or zoom and the shading rescales to the new view, making local high ground stand out anywhere.",
     "shadingIntensity": "Shading intensity: {pct}%",
     "shadingIntensityInfo": "Multidirectional relief shading from the DEM. Higher = stronger.",
     "verticalExaggeration": "Vertical exaggeration: {x}×",
@@ -366,7 +368,8 @@
     "cartoDark": "Carto Dark",
     "satellite": "Satellite",
     "aerialImagery": "Aerial Imagery",
-    "topoMap": "Topo Map"
+    "topoMap": "Topo Map",
+    "heightmap": "Heightmap"
   },
   "mapControls": {
     "basemap": "Basemap",

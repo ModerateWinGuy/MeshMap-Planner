@@ -343,6 +343,8 @@
     "toggle3dInfo": "Aktiviere <strong>3D-Gelände</strong> mit dem Button <strong>3D</strong> auf der Karte (oben links, unter den Basiskarten-Buttons). Es drapiert die Karte über ein Höhenmesh (Mapterhorn); mit Rechtsziehen (oder dem Kompass-Steuerelement) kippen, um die Hügelhöhe abzulesen. Der <strong>Schummerung</strong>-Button daneben fügt Reliefschummerung hinzu, die Hügel auf flachen Basiskarten erkennbar macht — funktioniert sowohl in Draufsicht als auch in 3D.",
     "nzBasemap": "NZ-Satellitenbasiskarte anzeigen (LINZ)",
     "nzBasemapInfo": "Fügt den Basiskarten-Buttons eine Option <strong>Satellit (NZ)</strong> hinzu, mit LINZ-Luftbildern — höheres Detail als die globalen Esri-Bilder, aber nur für Neuseeland (sonst leer). Standardmäßig deaktiviert; aktivieren, wenn du in NZ kartierst. Bildmaterial © LINZ, CC&#8209;BY&nbsp;4.0.",
+    "heightmapGradient": "Höhenkarten-Farbverlauf",
+    "heightmapGradientInfo": "Färbt die Basiskarte <strong>Höhenkarte</strong>. Die Höhen sind relativ zum aktuell sichtbaren Gelände, der höchste sichtbare Punkt erhält also immer die oberste Farbe — beim Verschieben oder Zoomen skaliert die Einfärbung auf die neue Ansicht und lässt lokale Anhöhen überall hervortreten.",
     "shadingIntensity": "Schummerungsintensität: {pct}%",
     "shadingIntensityInfo": "Multidirektionale Reliefschummerung aus dem DGM. Höher = stärker.",
     "verticalExaggeration": "Vertikale Überhöhung: {x}×",
@@ -366,7 +368,8 @@
     "cartoDark": "Carto Dark",
     "satellite": "Satellit",
     "aerialImagery": "Luftbilder",
-    "topoMap": "Topografische Karte"
+    "topoMap": "Topografische Karte",
+    "heightmap": "Höhenkarte"
   },
   "mapControls": {
     "basemap": "Basiskarte",

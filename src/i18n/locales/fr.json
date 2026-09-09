@@ -343,6 +343,8 @@
     "toggle3dInfo": "Activez le <strong>terrain 3D</strong> avec le bouton <strong>3D</strong> sur la carte (en haut à gauche, sous les boutons de fond de carte). Il drape la carte sur un maillage d'élévation (Mapterhorn) ; inclinez avec un glissement droit (ou le contrôle de boussole) pour lire le relief des collines. Le bouton <strong>Ombrage</strong> à côté ajoute un ombrage de relief qui fait ressortir les collines sur les fonds de carte plats — fonctionne en vue de dessus comme en 3D.",
     "nzBasemap": "Afficher le fond de carte satellite NZ (LINZ)",
     "nzBasemapInfo": "Ajoute une option <strong>Satellite (NZ)</strong> aux boutons de fond de carte, en utilisant la photographie aérienne LINZ — plus de détail que l'imagerie mondiale Esri, mais uniquement pour la Nouvelle-Zélande (vide ailleurs). Désactivé par défaut ; activez-le si vous cartographiez en NZ. Imagerie © LINZ, CC&#8209;BY&nbsp;4.0.",
+    "heightmapGradient": "Dégradé de la carte des hauteurs",
+    "heightmapGradientInfo": "Colore le fond de carte <strong>Carte des hauteurs</strong>. Les hauteurs sont relatives au terrain affiché à l'écran : le point le plus haut visible prend toujours la couleur supérieure — en vous déplaçant ou en zoomant, le dégradé se recalcule pour la nouvelle vue, faisant ressortir les hauteurs locales partout.",
     "shadingIntensity": "Intensité de l'ombrage : {pct}%",
     "shadingIntensityInfo": "Ombrage de relief multidirectionnel à partir du MNT. Plus élevé = plus prononcé.",
     "verticalExaggeration": "Exagération verticale : {x}×",
@@ -366,7 +368,8 @@
     "cartoDark": "Carto Dark",
     "satellite": "Satellite",
     "aerialImagery": "Imagerie aérienne",
-    "topoMap": "Carte topographique"
+    "topoMap": "Carte topographique",
+    "heightmap": "Carte des hauteurs"
   },
   "mapControls": {
     "basemap": "Fond de carte",

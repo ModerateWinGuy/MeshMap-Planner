@@ -343,6 +343,8 @@
     "toggle3dInfo": "Activa el <strong>terreno 3D</strong> con el botón <strong>3D</strong> del mapa (arriba a la izquierda, bajo los botones de mapa base). Envuelve el mapa sobre una malla de elevación (Mapterhorn); inclina con arrastre derecho (o el control de brújula) para leer la elevación de las colinas. El botón <strong>Sombra</strong> junto a él añade sombreado de relieve que resalta colinas sobre mapas base planos — funciona tanto en vista cenital como en 3D.",
     "nzBasemap": "Mostrar mapa base satelital de NZ (LINZ)",
     "nzBasemapInfo": "Añade una opción <strong>Satélite (NZ)</strong> a los botones de mapa base, usando fotografía aérea de LINZ — mayor detalle que la imaginería global de Esri, pero solo para Nueva Zelanda (en blanco en el resto). Desactivado por defecto; actívalo si estás mapeando en NZ. Imaginería © LINZ, CC&#8209;BY&nbsp;4.0.",
+    "heightmapGradient": "Degradado del mapa de alturas",
+    "heightmapGradientInfo": "Colorea el mapa base <strong>Mapa de alturas</strong>. Las alturas son relativas al terreno visible en pantalla, por lo que el punto más alto visible siempre toma el color superior — al desplazar o hacer zoom, el sombreado se reescala a la nueva vista, destacando las zonas altas locales en cualquier lugar.",
     "shadingIntensity": "Intensidad de sombreado: {pct}%",
     "shadingIntensityInfo": "Sombreado de relieve multidireccional a partir del DEM. Mayor = más intenso.",
     "verticalExaggeration": "Exageración vertical: {x}×",
@@ -366,7 +368,8 @@
     "cartoDark": "Carto Dark",
     "satellite": "Satélite",
     "aerialImagery": "Imaginería aérea",
-    "topoMap": "Mapa topográfico"
+    "topoMap": "Mapa topográfico",
+    "heightmap": "Mapa de alturas"
   },
   "mapControls": {
     "basemap": "Mapa base",

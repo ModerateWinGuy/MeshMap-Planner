@@ -31,6 +31,28 @@
       </div>
     </div>
 
+    <div class="row mt-3" v-if="store.activeBasemap === 'heightmap'">
+      <div class="col-12">
+        <div class="d-flex align-items-center mb-2">
+          <label for="heightmap_gradient" class="form-label mb-0">{{ t('terrain.heightmapGradient') }}</label>
+          <InfoTip>
+            <span v-html="t('terrain.heightmapGradientInfo')"></span>
+          </InfoTip>
+        </div>
+        <select
+          id="heightmap_gradient"
+          class="form-select form-select-sm"
+          :value="store.heightmapGradient"
+          @change="store.setHeightmapGradient(($event.target as HTMLSelectElement).value)"
+        >
+          <option v-for="opt in HEIGHTMAP_GRADIENT_OPTIONS" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
+        <div class="legend-bar mt-2" :style="{ background: gradientCss(store.heightmapGradient) }"></div>
+      </div>
+    </div>
+
     <div class="row mt-3" v-if="store.hillshadeEnabled">
       <div class="col-12">
         <div class="d-flex align-items-center mb-2">
@@ -189,6 +211,7 @@ import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
 import InfoTip from './InfoTip.vue';
 import DemProviders from './DemProviders.vue';
+import { gradientCss, HEIGHTMAP_GRADIENT_OPTIONS } from '../sim/colormap.ts';
 const { t } = useI18n();
 const store = useStore();
 </script>

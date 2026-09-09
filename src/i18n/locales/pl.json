@@ -343,6 +343,8 @@
     "toggle3dInfo": "Włącz <strong>teren 3D</strong> przyciskiem <strong>3D</strong> na mapie (w lewym górnym rogu, pod przyciskami mapy bazowej). Owija mapę siatką wysokości (Mapterhorn); przechyl przeciągnięciem prawym przyciskiem (lub kontrolką kompasu), aby odczytać wysokość wzgórz. Przycisk <strong>Cień</strong> obok dodaje cieniowanie rzeźby, które uwidacznia wzgórza na płaskich mapach bazowych — działa zarówno w widoku z góry, jak i 3D.",
     "nzBasemap": "Pokaż satelitarną mapę bazową NZ (LINZ)",
     "nzBasemapInfo": "Dodaje opcję <strong>Satelita (NZ)</strong> do przycisków map bazowych, wykorzystując zdjęcia lotnicze LINZ — wyższa szczegółowość niż globalne zdjęcia Esri, ale tylko dla Nowej Zelandii (puste gdzie indziej). Domyślnie wyłączone; włącz, jeśli mapujesz w NZ. Zdjęcia © LINZ, CC&#8209;BY&nbsp;4.0.",
+    "heightmapGradient": "Gradient mapy wysokości",
+    "heightmapGradientInfo": "Koloruje mapę bazową <strong>Mapa wysokości</strong>. Wysokości są względne wobec terenu widocznego na ekranie, więc najwyższy widoczny punkt zawsze otrzymuje najwyższy kolor — po przesunięciu lub przybliżeniu cieniowanie przeskalowuje się do nowego widoku, uwydatniając lokalne wzniesienia w każdym miejscu.",
     "shadingIntensity": "Intensywność cieniowania: {pct}%",
     "shadingIntensityInfo": "Wielokierunkowe cieniowanie rzeźby na podstawie DEM. Wyższa = mocniejsze.",
     "verticalExaggeration": "Przewyższenie pionowe: {x}×",
@@ -366,7 +368,8 @@
     "cartoDark": "Carto Dark",
     "satellite": "Satelita",
     "aerialImagery": "Zdjęcia lotnicze",
-    "topoMap": "Mapa topograficzna"
+    "topoMap": "Mapa topograficzna",
+    "heightmap": "Mapa wysokości"
   },
   "mapControls": {
     "basemap": "Mapa bazowa",

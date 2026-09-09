@@ -89,6 +89,18 @@ const GREYS: RGB[] = [
   [0, 0, 0],
   [255, 255, 255],
 ];
+// Hypsometric tinting. Not perceptually uniform, deliberately: the familiar atlas colours are what
+// make a heightmap read as terrain at a glance.
+const TERRAIN: RGB[] = [
+  [26, 92, 48],
+  [74, 140, 60],
+  [150, 178, 78],
+  [214, 196, 124],
+  [178, 140, 92],
+  [140, 100, 72],
+  [160, 155, 150],
+  [255, 255, 255],
+];
 
 export type ColormapFn = (t: number) => RGB;
 
@@ -99,6 +111,7 @@ export const jet: ColormapFn = (t) => sampleStops(JET, t);
 export const cool: ColormapFn = (t) => sampleStops(COOL, t);
 export const cmrmap: ColormapFn = (t) => sampleStops(CMRMAP, t);
 export const greys: ColormapFn = (t) => sampleStops(GREYS, t);
+export const terrain: ColormapFn = (t) => sampleStops(TERRAIN, t);
 
 // Map the matplotlib names the display config uses (and a couple of aliases) onto our LUTs. Unknown
 // names fall back to turbo — a sensible high-contrast default rather than a hard failure.
@@ -114,6 +127,7 @@ const BY_NAME: Record<string, ColormapFn> = {
   grays: greys,
   gray: greys,
   grey: greys,
+  terrain,
 };
 
 export function colormap(name: string): ColormapFn {
@@ -129,6 +143,13 @@ export const COLOR_SCALE_OPTIONS: ReadonlyArray<{ value: string; label: string }
   { value: 'viridis', label: 'Viridis' },
   { value: 'turbo', label: 'Turbo' },
   { value: 'jet', label: 'Jet' },
+];
+
+// Separate from COLOR_SCALE_OPTIONS: 'terrain' and 'greys' suit elevation but not coverage.
+export const HEIGHTMAP_GRADIENT_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'terrain', label: 'Terrain' },
+  ...COLOR_SCALE_OPTIONS,
+  { value: 'greys', label: 'Greys' },
 ];
 
 // CSS linear-gradient sampling a colormap left (t=0) to right (t=1), for a legend swatch.

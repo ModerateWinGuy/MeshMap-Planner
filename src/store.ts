@@ -33,6 +33,7 @@ import {
   type DemProvider,
   type ProviderTestResult,
 } from './terrain/demTiles.ts';
+import { reliefRampExpression, visibleElevationRange } from './terrain/reliefRange.ts';
 import { ViewshedEngine, type ViewshedComputeEngine } from './viewshed/gpu.ts';
 import { Webgl2ViewshedEngine } from './viewshed/webgl2.ts';
 import {
@@ -58,7 +59,15 @@ const DEFAULT_LON = 174.86568331718445;
 
 const CARTO_KEY = `?key=${import.meta.env.VITE_CARTO_API_KEY ?? ''}`;
 
-export const BASEMAPS = [
+interface Basemap {
+  id: string;
+  labelKey: string;
+  tiles?: string[]; // absent for 'heightmap', painted from the DEM rather than fetched
+  attribution: string;
+  maxzoom: number;
+}
+
+export const BASEMAPS: Basemap[] = [
   {
     id: 'osm',
     labelKey: 'basemaps.osm',
@@ -122,6 +131,13 @@ export const BASEMAPS = [
     // OpenTopoMap is CC-BY-SA — this attribution must remain visible.
     attribution: 'Map data: © OpenStreetMap contributors, SRTM | OpenTopoMap',
     maxzoom: 17,
+  },
+  {
+    // Coloured relative to the on-screen range, not absolute; see refreshHeightmapRange.
+    id: 'heightmap',
+    labelKey: 'basemaps.heightmap',
+    attribution: '',
+    maxzoom: DEM_MAXZOOM,
   },
 ];
 
@@ -274,6 +290,7 @@ function buildStyle(
   terrainEnabled: boolean,
   terrainExaggeration: number,
   hasAnyOverlay: boolean,
+  heightmapGradient: string,
 ): any {
   const sources: Record<string, any> = {};
   const layers: any[] = [];
@@ -281,6 +298,27 @@ function buildStyle(
   // every basemap hidden (a blank map).
   const visibleId = BASEMAPS.some((b) => b.id === activeBasemap) ? activeBasemap : BASEMAPS[0].id;
   BASEMAPS.forEach((b) => {
+    const visibility = b.id === visibleId ? 'visible' : 'none';
+    if (!b.tiles) {
+      layers.push({
+        id: 'heightmap-bg',
+        type: 'background',
+        layout: { visibility },
+        paint: { 'background-color': '#000000' },
+      });
+      layers.push({
+        id: `basemap-${b.id}`,
+        type: 'color-relief',
+        source: 'terrain-dem',
+        layout: { visibility },
+        paint: {
+          // Placeholder; refreshHeightmapRange replaces it once a view exists.
+          'color-relief-color': reliefRampExpression(heightmapGradient, 0, 1000),
+          resampling: 'linear',
+        },
+      });
+      return;
+    }
     sources[b.id] = {
       type: 'raster',
       tiles: b.tiles,
@@ -292,7 +330,7 @@ function buildStyle(
       id: `basemap-${b.id}`,
       type: 'raster',
       source: b.id,
-      layout: { visibility: b.id === visibleId ? 'visible' : 'none' },
+      layout: { visibility },
     });
   });
   sources['terrain-dem'] = terrainDemSource(hasAnyOverlay);
@@ -538,6 +576,10 @@ let viewshedDirty = false;
 // The (rounded) map zoom the current viewshed was fetched at, so a moveend only re-fetches when the
 // zoom level actually changes (panning hits the same tiles). -1 = none computed yet.
 let viewshedLastZoom = -1;
+let heightmapScanning = false;
+let heightmapDirty = false;
+let heightmapTimer: ReturnType<typeof setTimeout> | undefined;
+const HEIGHTMAP_THROTTLE_MS = 200;
 // Serialises GPU passes: the viewshed re-renders progressively as terrain tiles stream in, but the
 // engine reuses one set of GPU buffers, so two compute()s must never overlap. Progressive frames are
 // dropped while a pass is in flight; the final pass waits for it. Null = idle.
@@ -719,6 +761,9 @@ const useStore = defineStore('store', {
       // Opt-in to the NZ-only 'Satellite (NZ)' (LINZ aerial) basemap button. Off by default so the
       // picker stays uncluttered for non-NZ users; when on, availableBasemaps reveals the button.
       nzBasemapEnabled: useLocalStorage('nzBasemapEnabled', false),
+      heightmapGradient: useLocalStorage('heightmapGradient', 'terrain'),
+      // Cached so a gradient change re-ramps without rescanning.
+      heightmapRange: null as { min: number; max: number } | null,
       // Which sidebar panel the top-bar mode toggle shows. Persisted so the chosen mode survives reload.
       activeMode: useLocalStorage<UiMode>('activeMode', 'nodes'),
       localSites: [] as Site[], // in-memory only (raster/canvas are not JSON-serializable)
@@ -2150,6 +2195,9 @@ const useStore = defineStore('store', {
         clearTimeout(rebuild3dTimer);
         rebuild3dTimer = null;
       }
+      // scanning/dirty self-clear: an in-flight scan always resolves (15s tile timeout).
+      clearTimeout(heightmapTimer);
+      heightmapTimer = undefined;
       links3dLayer = null;
       links3dPicks = [];
       cursor3dActive = false;
@@ -2223,6 +2271,7 @@ const useStore = defineStore('store', {
             this.terrainEnabled,
             this.terrainExaggeration,
             this.mapDemProviders.some((p) => p.enabled),
+            this.heightmapGradient,
           ),
           center,
           zoom: 10,
@@ -2270,6 +2319,7 @@ const useStore = defineStore('store', {
         this.redrawSites();
         this.redrawLinks();
         this.redrawRelay();
+        this.refreshHeightmapRange(); // the style ships a placeholder range
         if (this.viewshedEnabled) {
           this.computeViewshed(); // restore the LOS overlay after a (re)mount when it was left on
         }
@@ -2484,6 +2534,17 @@ const useStore = defineStore('store', {
           this.requestViewshed();
         }
       });
+      // Throttle, not debounce: 'move' fires continuously, so a debounce would never run mid-drag.
+      map.on('move', () => {
+        if (heightmapTimer !== undefined) {
+          return;
+        }
+        heightmapTimer = setTimeout(() => {
+          heightmapTimer = undefined;
+          this.refreshHeightmapRange();
+        }, HEIGHTMAP_THROTTLE_MS);
+      });
+      map.on('moveend', () => this.refreshHeightmapRange());
       map.on('data', (e: any) => {
         if (e.dataType === 'source' && e.sourceId === 'terrain-dem' && e.tile) {
           this.rebuild3dLinks();
@@ -2846,6 +2907,57 @@ const useStore = defineStore('store', {
           map.setLayoutProperty('basemap-' + b.id, 'visibility', b.id === id ? 'visible' : 'none');
         }
       }
+      if (map.getLayer('heightmap-bg')) {
+        map.setLayoutProperty('heightmap-bg', 'visibility', id === 'heightmap' ? 'visible' : 'none');
+      }
+      this.refreshHeightmapRange();
+    },
+    // Guarded like the viewshed: one scan at a time, dirty re-runs it if the camera moved meanwhile.
+    async refreshHeightmapRange() {
+      const map = this.map as maplibregl.Map | undefined;
+      if (!map || this.activeBasemap !== 'heightmap' || !map.getLayer('basemap-heightmap')) {
+        return;
+      }
+      if (heightmapScanning) {
+        heightmapDirty = true;
+        return;
+      }
+      heightmapScanning = true;
+      try {
+        do {
+          heightmapDirty = false;
+          const range = await visibleElevationRange(map, enabledOverlaySpecs(this.mapDemProviders));
+          if (!range) {
+            // Every tile failed; keep the previous ramp.
+            continue;
+          }
+          this.heightmapRange = range;
+          if (this.activeBasemap !== 'heightmap' || this.map !== map || !map.getLayer('basemap-heightmap')) {
+            return;
+          }
+          map.setPaintProperty(
+            'basemap-heightmap',
+            'color-relief-color',
+            reliefRampExpression(this.heightmapGradient, range.min, range.max),
+          );
+        } while (heightmapDirty);
+      } finally {
+        heightmapScanning = false;
+      }
+    },
+    // Reuses the last scanned range: only the colours change, not the terrain.
+    setHeightmapGradient(name: string) {
+      this.heightmapGradient = name;
+      const map = this.map as maplibregl.Map | undefined;
+      const range = this.heightmapRange;
+      if (!map || !map.getLayer('basemap-heightmap')) {
+        return;
+      }
+      if (!range) {
+        this.refreshHeightmapRange();
+        return;
+      }
+      map.setPaintProperty('basemap-heightmap', 'color-relief-color', reliefRampExpression(name, range.min, range.max));
     },
     // Reveal/hide the NZ aerial (LINZ) basemap button. If turning it off while that basemap is active,
     // fall back to the global Satellite so the map isn't left on a basemap whose button just vanished.
@@ -2965,6 +3077,7 @@ const useStore = defineStore('store', {
       // next run; re-run the live viewshed now so the change is visible immediately.
       this.applyTerrain();
       this.rebuild3dLinks();
+      this.refreshHeightmapRange(); // a different surface means a different min/max
       if (this.viewshedEnabled) {
         this.requestViewshed();
       }
