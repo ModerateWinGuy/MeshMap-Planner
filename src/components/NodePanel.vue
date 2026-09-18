@@ -101,14 +101,41 @@
             </button>
             <button
               type="button"
-              @click.stop="store.deleteGroup(group.id)"
+              @click.stop="onDeleteFolder(group)"
               class="btn btn-sm p-0 border-0 bg-transparent lh-1"
               :aria-label="t('nodePanel.deleteFolder')"
-              :title="t('nodePanel.deleteFolderTitle')"
+              :title="t('nodePanel.deleteFolder')"
             >
               <Trash2 :size="15" />
             </button>
           </span>
+        </div>
+
+        <!-- Shown only for a folder that still has members: keep them or take them with it. -->
+        <div v-if="confirmDeleteId === group.id" class="d-flex align-items-center gap-1 mt-1">
+          <button
+            type="button"
+            class="btn btn-outline-secondary btn-sm py-0 flex-grow-1"
+            @click="removeFolder(group.id, false)"
+          >
+            {{ t('nodePanel.deleteFolderOnly') }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-outline-danger btn-sm py-0 flex-grow-1"
+            @click="removeFolder(group.id, true)"
+          >
+            {{ deleteWithNodesLabel(group.id) }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm p-0 px-1 border-0 bg-transparent lh-1"
+            @click="confirmDeleteId = null"
+            :aria-label="t('common.cancel')"
+            :title="t('common.cancel')"
+          >
+            <X :size="15" />
+          </button>
         </div>
         <ul
           v-show="!group.collapsed"
@@ -184,7 +211,7 @@ import type { NodeGroup } from '../types.ts';
 import { nodeToShared, type SharePayload } from '../utils.ts';
 import NodeRow from './NodeRow.vue';
 import ShareButton from './ShareButton.vue';
-import { ChevronDown, ChevronRight, Eye, EyeOff, Folder, FolderPlus, Pencil, Plus, Trash2 } from '@lucide/vue';
+import { ChevronDown, ChevronRight, Eye, EyeOff, Folder, FolderPlus, Pencil, Plus, Trash2, X } from '@lucide/vue';
 import { dragKind, dragId, startDrag, endDrag, isOver, dropTarget } from './nodeDnd.ts';
 
 const { t } = useI18n();
@@ -218,6 +245,24 @@ const ungroupedNodes = computed(() => store.nodes.filter((n) => !n.groupId || !g
 
 const editingGroupId = ref<string | null>(null);
 const editName = ref('');
+const confirmDeleteId = ref<string | null>(null);
+
+// An empty folder deletes straight away; one with members asks whether they go with it.
+function onDeleteFolder(group: NodeGroup) {
+  if (!nodesInGroup(group.id).length) {
+    store.deleteGroup(group.id);
+    return;
+  }
+  confirmDeleteId.value = confirmDeleteId.value === group.id ? null : group.id;
+}
+function removeFolder(id: string, withNodes: boolean) {
+  store.deleteGroup(id, withNodes);
+  confirmDeleteId.value = null;
+}
+function deleteWithNodesLabel(id: string) {
+  const count = nodesInGroup(id).length;
+  return count === 1 ? t('nodePanel.deleteFolderWithNodeOne') : t('nodePanel.deleteFolderWithNodesMany', { count });
+}
 
 function startRename(group: NodeGroup) {
   editingGroupId.value = group.id;

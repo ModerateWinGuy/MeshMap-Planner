@@ -1,5 +1,6 @@
 import type { Bbox, PublicNodeCandidate, PublicNodeSource } from './types.ts';
 import { zonesForBounds } from './meshmapperZones.ts';
+import { parseGainDbi, parseHeightM, parsePowerWatts } from './meshmapperSite.ts';
 import { i18n } from '../i18n/index.ts';
 
 const repeatersUrl = (code: string) => `https://${code.toLowerCase()}.meshmapper.net/get_repeaters.php`;
@@ -9,6 +10,10 @@ const repeatersUrl = (code: string) => `https://${code.toLowerCase()}.meshmapper
 // fetch each, and normalise. MeshMapper carries no frequency, and disabled repeaters are kept. Its
 // `hex_id` is the node's public key (identical to MeshCore's public_key), which drives cross-source
 // dedupe in the orchestrator.
+//
+// `antenna` / `power` / `height_m` are owner-published site details. They are sparse keys — absent
+// entirely on most records rather than present-and-empty — so read them optionally and let
+// meshmapperSite's parsers reject anything unreadable.
 async function fetchRegion(code: string, signal?: AbortSignal): Promise<PublicNodeCandidate[]> {
   const res = await fetch(repeatersUrl(code), { mode: 'cors', signal });
   if (!res.ok) {
@@ -31,7 +36,20 @@ async function fetchRegion(code: string, signal?: AbortSignal): Promise<PublicNo
     }
     const name = typeof r.name === 'string' && r.name.trim() ? r.name.trim() : i18n.global.t('store.unnamed');
     const key = typeof r.hex_id === 'string' && r.hex_id ? r.hex_id.toLowerCase() : null;
-    out.push({ key, name, lat, lon, freq: null, sourceId: 'meshmapper' });
+    const heightM = parseHeightM(r.height_m);
+    const gainDbi = parseGainDbi(r.antenna);
+    const powerWatts = parsePowerWatts(r.power);
+    out.push({
+      key,
+      name,
+      lat,
+      lon,
+      freq: null,
+      ...(heightM != null ? { heightM } : {}),
+      ...(gainDbi != null ? { gainDbi } : {}),
+      ...(powerWatts != null ? { powerWatts } : {}),
+      sourceId: 'meshmapper',
+    });
   }
   return out;
 }

@@ -1381,14 +1381,17 @@ const useStore = defineStore('store', {
     // Bulk-create nodes from a public-map sync (MeshCore/MeshMapper), all dropped into a single
     // "Public MeshCore" folder (reused across re-syncs). Rows are already clipped to the view and
     // deduped by the sync orchestrator (src/sources). Mirrors importContacts, but carries the node's
-    // real frequency when the source provided one, and stores its public key (meshKey) for exact
-    // re-sync/cross-source dedupe. Returns how many were added.
+    // real frequency and any owner-published site details the source provided, and stores its public
+    // key (meshKey) for exact re-sync/cross-source dedupe. Returns how many were added.
     importPublicMapNodes(
       rows: Array<{
         name: string;
         lat: number;
         lon: number;
         freq: number | null;
+        heightM?: number;
+        gainDbi?: number;
+        powerWatts?: number;
         meshKey: string | null;
       }>,
     ): number {
@@ -1406,6 +1409,17 @@ const useStore = defineStore('store', {
         };
         if (row.freq != null && Number.isFinite(row.freq)) {
           transmitter.tx_freq = row.freq;
+        }
+        // Each of these is absent unless the source published it and it parsed, so the spread above
+        // keeps the app default for everything the owner never filled in.
+        if (row.heightM != null) {
+          transmitter.tx_height = row.heightM;
+        }
+        if (row.gainDbi != null) {
+          transmitter.tx_gain = row.gainDbi;
+        }
+        if (row.powerWatts != null) {
+          transmitter.tx_power = row.powerWatts;
         }
         const node: Node = {
           id: crypto.randomUUID(),
@@ -1566,17 +1580,21 @@ const useStore = defineStore('store', {
       this.renderNodeMarkers();
       this.redrawLinks();
     },
-    // Delete a folder. Its member nodes are kept — they fall back to ungrouped (top-level), not
-    // deleted. Only needs a redraw if the folder was hiding members, which now reappear.
-    deleteGroup(id: string) {
+    // Delete a folder. Its member nodes are kept by default — they fall back to ungrouped
+    // (top-level); with withNodes they go too, one deleteNode call each so every per-node fix-up
+    // (undo entry, selection, pending pair) still happens. Only needs a redraw if the folder was
+    // hiding members, which now reappear.
+    deleteGroup(id: string, withNodes = false) {
       const idx = this.groups.findIndex((g) => g.id === id);
       if (idx === -1) {
         return;
       }
       const wasHiding = Boolean(this.groups[idx].hidden);
       this.groups.splice(idx, 1);
-      for (const node of this.nodes) {
-        if (node.groupId === id) {
+      for (const node of this.nodes.filter((n) => n.groupId === id)) {
+        if (withNodes) {
+          this.deleteNode(node.id);
+        } else {
           node.groupId = undefined;
         }
       }

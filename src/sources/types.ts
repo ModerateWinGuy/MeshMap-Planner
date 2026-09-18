@@ -21,6 +21,11 @@ export interface PublicNodeCandidate {
   // Real operating frequency (MHz) when the source carries one, else null (the import uses the app
   // default). When a node comes from several sources, the freq-carrying candidate wins.
   freq: number | null;
+  // Owner-published site details, each absent unless the source carried a value we could parse. The
+  // import applies them over the app defaults, so absent simply means "keep the default".
+  heightM?: number;
+  gainDbi?: number;
+  powerWatts?: number;
   sourceId: string;
 }
 

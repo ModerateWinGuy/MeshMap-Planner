@@ -16,6 +16,9 @@ export interface ImportRow {
   lat: number;
   lon: number;
   freq: number | null;
+  heightM?: number;
+  gainDbi?: number;
+  powerWatts?: number;
   meshKey: string | null;
 }
 
@@ -71,7 +74,9 @@ export async function syncPublicNodes(
   });
 
   // Dedupe within this batch: one candidate per identity, preferring one that carries a freq, then the
-  // source registered earliest.
+  // source registered earliest. Site details are merged across the duplicates rather than taken from
+  // the winner alone — the freq-carrying source and the site-detail-carrying source are not the same
+  // one, so picking a winner outright would discard whichever the loser held.
   const best = new Map<string, PublicNodeCandidate>();
   for (const c of candidates) {
     const id = identity(c);
@@ -84,9 +89,14 @@ export async function syncPublicNodes(
     const prevRank = order.get(prev.sourceId) ?? Infinity;
     const better =
       (c.freq != null && prev.freq == null) || ((c.freq == null) === (prev.freq == null) && cRank < prevRank);
-    if (better) {
-      best.set(id, c);
-    }
+    const winner = better ? c : prev;
+    const loser = better ? prev : c;
+    best.set(id, {
+      ...winner,
+      heightM: winner.heightM ?? loser.heightM,
+      gainDbi: winner.gainDbi ?? loser.gainDbi,
+      powerWatts: winner.powerWatts ?? loser.powerWatts,
+    });
   }
 
   // Everything already on the map, keyed by stored meshKey and by name+coords (so re-syncs and
@@ -113,6 +123,9 @@ export async function syncPublicNodes(
       lat: round6(c.lat),
       lon: round6(c.lon),
       freq: c.freq,
+      ...(c.heightM != null ? { heightM: c.heightM } : {}),
+      ...(c.gainDbi != null ? { gainDbi: c.gainDbi } : {}),
+      ...(c.powerWatts != null ? { powerWatts: c.powerWatts } : {}),
       meshKey: c.key,
     });
   }
