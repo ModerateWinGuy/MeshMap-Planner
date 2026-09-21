@@ -3902,11 +3902,14 @@ const useStore = defineStore('store', {
         system_loss: 0,
       };
       const shared = this._simShared();
+      const source = this._simSource();
+      const quality = this._simPathQuality();
 
       // The resolved inputs fully determine the result, so they double as the cache key: editing a
-      // node or any radio param changes the key and forces a recompute; reopening an unchanged pair
-      // is instant.
-      const cacheKey = JSON.stringify({ tx, rx, shared, sensitivity });
+      // node, any radio param or the active terrain providers changes the key and forces a recompute;
+      // reopening an unchanged pair is instant. mapZoom is left out — the corridor always fetches at maxzoom.
+      const terrain = source.overlays.map((o) => o.id ?? o.urlTemplate);
+      const cacheKey = JSON.stringify({ tx, rx, shared, sensitivity, terrain, quality });
       const cached = this.profileCache[cacheKey];
       if (cached) {
         this.profileResult = cached;
@@ -3924,14 +3927,14 @@ const useStore = defineStore('store', {
       this.progress = { message: 'Fetching terrain…', fraction: 0 };
 
       const { promise, cancel } = runProfileWorker({
-        source: this._simSource(),
+        source,
         tx,
         rx,
         shared,
         sensitivity,
         // Shared with the per-pair corridor matrix (_simPathQuality) so this pair's profile margin and
         // its matrix margin are computed from the same terrain at the same density — they agree.
-        quality: this._simPathQuality(),
+        quality,
         onHeightmapProgress: (loaded, total) => {
           this.progress = {
             message: `Loading terrain ${loaded}/${total}…`,
