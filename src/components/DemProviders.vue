@@ -70,7 +70,7 @@
       v-if="!addingNew"
       type="button"
       @click="startAdd"
-      class="btn btn-success btn-sm w-100 d-flex align-items-center justify-content-center gap-1"
+      class="btn btn-primary btn-sm w-100 d-flex align-items-center justify-content-center gap-1"
     >
       <Plus :size="16" /> {{ t('demProviders.addProvider') }}
     </button>

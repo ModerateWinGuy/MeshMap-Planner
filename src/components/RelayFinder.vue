@@ -25,7 +25,7 @@
           :disabled="store.relayState === 'running' || !canRun"
           @click="run"
           type="button"
-          class="btn btn-success btn-sm"
+          class="btn btn-primary btn-sm"
         >
           <span
             v-if="store.relayState === 'running'"
@@ -70,7 +70,7 @@
               <span role="button" class="text-truncate" @click="panTo(pt)" :title="t('relayFinder.panToPoint')">
                 #{{ pt.properties.rank }} · {{ pt.properties.min_margin }} dB
               </span>
-              <button type="button" class="btn btn-sm btn-success py-0" @click="promote(pt)">
+              <button type="button" class="btn btn-sm btn-primary py-0" @click="promote(pt)">
                 {{ t('relayFinder.promote') }}
               </button>
             </li>

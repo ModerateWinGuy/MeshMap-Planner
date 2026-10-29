@@ -46,7 +46,7 @@
       <!-- Header: endpoint identity on the corners, headline link budget across the middle. -->
       <div class="profile-header">
         <div class="text-start profile-left">
-          <div class="fw-bold text-info">{{ fromNode?.transmitter.name || t('profilePanel.pointA') }}</div>
+          <div class="fw-bold">{{ fromNode?.transmitter.name || t('profilePanel.pointA') }}</div>
           <div class="text-muted">{{ fromCoord }} · {{ fromNode?.transmitter.tx_height ?? '?' }} m AGL</div>
           <div class="text-muted" v-if="bearing !== null">{{ bearing.toFixed(1) }}° →</div>
         </div>
@@ -82,7 +82,7 @@
         </div>
 
         <div class="text-end profile-right">
-          <div class="fw-bold text-info">{{ toNode?.transmitter.name || t('profilePanel.pointB') }}</div>
+          <div class="fw-bold">{{ toNode?.transmitter.name || t('profilePanel.pointB') }}</div>
           <div class="text-muted">{{ toCoord }} · {{ toNode?.transmitter.tx_height ?? '?' }} m AGL</div>
           <div class="text-muted" v-if="reverseBearing !== null">← {{ reverseBearing.toFixed(1) }}°</div>
           <div class="text-muted" v-if="fromNode">{{ fromNode.transmitter.tx_freq }} MHz</div>
@@ -425,11 +425,12 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
   position: relative;
   flex: 0 0 auto;
   height: 500px;
-  border-top: 1px solid #ffffff22;
+  border-top: 1px solid var(--border-subtle);
   padding: 0.4rem 0.6rem 0.2rem;
   display: flex;
   flex-direction: column;
-  font-size: 12px;
+  font-size: var(--fs-sm);
+  animation: slide-up var(--dur) var(--ease);
 }
 /* Embedded in App.vue's phone BottomSheet instead of docked under the map — the sheet supplies the
    background/scroll/close chrome, so this drops its own fixed height/border in favour of sizing to
@@ -437,6 +438,7 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
    above (including inside the max-width:767px block, since this is the only regime it's used in) so
    it always wins regardless of source order. */
 .profile-strip.profile-embedded {
+  animation: none;
   position: relative;
   height: auto;
   border-top: 0;
@@ -476,7 +478,7 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
   top: 4px;
   right: 6px;
   z-index: 2;
-  color: #ccc;
+  color: var(--text-muted);
 }
 /* Sits below the close button, sharing its top-right corner. */
 .profile-share {
@@ -484,7 +486,7 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
   top: 28px;
   right: 6px;
   z-index: 2;
-  color: #ccc;
+  color: var(--text-muted);
 }
 /* Sits below the share button, same top-right stack. */
 .profile-refresh {
@@ -492,7 +494,7 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
   top: 52px;
   right: 6px;
   z-index: 2;
-  color: #ccc;
+  color: var(--text-muted);
 }
 .profile-status {
   flex: 1 1 auto;
@@ -506,11 +508,11 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
   align-items: flex-start;
   gap: 1rem;
   line-height: 1.3;
-  font-size: 15px;
+  font-size: var(--fs-md);
 }
 /* Endpoint names: the largest text in the header. */
 .profile-header .fw-bold {
-  font-size: 19px;
+  font-size: var(--fs-lg);
 }
 /* Keep the right-hand endpoint details clear of the absolutely-positioned close button. */
 .profile-right {
@@ -523,10 +525,10 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
   justify-content: center;
   gap: 0.3rem 1.25rem;
   padding-top: 2px;
-  font-size: 15px;
+  font-size: var(--fs-md);
 }
 .profile-stats .badge {
-  font-size: 14px;
+  font-size: var(--fs-sm);
 }
 /* Positioning context + layout slot for the SVG and its hover-dot overlay. */
 .profile-chart {
@@ -540,8 +542,8 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
   flex: 1 1 auto;
   width: 100%;
   min-height: 0;
-  background: #0b1f33;
-  border-radius: 4px;
+  background: var(--surface-0);
+  border-radius: var(--radius-md);
   cursor: crosshair;
 }
 /* Hover dot on the signal line; left/top set inline as % of the chart box. */
@@ -556,11 +558,11 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
   pointer-events: none;
 }
 .profile-svg .axis-label {
-  fill: #9fb3c8;
+  fill: var(--text-muted);
   font-size: 16px;
 }
 .profile-svg .axis-title {
-  fill: #c7d4e0;
+  fill: var(--text);
   font-size: 16px;
 }
 
@@ -575,20 +577,20 @@ const fresnelPct = computed<number | null>(() => store.profileResult?.fresnel_pc
 @media (max-width: 767px) {
   .profile-strip {
     height: 36vh;
-    font-size: 10px;
+    font-size: var(--fs-xs);
   }
   .profile-header {
-    font-size: 11px;
+    font-size: var(--fs-xs);
   }
   .profile-header .fw-bold {
-    font-size: 13px;
+    font-size: var(--fs-md);
   }
   .profile-stats {
     gap: 0.2rem 0.7rem;
-    font-size: 12px;
+    font-size: var(--fs-sm);
   }
   .profile-stats .badge {
-    font-size: 11px;
+    font-size: var(--fs-xs);
   }
 }
 </style>

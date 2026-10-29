@@ -377,6 +377,7 @@
     "basemap": "Basiskarte",
     "toggle3dTerrainTitle": "3D-Gelände umschalten (Karte kippen, um Relief zu sehen)",
     "toggle3dAriaLabel": "3D-Gelände umschalten",
+    "terrain3d": "3D-Gelände",
     "toggleShadingTitle": "Geländeschummerung umschalten (Relief-/Ambient-Occlusion-Look). Funktioniert in flacher und 3D-Ansicht.",
     "toggleShadingAriaLabel": "Geländeschummerung umschalten",
     "shade": "Schummerung",
@@ -413,8 +414,8 @@
       "coverage": "Abdeckung",
       "linkfinder": "Verbindungen",
       "viewshed": "Sichtbarkeitsfläche",
-      "radio": "Simulationseinstellungen",
-      "settings": "Einstellungen",
+      "radio": "Funk",
+      "settings": "Gelände",
       "import": "Import"
     },
     "logoAlt": "MeshMap Planner Logo",
@@ -433,13 +434,24 @@
     "minDbm": "Min. dBm",
     "maxDbm": "Max. dBm",
     "searchLocation": "Standort suchen",
-    "linkProfile": "Verbindungsprofil"
+    "linkProfile": "Verbindungsprofil",
+    "coverageResults": "Abdeckungsergebnisse"
   },
   "modePanels": {
     "importIntro": "Importiere Knoten von <strong>MeshCore</strong> — aus einer Kontakt-Exportdatei oder live von den öffentlichen Karten für deine aktuelle Ansicht.",
     "running": "Läuft",
     "failed": "Fehlgeschlagen",
-    "runSimulation": "Simulation starten"
+    "runSimulation": "Simulation starten",
+    "sections": {
+      "node": "Knoteneinstellungen",
+      "environment": "Umgebung",
+      "loraPreset": "LoRa-Preset",
+      "simulation": "Simulation",
+      "display": "Darstellung",
+      "listener": "Empfänger",
+      "linkMatrix": "Verbindungsmatrix",
+      "relayFinder": "Relaissuche"
+    }
   },
   "store": {
     "importedFolderName": "Importiert",

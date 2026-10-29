@@ -52,19 +52,16 @@
         />
       </div>
     </div>
-    <div class="mt-3 text-center">
-      <div>
-        <img
-          :src="`${baseUrl}colormaps/${display.color_scale}.png`"
-          :alt="t('display.colorbarAlt')"
-          width="256"
-          height="30"
-          style="border: 1px solid #ccc; display: block; margin: 0 auto"
-        />
-      </div>
-      <div class="d-flex justify-content-between mt-1">
-        <span class="badge bg-primary">{{ display.min_dbm }} dBm</span>
-        <span class="badge bg-primary">{{ display.max_dbm }} dBm</span>
+    <div class="mt-3 small">
+      <div
+        class="legend-bar"
+        role="img"
+        :aria-label="t('display.colorbarAlt')"
+        :style="{ background: gradientCss(display.color_scale) }"
+      ></div>
+      <div class="d-flex justify-content-between text-muted mt-1">
+        <span>{{ display.min_dbm }} dBm</span>
+        <span>{{ display.max_dbm }} dBm</span>
       </div>
     </div>
   </form>
@@ -73,10 +70,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
-import { COLOR_SCALE_OPTIONS } from '../sim/colormap.ts';
+import { COLOR_SCALE_OPTIONS, gradientCss } from '../sim/colormap.ts';
 const { t } = useI18n();
 const display = useStore().splatParams.display;
-// Colorbar images live in public/; prefix with Vite's base so they resolve under the
-// GitHub Pages subpath (BASE_URL already ends in '/'), not the domain root.
-const baseUrl = import.meta.env.BASE_URL;
 </script>

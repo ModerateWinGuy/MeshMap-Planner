@@ -1,6 +1,8 @@
 <template>
+  <!-- The one map toolbar for every regime: a vertical strip on desktop/tablet, a centred row on phone.
+       .tool-label text only shows on wide screens (see style.css). -->
   <div class="map-tool-row">
-    <div class="dropdown">
+    <div :class="vertical ? 'dropend' : 'dropdown'">
       <button
         type="button"
         class="tool-btn"
@@ -10,10 +12,21 @@
         :title="t('mapControls.basemap')"
       >
         <Layers :size="17" />
+        <span class="tool-label">{{ activeBasemapLabel }}</span>
       </button>
-      <div class="dropdown-menu p-2" data-bs-theme="dark" style="width: 160px">
-        <BasemapPicker />
-      </div>
+      <ul class="dropdown-menu" data-bs-theme="dark" :aria-label="t('mapControls.basemap')">
+        <li v-for="b in store.availableBasemaps" :key="b.id">
+          <button
+            type="button"
+            class="dropdown-item"
+            :class="{ active: store.activeBasemap === b.id }"
+            :aria-current="store.activeBasemap === b.id"
+            @click="store.setBasemap(b.id)"
+          >
+            {{ t(b.labelKey) }}
+          </button>
+        </li>
+      </ul>
     </div>
 
     <button
@@ -25,7 +38,8 @@
       :title="t('mapControls.toggle3dTerrainTitle')"
       @click="store.toggleTerrain()"
     >
-      3D
+      <span class="tool-glyph">3D</span>
+      <span class="tool-label">{{ t('mapControls.terrain3d') }}</span>
     </button>
 
     <button
@@ -38,6 +52,7 @@
       @click="store.toggleHillshade()"
     >
       <Sun :size="17" />
+      <span class="tool-label">{{ t('mapControls.shade') }}</span>
     </button>
 
     <button
@@ -50,6 +65,7 @@
       @click="store.toggleBuildings()"
     >
       <Building2 :size="17" />
+      <span class="tool-label">{{ t('mapControls.buildings') }}</span>
     </button>
 
     <button
@@ -63,6 +79,7 @@
       @click="store.toggleLinks3d()"
     >
       <Waypoints :size="17" />
+      <span class="tool-label">{{ t('mapControls.links') }}</span>
     </button>
 
     <button
@@ -70,11 +87,22 @@
       class="tool-btn"
       :class="{ active: store.nodesLocked }"
       :aria-pressed="store.nodesLocked"
-      :aria-label="store.nodesLocked ? t('mapControls.nodesLockedAriaLabelTouch') : t('mapControls.lockNodes')"
-      :title="store.nodesLocked ? t('mapControls.nodesLockedTitleTouch') : t('mapControls.lockNodesTitle')"
+      :aria-label="
+        store.nodesLocked
+          ? t(vertical ? 'mapControls.nodesLocked' : 'mapControls.nodesLockedAriaLabelTouch')
+          : t('mapControls.lockNodes')
+      "
+      :title="
+        store.nodesLocked
+          ? t(vertical ? 'mapControls.nodesLockedTitleDesktop' : 'mapControls.nodesLockedTitleTouch')
+          : t('mapControls.lockNodesTitle')
+      "
       @click="store.toggleNodesLock()"
     >
       <component :is="store.nodesLocked ? Lock : LockOpen" :size="17" />
+      <span class="tool-label">{{
+        store.nodesLocked ? t('mapControls.nodesLocked') : t('mapControls.lockNodes')
+      }}</span>
     </button>
 
     <button
@@ -89,15 +117,22 @@
       @click="store.toggleViewshed()"
     >
       <ScanEye :size="17" />
+      <span class="tool-label">{{ t('mapControls.viewshed') }}</span>
     </button>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useStore } from '../store.ts';
 import { Layers, Sun, Waypoints, Lock, LockOpen, ScanEye, Building2 } from '@lucide/vue';
-import BasemapPicker from './BasemapPicker.vue';
 const { t } = useI18n();
 const store = useStore();
+const { vertical = false } = defineProps<{ vertical?: boolean }>();
+
+const activeBasemapLabel = computed(() => {
+  const b = store.availableBasemaps.find((b) => b.id === store.activeBasemap);
+  return b ? t(b.labelKey) : t('mapControls.basemap');
+});
 </script>

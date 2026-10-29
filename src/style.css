@@ -6,70 +6,140 @@ body {
 }
 
 /* ── Theme ────────────────────────────────────────────────────────────────────
-   Dark mode with a warm red/orange accent. These two accents stand in for
-   Bootstrap's green (success) and blue (primary): orange is the primary
-   call-to-action, red marks active/selected toggles. They're defined once here and
-   fed into Bootstrap's per-variant button variables, so every existing
-   .btn-success / .btn-primary / .bg-primary in the markup recolours without
-   touching each call site. Data-viz colours (link-margin heatmap, coverage bands,
-   relay legend) are deliberately left on their red→green scale — there green still
-   reads as "good signal", which is meaning, not theme. */
+   Dark UI with ONE accent: orange marks both calls-to-action and active/selected toggles. Red
+   (--danger) is reserved for destructive actions and errors. The accent is fed into Bootstrap's
+   primary colour, so .btn-primary / .bg-primary / switches / sliders / focus rings all pick it up.
+   Data-viz colours (link-margin heatmap, coverage bands, relay legend, profile chart lines) are
+   deliberately left on their red→green scale — there green reads as "good signal", which is
+   meaning, not theme. */
 :root {
-  --accent-orange: #e8590c;
-  --accent-orange-hover: #cf4f0b;
-  --accent-orange-active: #b6450a;
-  --accent-orange-rgb: 232, 89, 12;
-
-  --accent-red: #c92a2a;
-  --accent-red-hover: #b02525;
-  --accent-red-active: #981f1f;
-  --accent-red-rgb: 201, 42, 42;
-
-  /* Brighter orange for the brand mark, so it stays legible on the near-black navbar. */
+  --accent: #e8590c;
+  --accent-hover: #cf4f0b;
+  --accent-active: #b6450a;
+  --accent-rgb: 232, 89, 12;
+  /* Brighter orange for the brand mark / active icons, legible on the near-black chrome. */
   --accent-bright: #fd7e14;
+
+  --danger: #c92a2a;
+  --danger-hover: #b02525;
+
+  --surface-0: #1a1d20;
+  --surface-1: #212529;
+  --surface-2: #2b3035;
+  --border-subtle: rgba(255, 255, 255, 0.1);
+  --border-input: #495057;
+
+  --text: #dee2e6;
+  --text-muted: #9aa0a6;
+  --text-icon-idle: #ced4da;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+
+  --dur: 150ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --scrim: rgba(0, 0, 0, 0.4);
+  --shadow-float: 0 3px 10px rgba(0, 0, 0, 0.4);
 
   /* Navbar/app-bar height, shared by .content-row's clearance padding and .share-banner's offset so
      they can't drift out of sync with each other (or with .phone-appbar's own height) again. Overridden
      to 46px inside the phone media query below. */
   --navbar-h: 56px;
+  /* Space the phone bottom tab bar occupies — shared by the bottom sheet's resting position and the
+     MapLibre bottom-corner controls so they all clear the bar by the same amount. */
+  --tabbar-clearance: 56px;
 }
 
-/* Primary call-to-action buttons (were Bootstrap green). */
-.btn-success {
-  --bs-btn-bg: var(--accent-orange);
-  --bs-btn-border-color: var(--accent-orange);
-  --bs-btn-hover-bg: var(--accent-orange-hover);
-  --bs-btn-hover-border-color: var(--accent-orange-hover);
-  --bs-btn-active-bg: var(--accent-orange-active);
-  --bs-btn-active-border-color: var(--accent-orange-active);
-  --bs-btn-disabled-bg: var(--accent-orange);
-  --bs-btn-disabled-border-color: var(--accent-orange);
-  --bs-btn-focus-shadow-rgb: var(--accent-orange-rgb);
+:root,
+[data-bs-theme='dark'] {
+  --bs-primary: var(--accent);
+  --bs-primary-rgb: var(--accent-rgb);
+  --bs-link-color: var(--accent-bright);
+  --bs-link-color-rgb: 253, 126, 20;
+  --bs-link-hover-color: #fd9843;
+  --bs-link-hover-color-rgb: 253, 152, 67;
+  --bs-focus-ring-color: rgba(var(--accent-rgb), 0.25);
 }
 
-/* Active toggles and secondary actions (were Bootstrap blue). */
 .btn-primary {
-  --bs-btn-bg: var(--accent-red);
-  --bs-btn-border-color: var(--accent-red);
-  --bs-btn-hover-bg: var(--accent-red-hover);
-  --bs-btn-hover-border-color: var(--accent-red-hover);
-  --bs-btn-active-bg: var(--accent-red-active);
-  --bs-btn-active-border-color: var(--accent-red-active);
-  --bs-btn-disabled-bg: var(--accent-red);
-  --bs-btn-disabled-border-color: var(--accent-red);
-  --bs-btn-focus-shadow-rgb: var(--accent-red-rgb);
+  --bs-btn-bg: var(--accent);
+  --bs-btn-border-color: var(--accent);
+  --bs-btn-hover-bg: var(--accent-hover);
+  --bs-btn-hover-border-color: var(--accent-hover);
+  --bs-btn-active-bg: var(--accent-active);
+  --bs-btn-active-border-color: var(--accent-active);
+  --bs-btn-disabled-bg: var(--accent);
+  --bs-btn-disabled-border-color: var(--accent);
+  --bs-btn-focus-shadow-rgb: var(--accent-rgb);
 }
 
-/* Primary-tinted surfaces (e.g. the dBm badges). */
-.bg-primary {
-  background-color: var(--accent-red) !important;
+.btn-outline-primary {
+  --bs-btn-color: var(--accent-bright);
+  --bs-btn-border-color: var(--accent);
+  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-bg: var(--accent);
+  --bs-btn-hover-border-color: var(--accent);
+  --bs-btn-active-color: #fff;
+  --bs-btn-active-bg: var(--accent-active);
+  --bs-btn-active-border-color: var(--accent-active);
+  --bs-btn-disabled-color: var(--accent-bright);
+  --bs-btn-disabled-border-color: var(--accent);
+  --bs-btn-focus-shadow-rgb: var(--accent-rgb);
 }
 
-/* Selected row in the Nodes panel list (was Bootstrap blue). Red to match the other active/selected
-   states (the basemap / 3D / Shade / Lock toggles) — "red = active" is the shared convention. */
 .list-group-item.active {
-  --bs-list-group-active-bg: var(--accent-red);
-  --bs-list-group-active-border-color: var(--accent-red);
+  --bs-list-group-active-bg: var(--accent);
+  --bs-list-group-active-border-color: var(--accent);
+}
+
+.dropdown-menu {
+  --bs-dropdown-link-active-bg: var(--accent);
+}
+
+/* Bootstrap's compiled form controls hardcode its blue rather than reading --bs-primary. */
+.form-check-input:checked,
+.form-check-input[type='checkbox']:indeterminate {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+.form-control:focus,
+.form-select:focus,
+.form-check-input:focus {
+  border-color: rgba(var(--accent-rgb), 0.6);
+  box-shadow: 0 0 0 0.25rem rgba(var(--accent-rgb), 0.25);
+}
+.form-switch .form-check-input:focus:not(:checked) {
+  --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23f4ac85'/%3e%3c/svg%3e");
+}
+.form-range::-webkit-slider-thumb {
+  background-color: var(--accent);
+}
+.form-range::-webkit-slider-thumb:active {
+  background-color: #f4ac85;
+}
+.form-range::-moz-range-thumb {
+  background-color: var(--accent);
+}
+.form-range::-moz-range-thumb:active {
+  background-color: #f4ac85;
+}
+.form-range:focus::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 1px var(--surface-1),
+    0 0 0 0.25rem rgba(var(--accent-rgb), 0.25);
+}
+.form-range:focus::-moz-range-thumb {
+  box-shadow:
+    0 0 0 1px var(--surface-1),
+    0 0 0 0.25rem rgba(var(--accent-rgb), 0.25);
 }
 
 /* Brand mark in the navbar — the Lucide icon inherits currentColor. */
@@ -117,6 +187,24 @@ body {
 /* The computed-coverage results stay pinned below the mode area, visible in every mode. */
 .sidebar .results-pinned {
   flex: 0 0 auto;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Panel section titles (ModePanels, the importers, coverage results). */
+.sidebar h2.h6,
+.bottom-sheet h2.h6 {
+  margin-bottom: 0.75rem;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.sidebar hr,
+.bottom-sheet hr {
+  margin: 1.25rem 0;
+  border-color: var(--border-subtle);
+  opacity: 1;
 }
 
 /* Color-scale legend swatch: RelayFinder's link-margin heatmap and the coverage results list's
@@ -158,44 +246,60 @@ body {
   margin-right: 0.5rem; /* Optional: Add spacing between spinner and text */
 }
 
-/* The icon is a Lucide SVG (stroke = currentColor), so `color` drives it; active = filled red to
-   match the "red = active" toggle convention. */
-.maplibregl-ctrl button.measure-ctrl-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #333;
+/* ── Map chrome ──────────────────────────────────────────────────────────────
+   MapLibre's controls, popups and our own map overlays share the dark surface so nothing on the map
+   is brighter than the data. */
+.maplibregl-ctrl-group:not(:empty) {
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
 }
-.maplibregl-ctrl button.measure-ctrl-btn.measure-ctrl-active {
-  background-color: var(--accent-red);
-  color: #fff;
+.maplibregl-ctrl-group button + button {
+  border-top-color: var(--border-subtle);
 }
-.maplibregl-ctrl button.measure-ctrl-btn.measure-ctrl-active:hover {
-  background-color: var(--accent-red-hover);
+.maplibregl-ctrl-group button:not(:disabled):hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+/* Built-in icons are dark SVG backgrounds; hue-rotate undoes invert's hue flip so the compass's
+   north needle stays red. */
+.maplibregl-ctrl button .maplibregl-ctrl-icon {
+  filter: invert(1) hue-rotate(180deg);
+}
+.maplibregl-ctrl-attrib.maplibregl-compact,
+.maplibregl-ctrl-attrib {
+  background: rgba(33, 37, 41, 0.8);
+  color: var(--text-muted);
+}
+.maplibregl-ctrl-attrib a {
+  color: var(--text);
+}
+.maplibregl-ctrl-scale {
+  background: rgba(33, 37, 41, 0.75);
+  color: var(--text);
+  border-color: var(--text-muted);
 }
 
-/* Snap-to-highest-point control — same shape/convention as measure-ctrl-btn above. */
-.maplibregl-ctrl button.snap-peak-ctrl-btn {
+/* Our own Lucide-icon controls (stroke = currentColor). */
+.maplibregl-ctrl button.measure-ctrl-btn,
+.maplibregl-ctrl button.snap-peak-ctrl-btn,
+.maplibregl-ctrl button.hotkey-help-btn,
+.maplibregl-ctrl button.location-search-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #333;
+  color: var(--text-icon-idle);
 }
-.maplibregl-ctrl button.snap-peak-ctrl-btn.snap-peak-ctrl-active {
-  background-color: var(--accent-red);
+.maplibregl-ctrl button.measure-ctrl-active,
+.maplibregl-ctrl button.snap-peak-ctrl-active,
+.maplibregl-ctrl button.location-search-active,
+.maplibregl-ctrl-group button.measure-ctrl-active:not(:disabled):hover,
+.maplibregl-ctrl-group button.snap-peak-ctrl-active:not(:disabled):hover,
+.maplibregl-ctrl-group button.location-search-active:not(:disabled):hover {
+  background-color: var(--accent);
   color: #fff;
 }
-.maplibregl-ctrl button.snap-peak-ctrl-btn.snap-peak-ctrl-active:hover {
-  background-color: var(--accent-red-hover);
-}
 
-/* Hotkey help control — match the plain MapLibre control button look (Lucide SVG = currentColor). */
-.maplibregl-ctrl button.hotkey-help-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #333;
-}
 /* Two-column shortcut list inside the Bootstrap popover. */
 .hotkey-help-list {
   display: grid;
@@ -210,20 +314,117 @@ body {
   margin: 0;
 }
 
-/* Location search control — same plain MapLibre control button look; active = filled red to match
-   the "red = active" toggle convention (see measure-ctrl-active). */
-.maplibregl-ctrl button.location-search-btn {
+.maplibregl-popup-content {
+  background: var(--surface-1);
+  color: var(--text);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+}
+.maplibregl-popup-close-button {
+  color: var(--text-muted);
+}
+.maplibregl-popup-close-button:hover {
+  background-color: transparent;
+  color: #fff;
+}
+.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+  border-bottom-color: var(--surface-1);
+}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: var(--surface-1);
+}
+.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--surface-1);
+}
+.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--surface-1);
+}
+
+/* Map toolbar (MapToolRow): basemap menu + layer toggles. A vertical strip top-left of the map on
+   desktop/tablet; a centred horizontal row on phone (see the phone media query). */
+.map-tool-row {
+  position: fixed;
+  top: calc(var(--navbar-h) + 10px);
+  left: 10px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 4px;
+  box-shadow: var(--shadow-float);
+}
+.tool-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  border: 0;
+  background: transparent;
+  color: var(--text-icon-idle);
+  font-size: var(--fs-xs);
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #333;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
-.maplibregl-ctrl button.location-search-btn.location-search-active {
-  background-color: var(--accent-red);
+.tool-btn:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
 }
-.maplibregl-ctrl button.location-search-btn.location-search-active:hover {
-  background-color: var(--accent-red-hover);
+.tool-btn.active,
+.tool-btn.active:not(:disabled):hover {
+  background: var(--accent);
+  color: #fff;
+}
+.tool-btn:disabled {
+  opacity: 0.4;
+}
+.tool-glyph {
+  width: 17px;
+  text-align: center;
+}
+.tool-label {
+  display: none;
+}
+/* Wide screens have room to name each button, matching the mode toggle's labels (Bootstrap xl). */
+@media (min-width: 1200px) {
+  .tool-btn {
+    width: 100%;
+    gap: 8px;
+    padding: 0 12px 0 7px;
+    justify-content: flex-start;
+  }
+  .tool-label {
+    display: inline;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+}
+
+/* Floating on-map panels (measure, snap-to-peak, location search). */
+.map-float-panel {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1000;
+  width: 220px;
+  padding: 8px 10px;
+  color: var(--text);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
 }
 
 /* Bootstrap's .navbar defaults to flex-wrap: wrap, so its container-fluid silently grows a second
@@ -242,8 +443,8 @@ body {
    content width and clip its own edges under pressure, rather than the old absolute-centering which
    could overlap the brand/right-cluster outright. */
 .mode-toggle {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-pill);
   padding: 4px;
   gap: 2px;
   flex-shrink: 1;
@@ -254,12 +455,15 @@ body {
 .mode-toggle .btn {
   margin-left: 0; /* cancel btn-group's overlap so segments sit side by side inside the track */
   border: 0;
-  border-radius: 999px; /* every segment is its own pill (btn-group would square the inner corners) */
+  border-radius: var(--radius-pill); /* every segment is its own pill (btn-group would square the inner corners) */
   padding: 0.4rem 1.15rem;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.75);
   background: transparent;
   box-shadow: none;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
   /* Never shrink/wrap a segment's own text — that's what was growing the bar taller as the track got
      squeezed. The track's overflow: hidden clips whole segments at the edges instead. */
   flex-shrink: 0;
@@ -270,11 +474,13 @@ body {
   color: #fff;
 }
 
-/* Active segment: the solid white pill. */
+/* Active segment: a lifted surface with an accent icon. */
 .mode-toggle .btn-check:checked + .btn {
-  color: #212529;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+}
+.mode-toggle .btn-check:checked + .btn svg {
+  color: var(--accent-bright);
 }
 
 .mode-toggle .btn-check:focus-visible + .btn {
@@ -317,29 +523,56 @@ body {
   line-height: 1.4;
 }
 
+/* ── Motion ──────────────────────────────────────────────────────────────────
+   CSS animations restart whenever an element goes from display:none to shown, so the v-show mode
+   panes and freshly-mounted overlays animate in without any JS. */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+.mode-pane,
+.map-float-panel,
+.context-menu,
+.maplibregl-popup-content {
+  animation: fade-up var(--dur) var(--ease);
+}
+/* Opacity only: Popper positions dropdown menus with an inline transform. */
+.dropdown-menu.show {
+  animation: fade-in var(--dur) var(--ease);
+}
+.list-group-item-action {
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* ── Responsive layout (phone / tablet) ──────────────────────────────────────
    Everything below is additive: desktop (>=1024px) renders the rules above
    exactly as before. Phone (<768px) replaces the navbar/sidebar with a
    bottom-sheet UI; tablet (768-1023px) keeps the sidebar but narrows it.
    Breakpoints are literal pixels, not Bootstrap's `lg` (992px) — see the
    responsive-redesign plan for why. */
-
-/* Mobile design tokens — palette from the design handoff doc's "Design
-   Tokens" table (Mobile responsive redesign/design_handoff_mobile_responsive/
-   README.md). Not present elsewhere in this file; centralised here rather
-   than inlined so every new phone/tablet rule traces back to the same spec. */
-:root {
-  --surface-tabbar: #1a1d20;
-  --surface-input: #2b3035;
-  --border-input: #495057;
-  --text-muted-tab: #9aa0a6;
-  --text-icon-idle: #ced4da;
-  --scrim: rgba(0, 0, 0, 0.4);
-  /* Space the bottom tab bar occupies — shared by the bottom sheet's resting position and the
-     MapLibre bottom-corner controls (zoom, compass, scale, measure, location search) so they all
-     clear the bar by the same amount instead of three independently-eyeballed numbers. */
-  --tabbar-clearance: 56px;
-}
 
 @media (max-width: 767px) {
   :root {
@@ -357,7 +590,7 @@ body {
     align-items: center;
     justify-content: space-between;
     padding: 0 10px;
-    background: #212529;
+    background: var(--surface-1);
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   }
   .phone-appbar-title {
@@ -373,7 +606,7 @@ body {
     bottom: 0;
     z-index: 1300;
     display: flex;
-    background: var(--surface-tabbar);
+    background: var(--surface-0);
     border-top: 1px solid rgba(255, 255, 255, 0.1);
     padding: 7px 4px max(9px, env(safe-area-inset-bottom));
   }
@@ -385,7 +618,7 @@ body {
     justify-content: center;
     gap: 3px;
     min-height: 44px;
-    color: var(--text-muted-tab);
+    color: var(--text-muted);
     font-size: 9.5px;
     font-weight: 500;
     background: none;
@@ -396,44 +629,18 @@ body {
     font-weight: 600;
   }
 
-  /* Fixed to the viewport (not .map-col) — on phone the map is the only full-bleed surface, so
-     anchoring to the viewport's top-center lands in the same visual spot regardless of map-col width.
-     A single centered row (rather than a clump pinned to one corner) keeps every button a one-thumb
-     reach and leaves both map corners free for MapLibre's own controls / future overlays; the row
-     sizes to its content (not the full width) so the tight button-to-button spacing stays the same. */
+  /* Centred under the app bar: every button stays a one-thumb reach and both map corners stay free
+     for MapLibre's own controls. */
   .map-tool-row {
-    position: fixed;
     top: 52px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 1150;
-    display: flex;
-    gap: 4px;
-    background: #212529;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 11px;
-    padding: 4px;
-    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+    flex-direction: row;
   }
-  .tool-btn {
-    width: 32px;
-    height: 32px;
-    border-radius: 7px;
-    border: 0;
-    background: transparent;
-    color: var(--text-icon-idle);
-    font-size: 11px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .tool-btn.active {
-    background: var(--accent-red);
-    color: #fff;
-  }
-  .tool-btn:disabled {
-    opacity: 0.4;
+
+  .map-float-panel {
+    top: 60px;
   }
 
   /* No physical keyboard on phone, so the shortcuts-help control has nothing to document. */
@@ -473,7 +680,7 @@ body {
     z-index: 1200;
     display: flex;
     flex-direction: column;
-    background: #212529;
+    background: var(--surface-1);
     border-radius: 18px 18px 0 0;
     box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
     transition: transform 0.25s ease-out;
@@ -485,7 +692,7 @@ body {
     flex: 0 0 auto;
     width: 36px;
     height: 4px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: rgba(255, 255, 255, 0.4);
     margin: 8px auto 0;
     touch-action: none;
@@ -509,7 +716,7 @@ body {
     background: none;
     border: 0;
     padding: 0;
-    color: var(--text-muted-tab);
+    color: var(--text-muted);
     font-size: 10.5px;
   }
   .bottom-sheet .sheet-body {
@@ -554,7 +761,7 @@ body {
     width: 22px;
     height: 44px;
     border-radius: 0 6px 6px 0;
-    background: #212529;
+    background: var(--surface-1);
     border: 1px solid rgba(255, 255, 255, 0.14);
     border-left: 0;
     color: var(--text-icon-idle);

@@ -80,7 +80,7 @@ const pct = computed(() => {
 }
 
 .progress-bar {
-  background: var(--accent-orange, #e08326);
+  background: var(--accent);
   transition: width 0.15s linear;
 }
 

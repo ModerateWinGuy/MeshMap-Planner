@@ -5,7 +5,7 @@
         :disabled="store.matrixState === 'running' || store.nodes.length < 2 || !store.selectedNode"
         @click="store.runNodeLinks()"
         type="button"
-        class="btn btn-success btn-sm flex-grow-1"
+        class="btn btn-primary btn-sm flex-grow-1"
         :title="t('linkMatrix.computeSingleTitle')"
       >
         <span
@@ -30,7 +30,7 @@
         :disabled="store.nodes.length < 2"
         @click="computeAll"
         type="button"
-        class="btn btn-outline-success btn-sm text-nowrap"
+        class="btn btn-outline-secondary btn-sm text-nowrap"
         :title="t('linkMatrix.computeAllTitle')"
       >
         {{ t('linkMatrix.computeAll') }}
@@ -84,30 +84,36 @@
                      any run) so the "not yet calculated" prompt below is the entry point to computing. -->
         <div class="mb-2" style="max-height: 38vh; overflow-y: auto; overflow-x: hidden">
           <table
-            class="table table-sm table-dark table-bordered text-center small mb-0 align-middle"
+            class="table table-sm table-dark link-table text-center small mb-0 align-middle"
             style="table-layout: fixed; width: 100%"
           >
             <thead>
               <tr>
                 <th class="text-start" style="width: 28%">{{ t('linkMatrix.toColumn') }}</th>
-                <th :title="t('linkMatrix.marginColumnTitle')">{{ t('linkMatrix.marginColumn') }}</th>
-                <th>{{ t('linkMatrix.distColumn') }}</th>
-                <th>{{ t('linkMatrix.lossColumn') }}</th>
-                <th :title="t('linkMatrix.fresnelColumnTitle')">{{ t('linkMatrix.fresnelColumn') }}</th>
+                <th :title="t('linkMatrix.marginColumnTitle')">
+                  {{ t('linkMatrix.marginColumn') }}<span class="unit">dB</span>
+                </th>
+                <th>{{ t('linkMatrix.distColumn') }}<span class="unit">km</span></th>
+                <th>{{ t('linkMatrix.lossColumn') }}<span class="unit">dB</span></th>
+                <th :title="t('linkMatrix.fresnelColumnTitle')">
+                  {{ t('linkMatrix.fresnelColumn') }}<span class="unit">%</span>
+                </th>
                 <th style="width: 32px"></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="other in inRangeNodes" :key="other.id">
                 <th class="text-truncate text-start">{{ other.transmitter.name }}</th>
-                <td :style="cellStyle(other.id)">{{ marginText(other.id) }}</td>
-                <td>{{ fieldText(other.id, 'distance_km', ' km') }}</td>
-                <td>{{ fieldText(other.id, 'path_loss_db', ' dB') }}</td>
-                <td>{{ fieldText(other.id, 'fresnel_pct', '%') }}</td>
+                <td>
+                  <span class="margin-pill" :style="cellStyle(other.id)">{{ marginText(other.id) }}</span>
+                </td>
+                <td>{{ fieldText(other.id, 'distance_km') }}</td>
+                <td>{{ fieldText(other.id, 'path_loss_db') }}</td>
+                <td>{{ fieldText(other.id, 'fresnel_pct') }}</td>
                 <td>
                   <button
                     type="button"
-                    class="btn btn-sm p-0 border-0 bg-transparent lh-1 text-info"
+                    class="btn btn-sm p-0 border-0 bg-transparent lh-1"
                     :disabled="store.profileState === 'running'"
                     :title="t('linkMatrix.showProfileTitle')"
                     @click="store.runProfile(store.selectedNodeId, other.id)"
@@ -131,7 +137,7 @@
                 <td colspan="6" class="p-0">
                   <button
                     type="button"
-                    class="btn btn-sm btn-outline-warning w-100 my-1"
+                    class="btn btn-sm btn-outline-primary w-100 my-1"
                     :disabled="store.matrixState === 'running'"
                     @click="store.runNodeLinks()"
                   >
@@ -149,13 +155,13 @@
                 <tr v-for="other in outOfRangeNodes" :key="other.id">
                   <th class="text-truncate text-start">{{ other.transmitter.name }}</th>
                   <td>{{ marginText(other.id) }}</td>
-                  <td>{{ fieldText(other.id, 'distance_km', ' km') }}</td>
-                  <td>{{ fieldText(other.id, 'path_loss_db', ' dB') }}</td>
-                  <td>{{ fieldText(other.id, 'fresnel_pct', '%') }}</td>
+                  <td>{{ fieldText(other.id, 'distance_km') }}</td>
+                  <td>{{ fieldText(other.id, 'path_loss_db') }}</td>
+                  <td>{{ fieldText(other.id, 'fresnel_pct') }}</td>
                   <td>
                     <button
                       type="button"
-                      class="btn btn-sm p-0 border-0 bg-transparent lh-1 text-info"
+                      class="btn btn-sm p-0 border-0 bg-transparent lh-1"
                       :disabled="store.profileState === 'running'"
                       :title="t('linkMatrix.showProfileTitle')"
                       @click="store.runProfile(store.selectedNodeId, other.id)"
@@ -300,10 +306,9 @@ function marginText(other: string): string {
   return link.margin_db === null ? '?' : `${link.margin_db}`;
 }
 
-function fieldText(other: string, key: 'distance_km' | 'path_loss_db' | 'fresnel_pct', unit: string): string {
-  const link = linkFor(other);
-  const value = link?.[key];
-  return value === null || value === undefined ? '—' : `${value}${unit}`;
+function fieldText(other: string, key: 'distance_km' | 'path_loss_db' | 'fresnel_pct'): string {
+  const value = linkFor(other)?.[key];
+  return value === null || value === undefined ? '—' : `${value}`;
 }
 
 function cellStyle(other: string): Record<string, string> {
@@ -316,3 +321,22 @@ function cellStyle(other: string): Record<string, string> {
   return { background: `rgb(${r}, ${g}, 50)`, color: '#fff' };
 }
 </script>
+
+<style scoped>
+.link-table {
+  --bs-table-bg: transparent;
+  font-variant-numeric: tabular-nums;
+}
+.link-table th .unit {
+  display: block;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.margin-pill {
+  display: inline-block;
+  min-width: 2.5em;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+}
+</style>

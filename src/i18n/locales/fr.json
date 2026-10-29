@@ -377,6 +377,7 @@
     "basemap": "Fond de carte",
     "toggle3dTerrainTitle": "Activer le terrain 3D (inclinez la carte pour voir le relief)",
     "toggle3dAriaLabel": "Activer le terrain 3D",
+    "terrain3d": "Terrain 3D",
     "toggleShadingTitle": "Activer l'ombrage de terrain (aspect relief / occlusion ambiante). Fonctionne en vue plate et 3D.",
     "toggleShadingAriaLabel": "Activer l'ombrage de terrain",
     "shade": "Ombrage",
@@ -413,8 +414,8 @@
       "coverage": "Couverture",
       "linkfinder": "Liaisons",
       "viewshed": "Zone visible",
-      "radio": "Paramètres de simulation",
-      "settings": "Paramètres",
+      "radio": "Radio",
+      "settings": "Terrain",
       "import": "Importer"
     },
     "logoAlt": "Logo MeshMap Planner",
@@ -433,13 +434,24 @@
     "minDbm": "dBm min",
     "maxDbm": "dBm max",
     "searchLocation": "Rechercher un lieu",
-    "linkProfile": "Profil de liaison"
+    "linkProfile": "Profil de liaison",
+    "coverageResults": "Résultats de couverture"
   },
   "modePanels": {
     "importIntro": "Importez des nœuds depuis <strong>MeshCore</strong> — à partir d'un fichier d'export de contacts, ou récupérés en direct depuis les cartes publiques pour votre vue actuelle.",
     "running": "En cours",
     "failed": "Échoué",
-    "runSimulation": "Lancer la simulation"
+    "runSimulation": "Lancer la simulation",
+    "sections": {
+      "node": "Paramètres du nœud",
+      "environment": "Environnement",
+      "loraPreset": "Préréglage LoRa",
+      "simulation": "Simulation",
+      "display": "Affichage",
+      "listener": "Récepteur",
+      "linkMatrix": "Matrice des liaisons",
+      "relayFinder": "Recherche de relais"
+    }
   },
   "store": {
     "importedFolderName": "Importés",

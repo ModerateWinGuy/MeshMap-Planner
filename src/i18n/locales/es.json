@@ -377,6 +377,7 @@
     "basemap": "Mapa base",
     "toggle3dTerrainTitle": "Activar terreno 3D (inclina el mapa para ver el relieve)",
     "toggle3dAriaLabel": "Activar terreno 3D",
+    "terrain3d": "Terreno 3D",
     "toggleShadingTitle": "Activar sombreado de terreno (aspecto de relieve / oclusión ambiental). Funciona en vista plana y 3D.",
     "toggleShadingAriaLabel": "Activar sombreado de terreno",
     "shade": "Sombra",
@@ -413,8 +414,8 @@
       "coverage": "Cobertura",
       "linkfinder": "Enlaces",
       "viewshed": "Área visible",
-      "radio": "Ajustes de simulación",
-      "settings": "Ajustes",
+      "radio": "Radio",
+      "settings": "Terreno",
       "import": "Importar"
     },
     "logoAlt": "Logo de MeshMap Planner",
@@ -433,13 +434,24 @@
     "minDbm": "dBm mín.",
     "maxDbm": "dBm máx.",
     "searchLocation": "Buscar ubicación",
-    "linkProfile": "Perfil de enlace"
+    "linkProfile": "Perfil de enlace",
+    "coverageResults": "Resultados de cobertura"
   },
   "modePanels": {
     "importIntro": "Importa nodos desde <strong>MeshCore</strong> — desde un archivo de exportación de contactos, o extraídos en vivo de los mapas públicos para tu vista actual.",
     "running": "En curso",
     "failed": "Fallido",
-    "runSimulation": "Ejecutar simulación"
+    "runSimulation": "Ejecutar simulación",
+    "sections": {
+      "node": "Ajustes del nodo",
+      "environment": "Entorno",
+      "loraPreset": "Preajuste LoRa",
+      "simulation": "Simulación",
+      "display": "Visualización",
+      "listener": "Receptor",
+      "linkMatrix": "Matriz de enlaces",
+      "relayFinder": "Buscador de repetidores"
+    }
   },
   "store": {
     "importedFolderName": "Importados",

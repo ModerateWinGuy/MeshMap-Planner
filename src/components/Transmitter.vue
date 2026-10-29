@@ -177,7 +177,7 @@
       >
         {{ t('transmitter.setWithMap') }}
       </button>
-      <button @click="centerMapOnTransmitter" type="button" class="btn btn-secondary btn-sm">
+      <button @click="centerMapOnTransmitter" type="button" class="btn btn-outline-secondary btn-sm">
         {{ t('transmitter.centerMapOnTransmitter') }}
       </button>
     </div>

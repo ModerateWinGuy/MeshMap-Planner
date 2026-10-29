@@ -1,7 +1,7 @@
 <template>
   <!-- absolute within .map-col so it pins to the map's top-right, not the viewport's (which would
        sit over the sidebar). Same shape as MeasurePanel.vue. -->
-  <div class="snap-peak-panel shadow text-bg-dark" data-bs-theme="dark">
+  <div class="map-float-panel" data-bs-theme="dark">
     <div class="d-flex align-items-center gap-2 mb-1">
       <Mountain :size="16" />
       <strong>{{ t('snapPeakPanel.title') }}</strong>
@@ -20,7 +20,7 @@
       :value="store.snapToPeakRangeM"
       @input="store.setSnapToPeakRangeM(Number(($event.target as HTMLInputElement).value))"
     />
-    <button type="button" class="btn btn-light btn-sm w-100" @click="store.toggleSnapToPeak()">
+    <button type="button" class="btn btn-outline-secondary btn-sm w-100" @click="store.toggleSnapToPeak()">
       <X :size="14" /> {{ t('snapPeakPanel.done') }}
     </button>
   </div>
@@ -34,24 +34,3 @@ import { useStore } from '../store.ts';
 const { t } = useI18n();
 const store = useStore();
 </script>
-
-<style scoped>
-.snap-peak-panel {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 1000;
-  width: 220px;
-  padding: 8px 10px;
-  border-radius: 6px;
-}
-
-/* Phone's fixed .map-tool-row sits right over this corner (see style.css) — push below it. A scoped
-   rule, not style.css, because Vue compiles scoped selectors with a [data-v-xxx] attribute, which
-   out-specifies a plain .snap-peak-panel rule in the global stylesheet regardless of source order. */
-@media (max-width: 767px) {
-  .snap-peak-panel {
-    top: 60px;
-  }
-}
-</style>

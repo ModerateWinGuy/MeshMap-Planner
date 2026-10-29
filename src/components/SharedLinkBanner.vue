@@ -10,7 +10,7 @@
       <span>{{ message }}</span>
     </span>
     <span class="d-flex gap-2 flex-shrink-0">
-      <button type="button" class="btn btn-sm btn-success" @click="store.applyIncomingShare()">
+      <button type="button" class="btn btn-sm btn-primary" @click="store.applyIncomingShare()">
         {{ share.t === 'link' ? t('sharedLinkBanner.addAndShowLink') : t('sharedLinkBanner.addToMap') }}
       </button>
       <button type="button" class="btn btn-sm btn-outline-light" @click="store.dismissIncomingShare()">

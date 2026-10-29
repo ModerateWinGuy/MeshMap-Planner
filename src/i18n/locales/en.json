@@ -377,6 +377,7 @@
     "basemap": "Basemap",
     "toggle3dTerrainTitle": "Toggle 3D terrain (tilt the map to see relief)",
     "toggle3dAriaLabel": "Toggle 3D terrain",
+    "terrain3d": "3D terrain",
     "toggleShadingTitle": "Toggle terrain shading (relief / ambient-occlusion look). Works in flat and 3D view.",
     "toggleShadingAriaLabel": "Toggle terrain shading",
     "shade": "Shade",
@@ -413,8 +414,8 @@
       "coverage": "Coverage",
       "linkfinder": "Links",
       "viewshed": "Viewshed",
-      "radio": "Simulation Settings",
-      "settings": "Settings",
+      "radio": "Radio",
+      "settings": "Terrain",
       "import": "Import"
     },
     "logoAlt": "MeshMap Planner Logo",
@@ -433,13 +434,24 @@
     "minDbm": "Min dBm",
     "maxDbm": "Max dBm",
     "searchLocation": "Search location",
-    "linkProfile": "Link Profile"
+    "linkProfile": "Link Profile",
+    "coverageResults": "Coverage results"
   },
   "modePanels": {
     "importIntro": "Import nodes from <strong>MeshCore</strong> — from a contacts export file, or pulled live from the public maps for your current view.",
     "running": "Running",
     "failed": "Failed",
-    "runSimulation": "Run Simulation"
+    "runSimulation": "Run Simulation",
+    "sections": {
+      "node": "Node settings",
+      "environment": "Environment",
+      "loraPreset": "LoRa preset",
+      "simulation": "Simulation",
+      "display": "Display",
+      "listener": "Listener",
+      "linkMatrix": "Link matrix",
+      "relayFinder": "Relay finder"
+    }
   },
   "store": {
     "importedFolderName": "Imported",

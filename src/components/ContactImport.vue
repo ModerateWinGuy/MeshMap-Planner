@@ -11,7 +11,7 @@
     <input ref="fileInput" type="file" accept=".json,application/json" class="d-none" @change="onFile" />
     <button
       type="button"
-      class="btn btn-sm btn-success shadow w-100 d-flex align-items-center justify-content-center gap-1"
+      class="btn btn-sm btn-primary shadow w-100 d-flex align-items-center justify-content-center gap-1"
       @click="pickFile"
     >
       <Upload :size="16" /> {{ t('contactImport.importButton') }}
@@ -70,7 +70,7 @@
         }}
       </p>
       <div class="d-flex gap-2 mt-2">
-        <button type="button" class="btn btn-success btn-sm w-100" :disabled="!selectedCount" @click="confirmImport">
+        <button type="button" class="btn btn-primary btn-sm w-100" :disabled="!selectedCount" @click="confirmImport">
           {{ t('contactImport.importSelected', { count: selectedCount }) }}
         </button>
         <button type="button" class="btn btn-outline-secondary btn-sm w-100" @click="cancel">

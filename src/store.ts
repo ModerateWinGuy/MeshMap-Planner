@@ -4289,7 +4289,7 @@ const useStore = defineStore('store', {
                 `<strong>Relay candidate #${p.rank}</strong><br>` +
                 `Min margin: ${p.min_margin} dB<br>` +
                 `Margin to A: ${p.margin_a} dB · to B: ${p.margin_b} dB<br>` +
-                `<button type="button" class="btn btn-sm btn-success mt-2 relay-promote-btn">Promote to node</button>`,
+                `<button type="button" class="btn btn-sm btn-primary mt-2 relay-promote-btn">Promote to node</button>`,
             },
           };
         }),

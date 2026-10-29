@@ -377,6 +377,7 @@
     "basemap": "Mapa bazowa",
     "toggle3dTerrainTitle": "Przełącz teren 3D (przechyl mapę, aby zobaczyć rzeźbę)",
     "toggle3dAriaLabel": "Przełącz teren 3D",
+    "terrain3d": "Teren 3D",
     "toggleShadingTitle": "Przełącz cieniowanie terenu (wygląd rzeźby / ambient occlusion). Działa w widoku płaskim i 3D.",
     "toggleShadingAriaLabel": "Przełącz cieniowanie terenu",
     "shade": "Cień",
@@ -413,8 +414,8 @@
       "coverage": "Zasięg",
       "linkfinder": "Łącza",
       "viewshed": "Obszar widoczności",
-      "radio": "Ustawienia symulacji",
-      "settings": "Ustawienia",
+      "radio": "Radio",
+      "settings": "Teren",
       "import": "Import"
     },
     "logoAlt": "Logo MeshMap Planner",
@@ -433,13 +434,24 @@
     "minDbm": "Min. dBm",
     "maxDbm": "Maks. dBm",
     "searchLocation": "Szukaj lokalizacji",
-    "linkProfile": "Profil łącza"
+    "linkProfile": "Profil łącza",
+    "coverageResults": "Wyniki zasięgu"
   },
   "modePanels": {
     "importIntro": "Importuj węzły z <strong>MeshCore</strong> — z pliku eksportu kontaktów lub pobrane na żywo z map publicznych dla bieżącego widoku.",
     "running": "W toku",
     "failed": "Niepowodzenie",
-    "runSimulation": "Uruchom symulację"
+    "runSimulation": "Uruchom symulację",
+    "sections": {
+      "node": "Ustawienia węzła",
+      "environment": "Środowisko",
+      "loraPreset": "Preset LoRa",
+      "simulation": "Symulacja",
+      "display": "Wyświetlanie",
+      "listener": "Odbiornik",
+      "linkMatrix": "Macierz łączy",
+      "relayFinder": "Wyszukiwarka przekaźników"
+    }
   },
   "store": {
     "importedFolderName": "Zaimportowane",

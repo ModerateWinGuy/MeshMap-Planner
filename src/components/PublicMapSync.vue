@@ -17,7 +17,7 @@
 
     <button
       type="button"
-      class="btn btn-sm btn-success shadow w-100 d-flex align-items-center justify-content-center gap-1"
+      class="btn btn-sm btn-primary shadow w-100 d-flex align-items-center justify-content-center gap-1"
       :disabled="loading || !anyEnabled"
       @click="onSync"
     >

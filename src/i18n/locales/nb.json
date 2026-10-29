@@ -377,6 +377,7 @@
     "basemap": "Grunnkart",
     "toggle3dTerrainTitle": "Slå av/på 3D-terreng (vipp kartet for å se relieffet)",
     "toggle3dAriaLabel": "Slå av/på 3D-terreng",
+    "terrain3d": "3D-terreng",
     "toggleShadingTitle": "Slå av/på terrengskyggelegging (relieff-/ambient-occlusion-utseende). Fungerer i flat og 3D-visning.",
     "toggleShadingAriaLabel": "Slå av/på terrengskyggelegging",
     "shade": "Skygge",
@@ -413,8 +414,8 @@
       "coverage": "Dekning",
       "linkfinder": "Lenker",
       "viewshed": "Synlighetsområde",
-      "radio": "Simuleringsinnstillinger",
-      "settings": "Innstillinger",
+      "radio": "Radio",
+      "settings": "Terreng",
       "import": "Importer"
     },
     "logoAlt": "MeshMap Planner-logo",
@@ -433,13 +434,24 @@
     "minDbm": "Min. dBm",
     "maxDbm": "Maks. dBm",
     "searchLocation": "Søk etter sted",
-    "linkProfile": "Lenkeprofil"
+    "linkProfile": "Lenkeprofil",
+    "coverageResults": "Dekningsresultater"
   },
   "modePanels": {
     "importIntro": "Importer noder fra <strong>MeshCore</strong> — fra en kontakteksportfil, eller hentet direkte fra de offentlige kartene for gjeldende visning.",
     "running": "Pågår",
     "failed": "Mislyktes",
-    "runSimulation": "Kjør simulering"
+    "runSimulation": "Kjør simulering",
+    "sections": {
+      "node": "Nodeinnstillinger",
+      "environment": "Miljø",
+      "loraPreset": "LoRa-forhåndsinnstilling",
+      "simulation": "Simulering",
+      "display": "Visning",
+      "listener": "Mottaker",
+      "linkMatrix": "Lenkematrise",
+      "relayFinder": "Relésøk"
+    }
   },
   "store": {
     "importedFolderName": "Importert",

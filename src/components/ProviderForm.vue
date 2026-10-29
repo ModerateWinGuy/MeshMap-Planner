@@ -41,7 +41,7 @@
       }}</span>
     </div>
     <div class="d-flex gap-2">
-      <button type="button" :disabled="!canSubmit" @click="$emit('submit')" class="btn btn-success btn-sm flex-grow-1">
+      <button type="button" :disabled="!canSubmit" @click="$emit('submit')" class="btn btn-primary btn-sm flex-grow-1">
         {{ submitLabel }}
       </button>
       <button type="button" @click="$emit('cancel')" class="btn btn-outline-secondary btn-sm">

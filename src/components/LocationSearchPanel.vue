@@ -4,7 +4,7 @@
        supplies the dark theme/background/shadow/position. -->
   <div
     ref="panelRef"
-    :class="embedded ? null : 'location-search-panel shadow text-bg-dark'"
+    :class="embedded ? null : 'map-float-panel location-search-panel'"
     :data-bs-theme="embedded ? null : 'dark'"
   >
     <form class="d-flex gap-2" @submit.prevent="onSubmit">
@@ -18,7 +18,7 @@
       />
       <button
         type="submit"
-        class="btn btn-light btn-sm flex-shrink-0"
+        class="btn btn-primary btn-sm flex-shrink-0"
         :disabled="!query.trim() || loading"
         :aria-label="t('locationSearch.search')"
       >
@@ -161,13 +161,11 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .location-search-panel {
-  position: absolute;
+  top: auto;
+  right: auto;
   left: 50px;
   bottom: 10px;
-  z-index: 1000;
   width: min(440px, calc(100vw - 70px));
-  padding: 8px 10px;
-  border-radius: 6px;
 }
 .location-search-results {
   max-height: 200px;

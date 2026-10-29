@@ -191,99 +191,103 @@
 
         <!-- Computed-coverage results: pinned below the mode area so they stay visible (and
              toggleable) in every mode. -->
-        <ul class="list-group mt-3 results-pinned">
-          <li class="list-group-item" v-for="(site, index) in store.$state.localSites" :key="site.taskId">
-            <div class="d-flex justify-content-between align-items-center">
-              <div class="text-truncate">
-                <div :class="{ 'text-muted': site.visible === false }">
-                  {{ site.params.transmitter.name }}
+        <div v-if="store.localSites.length" class="results-pinned mt-3 pt-3">
+          <h2 class="h6 d-flex align-items-center gap-2"><Layers :size="16" /> {{ t('app.coverageResults') }}</h2>
+          <ul class="list-group">
+            <li class="list-group-item" v-for="(site, index) in store.$state.localSites" :key="site.taskId">
+              <div class="d-flex justify-content-between align-items-center">
+                <div class="text-truncate">
+                  <div :class="{ 'text-muted': site.visible === false }">
+                    {{ site.params.transmitter.name }}
+                  </div>
+                  <div class="small text-muted">{{ siteSubtitle(site) }}</div>
                 </div>
-                <div class="small text-muted">{{ siteSubtitle(site) }}</div>
+                <div class="d-flex align-items-center gap-2 flex-shrink-0">
+                  <button
+                    type="button"
+                    @click="toggleSiteExpanded(site.taskId)"
+                    class="btn btn-sm p-0 border-0 bg-transparent lh-1"
+                    :aria-label="
+                      expandedSites.has(site.taskId) ? t('app.hideDisplaySettings') : t('app.editDisplaySettings')
+                    "
+                    :title="
+                      expandedSites.has(site.taskId) ? t('app.hideDisplaySettings') : t('app.editDisplaySettings')
+                    "
+                  >
+                    <ChevronDown v-if="expandedSites.has(site.taskId)" :size="18" />
+                    <ChevronRight v-else :size="18" />
+                  </button>
+                  <button
+                    type="button"
+                    @click="store.toggleSiteVisibility(index)"
+                    class="btn btn-sm p-0 border-0 bg-transparent lh-1"
+                    :aria-label="site.visible === false ? t('app.showResult') : t('app.hideResult')"
+                    :title="site.visible === false ? t('app.showResult') : t('app.hideResult')"
+                  >
+                    <EyeOff v-if="site.visible === false" :size="18" />
+                    <Eye v-else :size="18" />
+                  </button>
+                  <button
+                    type="button"
+                    @click="store.removeSite(index)"
+                    class="btn btn-sm p-0 border-0 bg-transparent lh-1"
+                    :aria-label="t('app.removeResult')"
+                    :title="t('app.removeResult')"
+                  >
+                    <X :size="18" />
+                  </button>
+                </div>
               </div>
-              <div class="d-flex align-items-center gap-2 flex-shrink-0">
-                <button
-                  type="button"
-                  @click="toggleSiteExpanded(site.taskId)"
-                  class="btn btn-sm p-0 border-0 bg-transparent lh-1"
-                  :aria-label="
-                    expandedSites.has(site.taskId) ? t('app.hideDisplaySettings') : t('app.editDisplaySettings')
-                  "
-                  :title="expandedSites.has(site.taskId) ? t('app.hideDisplaySettings') : t('app.editDisplaySettings')"
-                >
-                  <ChevronDown v-if="expandedSites.has(site.taskId)" :size="18" />
-                  <ChevronRight v-else :size="18" />
-                </button>
-                <button
-                  type="button"
-                  @click="store.toggleSiteVisibility(index)"
-                  class="btn btn-sm p-0 border-0 bg-transparent lh-1"
-                  :aria-label="site.visible === false ? t('app.showResult') : t('app.hideResult')"
-                  :title="site.visible === false ? t('app.showResult') : t('app.hideResult')"
-                >
-                  <EyeOff v-if="site.visible === false" :size="18" />
-                  <Eye v-else :size="18" />
-                </button>
-                <button
-                  type="button"
-                  @click="store.removeSite(index)"
-                  class="btn btn-sm p-0 border-0 bg-transparent lh-1"
-                  :aria-label="t('app.removeResult')"
-                  :title="t('app.removeResult')"
-                >
-                  <X :size="18" />
-                </button>
-              </div>
-            </div>
-            <!-- Per-layer live recolor: same fields as Display.vue's "next run" panel, but scoped to
+              <!-- Per-layer live recolor: same fields as Display.vue's "next run" panel, but scoped to
                  this site's own params.display and re-baked from its retained grid on change. -->
-            <div v-if="expandedSites.has(site.taskId)" class="mt-2 pt-2 border-top">
-              <div class="row g-2">
-                <div class="col-6">
-                  <label class="form-label small mb-1">{{ t('app.minDbm') }}</label>
-                  <input
-                    v-model.number="site.params.display.min_dbm"
-                    @change="store.recolorSite(index)"
-                    type="number"
-                    step="0.1"
-                    class="form-control form-control-sm"
-                  />
+              <div v-if="expandedSites.has(site.taskId)" class="mt-2 pt-2 border-top">
+                <div class="row g-2">
+                  <div class="col-6">
+                    <label class="form-label small mb-1">{{ t('app.minDbm') }}</label>
+                    <input
+                      v-model.number="site.params.display.min_dbm"
+                      @change="store.recolorSite(index)"
+                      type="number"
+                      step="0.1"
+                      class="form-control form-control-sm"
+                    />
+                  </div>
+                  <div class="col-6">
+                    <label class="form-label small mb-1">{{ t('app.maxDbm') }}</label>
+                    <input
+                      v-model.number="site.params.display.max_dbm"
+                      @change="store.recolorSite(index)"
+                      type="number"
+                      step="0.1"
+                      class="form-control form-control-sm"
+                    />
+                  </div>
                 </div>
-                <div class="col-6">
-                  <label class="form-label small mb-1">{{ t('app.maxDbm') }}</label>
-                  <input
-                    v-model.number="site.params.display.max_dbm"
-                    @change="store.recolorSite(index)"
-                    type="number"
-                    step="0.1"
-                    class="form-control form-control-sm"
-                  />
+                <label class="form-label small mb-1 mt-2">{{ t('display.colorScale') }}</label>
+                <select
+                  v-model="site.params.display.color_scale"
+                  @change="store.recolorSite(index)"
+                  class="form-select form-select-sm"
+                >
+                  <option v-for="opt in COLOR_SCALE_OPTIONS" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
+                  </option>
+                </select>
+                <div class="mt-2 small">
+                  <div class="legend-bar" :style="{ background: gradientCss(site.params.display.color_scale) }"></div>
+                  <div class="d-flex justify-content-between text-muted">
+                    <span>{{ site.params.display.min_dbm }} dBm</span>
+                    <span>{{ site.params.display.max_dbm }} dBm</span>
+                  </div>
                 </div>
               </div>
-              <label class="form-label small mb-1 mt-2">{{ t('display.colorScale') }}</label>
-              <select
-                v-model="site.params.display.color_scale"
-                @change="store.recolorSite(index)"
-                class="form-select form-select-sm"
-              >
-                <option v-for="opt in COLOR_SCALE_OPTIONS" :key="opt.value" :value="opt.value">
-                  {{ opt.label }}
-                </option>
-              </select>
-              <div class="mt-2 small">
-                <div class="legend-bar" :style="{ background: gradientCss(site.params.display.color_scale) }"></div>
-                <div class="d-flex justify-content-between text-muted">
-                  <span>{{ site.params.display.min_dbm }} dBm</span>
-                  <span>{{ site.params.display.max_dbm }} dBm</span>
-                </div>
-              </div>
-            </div>
-          </li>
-        </ul>
+            </li>
+          </ul>
+        </div>
       </aside>
     </div>
-    <BasemapControl v-if="regime !== 'phone'" />
+    <MapToolRow :vertical="regime !== 'phone'" />
     <template v-if="regime === 'phone'">
-      <MapToolRow />
       <BottomTabBar
         :open-mode="sheetOpen ? store.activeMode : null"
         @tap="onTabTap"
@@ -353,7 +357,6 @@ import 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ModePanels from './components/ModePanels.vue';
-import BasemapControl from './components/BasemapControl.vue';
 import LanguagePicker from './components/LanguagePicker.vue';
 import BottomTabBar from './components/BottomTabBar.vue';
 import BottomSheet from './components/BottomSheet.vue';
@@ -376,7 +379,8 @@ import {
   Map as MapIcon,
   Link,
   WifiCog,
-  SlidersVertical,
+  Mountain,
+  Layers,
   ScanEye,
   Share2,
   Check,
@@ -448,7 +452,7 @@ const MODES = [
   { id: 'linkfinder', labelKey: 'app.modes.linkfinder', icon: Link },
   { id: 'viewshed', labelKey: 'app.modes.viewshed', icon: ScanEye },
   { id: 'radio', labelKey: 'app.modes.radio', icon: WifiCog },
-  { id: 'settings', labelKey: 'app.modes.settings', icon: SlidersVertical },
+  { id: 'settings', labelKey: 'app.modes.settings', icon: Mountain },
   { id: 'import', labelKey: 'app.modes.import', icon: FolderInput },
 ] as const satisfies ReadonlyArray<{ id: UiMode; labelKey: string; icon: Component }>;
 

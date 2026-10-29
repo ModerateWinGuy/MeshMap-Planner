@@ -46,7 +46,7 @@
           type="button"
           @click="store.applyLoraFrequencyToAllNodes()"
           :disabled="!store.splatParams.lora?.frequencyMhz || !store.nodes.length"
-          class="btn btn-success btn-sm w-100 d-flex align-items-center justify-content-center gap-1"
+          class="btn btn-primary btn-sm w-100 d-flex align-items-center justify-content-center gap-1"
           :title="t('loRaPreset.applyFrequencyTitle')"
         >
           <Radio :size="14" /> {{ t('loRaPreset.applyFrequency') }}
